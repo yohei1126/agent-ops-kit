@@ -1,6 +1,7 @@
 # RETRO comment template
 
-Copy from the `## RETRO` heading through the end into the Issue comment.
+Copy from the `## RETRO` heading through the end into a comment on the tracking
+Issue or on the merged pull request conversation.
 
 ## RETRO
 
