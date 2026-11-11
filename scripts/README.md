@@ -13,7 +13,7 @@ full workstation handoff rules.
 
 Write long briefs on the Grok box and `CopyFromBox` them into `$HOME/agy-inbox/`
 instead of a large Mac heredoc (see
-[Prepare agy docs briefs without long Mac heredocs](../docs/workstation-handoffs.md#prepare-agy-docs-briefs-without-long-mac-heredocs)).
+[Prepare agy docs briefs without long Mac heredocs](../docs/launch-approvals-and-collection.md#prepare-agy-docs-briefs-without-long-mac-heredocs)).
 Call one workstation `Shell` per phase after the brief exists under
 `$HOME/agy-inbox/`:
 
@@ -61,3 +61,9 @@ using the wrapper scripts:
 - **One `argv`-style command per worker tool call**: inside the `agy` session,
   the worker must still issue one simple command per `RunCommand` tool call and
   keep `git` and `gh` invocations separate.
+
+## Local gate checks
+
+[`dev-loop-gate.sh`](dev-loop-gate.sh) prints the G1 to G7 table and runs the
+`line-cap` Markdown check. See
+[`../templates/dev-loop/GATES.md`](../templates/dev-loop/GATES.md#named-checks).

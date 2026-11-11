@@ -1,0 +1,32 @@
+# Run the local dev loop gate checks on PRs and pushes to main.
+name: Dev loop gate
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: dev-loop-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # v4.2.2. The repository requires a full commit SHA.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check shell syntax
+        run: bash -n scripts/dev-loop-gate.sh
+
+      - name: Run shellcheck
+        run: shellcheck scripts/dev-loop-gate.sh scripts/tests/test_dev_loop_gate.sh
+
+      - name: Run gate tests
+        run: bash scripts/tests/test_dev_loop_gate.sh
+
+      - name: Check Markdown line caps
+        run: scripts/dev-loop-gate.sh --strict --check line-cap

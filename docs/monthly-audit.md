@@ -80,7 +80,7 @@ subscription LLM pools and GitHub Actions spend. Steps 2 through 4 are sections
   while Allow lists stay narrow (see
   [`tooling-and-cost.md`](tooling-and-cost.md),
   [`cast-and-routing.md`](cast-and-routing.md), and
-  [`workstation-handoffs.md`](workstation-handoffs.md)).
+  [`launch-approvals-and-collection.md`](launch-approvals-and-collection.md)).
 - [ ] Confirm that high-priority bot-to-bot traffic was rare and justified.
 
 Example proposals: retire idle bots, shorten default routines, move heavy

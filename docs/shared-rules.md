@@ -224,14 +224,14 @@ dates in the calendar:
   launch gate (see
   [`cast-and-routing.md`](cast-and-routing.md#3-track-human-tasks-in-the-task-app-and-agent-jobs-in-a-private-job-hub)
   and
-  [Prefer card-style launch confirmation](workstation-handoffs.md#6-prefer-card-style-launch-confirmation-over-growing-allow-lists)).
+  [Prefer card-style launch confirmation](launch-approvals-and-collection.md#prefer-card-style-launch-confirmation-over-growing-allow-lists)).
   For local approval prompt reduction and headless `agy -p` soft-deny handling,
-  see [Reduce local approval prompts](workstation-handoffs.md#reduce-local-approval-prompts)
-  and [Headless agy soft-deny handling](workstation-handoffs.md#headless-agy-soft-deny-handling).
+  see [Reduce local approval prompts](launch-approvals-and-collection.md#reduce-local-approval-prompts)
+  and [Headless agy soft-deny handling](launch-approvals-and-collection.md#headless-agy-soft-deny-handling).
   For fast brief prep (box → CopyFromBox; reuse inventory; split「brief 準備中」vs「agy 起動済み」),
-  see [Prepare agy docs briefs without long Mac heredocs](workstation-handoffs.md#prepare-agy-docs-briefs-without-long-mac-heredocs).
+  see [Prepare agy docs briefs without long Mac heredocs](launch-approvals-and-collection.md#prepare-agy-docs-briefs-without-long-mac-heredocs).
   For images, short video, PDF, and messy-log understanding on `agy`, see
-  [Unstructured and multimodal offload](workstation-handoffs.md#unstructured-and-multimodal-offload).
+  [Unstructured and multimodal offload](launch-approvals-and-collection.md#unstructured-and-multimodal-offload).
 - **Grok Bot dispatches from the private job hub**: Grok Bot reads and updates
   that queue, serializes jobs that share a local checkout, and launches
   execution handoffs (`agy -p`, `agent -p`, fresh cloud coding agents, and

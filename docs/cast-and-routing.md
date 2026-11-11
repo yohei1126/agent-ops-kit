@@ -9,8 +9,10 @@ coding agent, and shared durable notes.
 
 For plan pools, spend caps, on-demand hard stops, and surface cost lanes, see
 [`tooling-and-cost.md`](tooling-and-cost.md). For workstation CLI setup,
-`agy` and `agent` handoff paths, parallel-writer control, and card-style launch
-confirmation, see [`workstation-handoffs.md`](workstation-handoffs.md).
+`agy` and `agent` handoff paths, and parallel-writer control, see
+[`workstation-handoffs.md`](workstation-handoffs.md). For card-style launch
+confirmation, see
+[`launch-approvals-and-collection.md`](launch-approvals-and-collection.md).
 
 ## 1. Know the full cast across actors, tools, and environments
 
@@ -183,7 +185,7 @@ while the calendar remains the schedule source of truth (see
   immediately covers that launch or send. Keep Auto-review Allow lists and
   Antigravity `permissions.allow` narrow. The choice card is the launch gate
   (see
-  [Prefer card-style launch confirmation](workstation-handoffs.md#6-prefer-card-style-launch-confirmation-over-growing-allow-lists)).
+  [Prefer card-style launch confirmation](launch-approvals-and-collection.md#prefer-card-style-launch-confirmation-over-growing-allow-lists)).
 - **Grok Bot dispatches from the private job hub**: Grok Bot reads pending
   agent jobs from the private job hub, marks the active item `running` with the
   active lane, serializes jobs that touch the same local checkout, and launches
@@ -417,9 +419,9 @@ Verify every item before launching a handoff:
   `permissions.allow` rules and directory-scoped execution approvals instead of
   `--dangerously-skip-permissions`. Do not expand fine-grained Allow entries for
   every new command as the primary launch control. Follow
-  [Reduce local approval prompts](workstation-handoffs.md#reduce-local-approval-prompts)
+  [Reduce local approval prompts](launch-approvals-and-collection.md#reduce-local-approval-prompts)
   and
-  [Headless agy soft-deny handling](workstation-handoffs.md#headless-agy-soft-deny-handling).
+  [Headless agy soft-deny handling](launch-approvals-and-collection.md#headless-agy-soft-deny-handling).
 - [ ] **Schedule routines for daytime or events**: prefer event triggers or
   daytime schedules when a person can review the output over overnight jobs that
   create unread noise.
@@ -445,7 +447,7 @@ Verify every item before launching a handoff:
   cancel), and wait for the operator pick before starting
   unless standing permission or an explicit run-now instruction covers that
   launch (see
-  [Prefer card-style launch confirmation](workstation-handoffs.md#6-prefer-card-style-launch-confirmation-over-growing-allow-lists)).
+  [Prefer card-style launch confirmation](launch-approvals-and-collection.md#prefer-card-style-launch-confirmation-over-growing-allow-lists)).
 - [ ] **Keep Remote Control human-driven and heavy launches off the phone**: do
   not browser-automate the Remote Control web UI as a primary path, and start
   heavy builds or compute runs from the workstation instead of the phone.

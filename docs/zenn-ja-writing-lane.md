@@ -4,7 +4,7 @@ Write Japanese article bodies with one `write_file`-only Gemini Flash `agy`
 launch. The orchestrator owns git.
 
 Related: [`docs/agy-quota-and-coding-lanes.md`](agy-quota-and-coding-lanes.md),
-[`docs/workstation-handoffs.md`](workstation-handoffs.md#headless-agy-soft-deny-handling),
+[`docs/launch-approvals-and-collection.md`](launch-approvals-and-collection.md#headless-agy-soft-deny-handling),
 [`docs/shared-rules.md`](shared-rules.md).
 
 ## Steps

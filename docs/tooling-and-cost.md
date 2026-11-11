@@ -10,8 +10,10 @@ coding agent, and shared durable notes.
 
 For the full cast, assignment channels, and job routing, see
 [`cast-and-routing.md`](cast-and-routing.md). For workstation CLI setup,
-`agy` and `agent` handoff paths, parallel-writer controls, and card-style
-launch confirmation, see [`workstation-handoffs.md`](workstation-handoffs.md).
+`agy` and `agent` handoff paths, and parallel-writer controls, see
+[`workstation-handoffs.md`](workstation-handoffs.md). For card-style launch
+confirmation, see
+[`launch-approvals-and-collection.md`](launch-approvals-and-collection.md).
 
 ## 1. Split work across five surfaces and cost lanes
 
@@ -93,7 +95,7 @@ before dispatching a batch of tasks:
   Prefer `agy` for **unstructured and multimodal** understanding (images,
   short video, PDF, long messy logs) so Grok Bot only routes paths and returns
   a short summary (see
-  [Unstructured and multimodal offload](workstation-handoffs.md#unstructured-and-multimodal-offload)).
+  [Unstructured and multimodal offload](launch-approvals-and-collection.md#unstructured-and-multimodal-offload)).
 - **Distinguish subscription lanes from pay-as-you-go cloud runs**: distinguish
   subscription-authenticated workstation sessions (`agy` and Cursor) from
   API-key pay-as-you-go runs on a remote cloud computer ("box"). Prefer
@@ -191,7 +193,7 @@ of every prompt:
 - **Offload unstructured and multimodal media**: route image inspection, video
   analysis, large PDF review, and long logs to `agy` instead of passing large
   blobs through conversational chat tokens (see
-  [Unstructured and multimodal offload](workstation-handoffs.md#unstructured-and-multimodal-offload)).
+  [Unstructured and multimodal offload](launch-approvals-and-collection.md#unstructured-and-multimodal-offload)).
 
 ## 6. Run eligible heavy workloads locally and saturate workstation capacity
 
