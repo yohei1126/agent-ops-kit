@@ -12,6 +12,7 @@ to English Markdown.
    [`docs/tooling-and-cost.md`](docs/tooling-and-cost.md),
    [`docs/cast-and-routing.md`](docs/cast-and-routing.md),
    [`docs/workstation-handoffs.md`](docs/workstation-handoffs.md),
+   [`docs/launch-approvals-and-collection.md`](docs/launch-approvals-and-collection.md),
    [`docs/secrets-local-injection.md`](docs/secrets-local-injection.md),
    [`docs/youtube-publish-media.md`](docs/youtube-publish-media.md),
    [`docs/security-audit-lanes.md`](docs/security-audit-lanes.md), or
@@ -105,6 +106,9 @@ at a removed path or heading.
 
 Count lines with a plain line count on the file on disk (for example
 `wc -l path/to/file.md`). Include blank lines and fenced code.
+
+Run `scripts/dev-loop-gate.sh --strict --check line-cap` to check this locally;
+CI runs the same check.
 
 ## Style
 

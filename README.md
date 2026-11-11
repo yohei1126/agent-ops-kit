@@ -49,14 +49,15 @@ Operators who:
   for `agy` and `~/agent-work` for local `agent`) and cloud-versus-local coding
   routing, wire Grok Bot to Antigravity CLI (`agy`, defaulting to Gemini 3.8
   Flash with Grok docs drafting exception-only) and the local Cursor Agent CLI
-  (`agent` or `cursor-agent`), structure self-contained briefs, enforce
-  one-writer parallel-execution controls, and prefer operator-facing choice
-  cards over growing fine-grained Allow lists (including
-  [docs and deck prose lane discipline](docs/workstation-handoffs.md#docs-and-deck-prose-lane-non-negotiable),
-  [local approval prompt reduction](docs/workstation-handoffs.md#reduce-local-approval-prompts),
-  [headless `agy` soft-deny handling](docs/workstation-handoffs.md#headless-agy-soft-deny-handling),
+  (`agent` or `cursor-agent`), structure self-contained briefs, and enforce
+  one-writer parallel-execution controls (including
+  [docs and deck prose lane discipline](docs/workstation-handoffs.md#docs-and-deck-prose-lane-non-negotiable)
   and the phase-batched wrapper scripts in
   [`scripts/README.md`](scripts/README.md)).
+- [`docs/launch-approvals-and-collection.md`](docs/launch-approvals-and-collection.md)
+  covers launch approvals and handoff collection: operator choice cards instead
+  of growing Allow lists, narrow permission scopes, approval-prompt reduction,
+  soft-deny stop rules, and thin one-shell result collection.
 - [`docs/youtube-publish-media.md`](docs/youtube-publish-media.md) defines
   asset rules and an operator checklist for YouTube video publication,
   enforcing Content ID clearance and noting that stock-site licenses do not

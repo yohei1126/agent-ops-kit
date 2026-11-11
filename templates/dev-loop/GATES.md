@@ -88,6 +88,77 @@ These floors hold across every gate:
 - `## RETRO` absent: stay quiet.
 - 1 job equals 1 PR.
 
+## Named checks
+
+[`../../scripts/dev-loop-gate.sh`](../../scripts/dev-loop-gate.sh) prints the
+G1 to G7 table by default. It can also run one named check, so a single local
+rule can gate a pull request without the full table.
+
+```bash
+scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path>]
+```
+
+- `--check <id>` runs only that check and skips the G1 to G7 table. Only
+  `line-cap` exists today. Other ids, including `all`, exit 2 with a message
+  that the check is not implemented. Later checks will be added under the same
+  flag.
+- `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
+  row is printed but the exit code stays 0, the same advisory spirit as G2 to
+  G7.
+- `--repo <root>` points the check at any git work tree. The default is the
+  work tree of the current directory. All git calls run with `git -C`. Passing
+  `--repo` with something that is not a git work tree exits 2.
+- `--config <path>` reads a gate config. The default is
+  [`gate.config.json`](gate.config.json) next to this file, resolved from the
+  script location, so `--repo` can point at another checkout. A missing default
+  config means a 500-line cap with no exceptions.
+
+The default table needs neither a git work tree nor an installed `git`: outside
+one it prints the usual G1 to G7 rows and reports the branch as `unknown`. Only
+a named check requires both.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Pass, or an advisory FAIL without `--strict` |
+| 1 | FAIL under `--strict`, or a G1 failure in the table |
+| 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
+| 3 | A required command is missing (`git` or `jq`) while running a named check |
+
+### line-cap
+
+`--check line-cap` lists tracked Markdown files with
+`git ls-files -z -- '*.md'` and counts newlines the way `wc -l` does. Each file
+is compared with its cap: the first matching exception cap, otherwise
+`line_cap.default`. Untracked files are ignored.
+
+The check prints one FAIL row per over-cap file, then one summary row. With
+`--strict`, any over-cap file exits 1.
+
+### gate.config.json
+
+```json
+{
+  "line_cap": {
+    "default": 500,
+    "exceptions": []
+  }
+}
+```
+
+- `default` is a positive integer line cap.
+- `exceptions` is an ordered list. The first matching entry wins.
+- An entry has exactly one of `path` (an exact repository-relative path) or
+  `pattern` (an anchored ERE), plus a positive integer `cap` and a non-empty
+  one-line `reason`.
+- A `pattern` must start with `^` and end with `$`. Do not use broad globs such
+  as `.*` or `**`.
+- Ship the repository with `exceptions: []`. The cap is a guardrail, not an
+  allowlist.
+
+Invalid config exits 2 with a message naming the failing field.
+
 ## Related
 
 - [`RUBRIC.md`](RUBRIC.md): two-tier labels behind the ambiguous rows.

@@ -17,6 +17,7 @@ read secrets, or run a live end-to-end job.
 | [`RUBRIC.md`](RUBRIC.md) | Two-tier rubric for ambiguous judgments: finite labels in tier A, prose only in tier B. |
 | [`CHECKLIST.md`](CHECKLIST.md) | One-page human operator checklist for a single job. |
 | [`../../scripts/dev-loop-gate.sh`](../../scripts/dev-loop-gate.sh) | Optional thin local gate table. Prints status per gate. No network. |
+| [`gate.config.json`](gate.config.json) | Line-cap config for the `line-cap` named check (see [Named checks](GATES.md#named-checks)). |
 
 ## Order of use
 
@@ -42,6 +43,8 @@ read secrets, or run a live end-to-end job.
 - [`../retro/README.md`](../retro/README.md): RETRO template and ingest
   contract.
 - [`../../docs/workstation-handoffs.md`](../../docs/workstation-handoffs.md):
-  checkout roots, one-writer control, and soft-deny handling.
+  checkout roots and one-writer control.
+- [`../../docs/launch-approvals-and-collection.md`](../../docs/launch-approvals-and-collection.md):
+  choice-card launch approvals and soft-deny handling.
 - [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md): contribution rules and the
   English prose review.
