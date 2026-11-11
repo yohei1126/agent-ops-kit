@@ -98,8 +98,8 @@ rule can gate a pull request without the full table.
 scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path>]
 ```
 
-- `--check <id>` runs only that check and skips the G1 to G7 table. Only
-  `line-cap` exists today. Other ids, including `all`, exit 2 with a message
+- `--check <id>` runs only that check and skips the G1 to G7 table. `line-cap`
+  and `pr-state` exist today. Other ids, including `all`, exit 2 with a message
   that the check is not implemented. Later checks will be added under the same
   flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
@@ -124,7 +124,7 @@ Exit codes:
 | 0 | Pass, or an advisory FAIL without `--strict` |
 | 1 | FAIL under `--strict`, or a G1 failure in the table |
 | 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
-| 3 | A required command is missing (`git` or `jq`) while running a named check |
+| 3 | A required command is missing (`git`, `jq`, or `gh`) while running a named check |
 
 ### line-cap
 
@@ -135,6 +135,45 @@ is compared with its cap: the first matching exception cap, otherwise
 
 The check prints one FAIL row per over-cap file, then one summary row. With
 `--strict`, any over-cap file exits 1.
+
+### pr-state
+
+`--check pr-state` reads one pull request through the GitHub CLI and prints its
+live state. It is the only named check that uses the network. It is not a CI
+step; run it before a completion report instead.
+
+```bash
+scripts/dev-loop-gate.sh --check pr-state --pr <number> [--gh-repo <owner/repo>] \
+  [--expect-head <sha>] [--strict]
+```
+
+- `--pr <number>` or `DEV_LOOP_PR` is required. A missing or non-numeric number
+  exits 2.
+- `--gh-repo <owner/repo>` passes `-R` to `gh`, so a checkout without a remote
+  still works. Without it, `gh` infers the repository from `--repo` and runs
+  inside that checkout.
+- `--expect-head <sha>` or `DEV_LOOP_EXPECT_HEAD` is a full or short head SHA
+  prefix of at least 7 hexadecimal characters. A mismatch is a FAIL row with
+  `live head <x> != expected <y>; re-read before reporting`.
+- `gh` and `jq` must be installed. A missing command exits 3. A `gh` failure
+  exits 3 and prints the first stderr line prefixed `dev-loop-gate: gh failed:`.
+
+The check calls `gh pr view <N> [-R <slug>] --json
+number,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,url`
+and prints one row per field:
+
+| Row | PASS when | Action |
+| --- | --- | --- |
+| `state` | Always | `OPEN`, `MERGED`, or `CLOSED` |
+| `draft` | Always | `true` or `false` |
+| `head` | Expected head matches, or no expectation | Short head SHA |
+| `mergeable` | Always | Value, or `GitHub still computing; re-run later` for `UNKNOWN` |
+| `checks` | No failing check | `success N`, `pending N`, or `no checks` |
+| `fetched` | Always | UTC timestamp of the read |
+
+A failing check makes the `checks` row FAIL. Without `--strict` a FAIL row is
+advisory and the exit code stays 0. With `--strict` any FAIL exits 1. The
+`mergeable` row never fails, even while GitHub computes it.
 
 ### gate.config.json
 

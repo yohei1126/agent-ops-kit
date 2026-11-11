@@ -11,13 +11,19 @@ script_root="$(cd "$script_dir/.." && pwd)"
 usage() {
   printf '%s\n' \
     'usage: dev-loop-gate.sh [--config <path>] [--repo <root>] [--check <id>] [--strict]' \
+    '       dev-loop-gate.sh --check pr-state --pr <number> [--gh-repo <owner/repo>]' \
+    '                        [--expect-head <sha>]' \
     '' \
     'Options:' \
     '  --config <path>  Gate config JSON. Default: templates/dev-loop/gate.config.json' \
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
-    '  --check <id>     Run one named check. Only line-cap is implemented.' \
+    '  --check <id>     Run one named check: line-cap or pr-state.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
+    '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
+    '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
+    '  --expect-head <sha> Expected head SHA prefix for pr-state, 7 or more' \
+    '                   characters. Env: DEV_LOOP_EXPECT_HEAD.' \
     '  -h, --help       Show this help.' \
     '' \
     'Exit codes: 0 pass or advisory, 1 strict or G1 failure, 2 usage or config' \
@@ -29,6 +35,10 @@ repo_arg=""
 check_id=""
 have_check=0
 strict=0
+pr_number_arg=""
+gh_repo_arg=""
+expect_head_arg=""
+pr_flags_used=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -77,6 +87,51 @@ while [ $# -gt 0 ]; do
       strict=1
       shift
       ;;
+    --pr)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --pr needs a number\n' >&2
+        usage >&2
+        exit 2
+      fi
+      pr_number_arg="$2"
+      pr_flags_used=1
+      shift 2
+      ;;
+    --pr=*)
+      pr_number_arg="${1#--pr=}"
+      pr_flags_used=1
+      shift
+      ;;
+    --gh-repo)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --gh-repo needs owner/repo\n' >&2
+        usage >&2
+        exit 2
+      fi
+      gh_repo_arg="$2"
+      pr_flags_used=1
+      shift 2
+      ;;
+    --gh-repo=*)
+      gh_repo_arg="${1#--gh-repo=}"
+      pr_flags_used=1
+      shift
+      ;;
+    --expect-head)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --expect-head needs a SHA prefix\n' >&2
+        usage >&2
+        exit 2
+      fi
+      expect_head_arg="$2"
+      pr_flags_used=1
+      shift 2
+      ;;
+    --expect-head=*)
+      expect_head_arg="${1#--expect-head=}"
+      pr_flags_used=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -88,6 +143,12 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$pr_flags_used" = 1 ] && [ "$check_id" != "pr-state" ]; then
+  printf 'dev-loop-gate: --pr, --gh-repo, and --expect-head need --check pr-state\n' >&2
+  usage >&2
+  exit 2
+fi
 
 # The table keeps working outside a git work tree and without git installed,
 # as it did before the named checks existed. Only --check needs both.
@@ -387,7 +448,18 @@ case "$check_id" in
     run_line_cap
     exit $?
     ;;
-  docs-sweep|pr-state|child-env|deploy-hash|all-offline|all)
+  pr-state)
+    if [ ! -f "$script_dir/lib/pr-state.sh" ]; then
+      printf 'dev-loop-gate: missing library: %s\n' "$script_dir/lib/pr-state.sh" >&2
+      exit 2
+    fi
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=lib/pr-state.sh
+    . "$script_dir/lib/pr-state.sh"
+    run_pr_state
+    exit $?
+    ;;
+  docs-sweep|child-env|deploy-hash|all-offline|all)
     printf 'check %s is not implemented yet\n' "$check_id" >&2
     exit 2
     ;;
