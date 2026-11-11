@@ -98,10 +98,10 @@ rule can gate a pull request without the full table.
 scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path>]
 ```
 
-- `--check <id>` runs only that check and skips the G1 to G7 table. Only
-  `line-cap` exists today. Other ids, including `all`, exit 2 with a message
-  that the check is not implemented. Later checks will be added under the same
-  flag.
+- `--check <id>` runs only that check and skips the G1 to G7 table. The
+  implemented ids are `line-cap` and `docs-sweep`. Other ids, including `all`,
+  exit 2 with a message that the check is not implemented. Later checks will be
+  added under the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
   row is printed but the exit code stays 0, the same advisory spirit as G2 to
   G7.
@@ -111,7 +111,7 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 - `--config <path>` reads a gate config. The default is
   [`gate.config.json`](gate.config.json) next to this file, resolved from the
   script location, so `--repo` can point at another checkout. A missing default
-  config means a 500-line cap with no exceptions.
+  config means a 500-line cap and no docs-sweep exceptions.
 
 The default table needs neither a git work tree nor an installed `git`: outside
 one it prints the usual G1 to G7 rows and reports the branch as `unknown`. Only
@@ -136,12 +136,54 @@ is compared with its cap: the first matching exception cap, otherwise
 The check prints one FAIL row per over-cap file, then one summary row. With
 `--strict`, any over-cap file exits 1.
 
+### docs-sweep
+
+`--check docs-sweep` scans every tracked Markdown file with
+`git ls-files -z -- '*.md'` and prints one FAIL row per hit. Untracked files are
+ignored. Three rules run:
+
+- `phase`: a phase label with a number, matched case-insensitively by
+  `phase[ -]?[0-9]`. `phase-out` and `phases` do not match.
+- `link`: a GitHub issue or pull link, either
+  `github.com/<owner>/<repo>/(issues|pull)/` or a bare `/issues/<number>` or
+  `/pull/<number>`.
+- `name`: an optional local check. Terms come from `$DEV_LOOP_NAME_LIST`, else
+  `${XDG_CONFIG_HOME:-$HOME/.config}/agent-ops-kit/docs-name-list`. The file is
+  untracked, one term per line, with blank lines and `#` comments ignored. Each
+  term is a case-insensitive fixed string. A missing file, or a file with no
+  terms, prints one `name-list SKIP` row and the check continues. The check
+  never prints a term.
+
+A hit row looks like `DS   docs/topic.md:12   FAIL   phase: ...`. The summary
+row counts checked files and hits. With `--strict`, any hit exits 1; without
+it, the rows are advisory and the exit stays 0.
+
+Exceptions live under `docs_sweep.exceptions`. Each entry needs an exact
+repository-relative `path` (no glob characters) and a one-line `reason`. An
+entry may also carry:
+
+- `pattern`: an anchored ERE that starts with `^`, matched against one whole
+  line. Only matching lines are excused.
+- `rules`: any of `phase`, `link`, and `name`. The default is all three.
+
+Without `pattern`, the whole file is excused for the listed rules. Reserve that
+form for an evidence ledger or a license-like file. Invalid config exits 2 with
+a message naming the failing field.
+
+CI runs the check with `--strict` and no name list, so the name rule SKIPs. The
+implementation lives in
+[`../../scripts/lib/docs-sweep.sh`](../../scripts/lib/docs-sweep.sh) so the
+entry script stays small.
+
 ### gate.config.json
 
 ```json
 {
   "line_cap": {
     "default": 500,
+    "exceptions": []
+  },
+  "docs_sweep": {
     "exceptions": []
   }
 }
@@ -156,6 +198,9 @@ The check prints one FAIL row per over-cap file, then one summary row. With
   as `.*` or `**`.
 - Ship the repository with `exceptions: []`. The cap is a guardrail, not an
   allowlist.
+
+`docs_sweep.exceptions` uses the schema described under
+[docs-sweep](#docs-sweep).
 
 Invalid config exits 2 with a message naming the failing field.
 
