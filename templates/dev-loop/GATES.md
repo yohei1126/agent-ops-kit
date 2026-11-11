@@ -98,10 +98,10 @@ rule can gate a pull request without the full table.
 scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path>]
 ```
 
-- `--check <id>` runs only that check and skips the G1 to G7 table. Only
-  `line-cap` exists today. Other ids, including `all`, exit 2 with a message
-  that the check is not implemented. Later checks will be added under the same
-  flag.
+- `--check <id>` runs only that check and skips the G1 to G7 table.
+  `line-cap` and `deploy-hash` exist today. Other ids, including `all`, exit 2
+  with a message that the check is not implemented. Later checks will be added
+  under the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
   row is printed but the exit code stays 0, the same advisory spirit as G2 to
   G7.
@@ -124,7 +124,7 @@ Exit codes:
 | 0 | Pass, or an advisory FAIL without `--strict` |
 | 1 | FAIL under `--strict`, or a G1 failure in the table |
 | 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
-| 3 | A required command is missing (`git` or `jq`) while running a named check |
+| 3 | A required command is missing (`git`, `jq`, or `curl`) while running a named check, or the deploy-hash library cannot be read |
 
 ### line-cap
 
@@ -135,6 +135,65 @@ is compared with its cap: the first matching exception cap, otherwise
 
 The check prints one FAIL row per over-cap file, then one summary row. With
 `--strict`, any over-cap file exits 1.
+
+### deploy-hash
+
+`--check deploy-hash` waits for a deployed asset hash to change. It reads a
+public URL and compares one value with a baseline that the operator recorded
+before the deploy. The helper never runs a deploy or a smoke test.
+
+Record a baseline before the deploy, then wait after it:
+
+```bash
+baseline="$(scripts/dev-loop-gate.sh --check deploy-hash \
+  --url https://example.com/ --print-current)"
+# deploy here
+scripts/dev-loop-gate.sh --check deploy-hash \
+  --url https://example.com/ --baseline "$baseline"
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--url <URL>` | Required. Must start with `https://` or `http://`. |
+| `--source html\|etag` | Value source. Default `html`. |
+| `--baseline <value>` | Value recorded before the deploy. Required unless `--print-current` is used. |
+| `--timeout-sec <n>` | Wait limit in seconds. Default 600. |
+| `--interval-sec <n>` | Poll interval in seconds. Default 15. |
+| `--bundle-pattern <ERE>` | Asset pattern for the `html` source. The default matches a hashed asset such as `assets/app-1a2b3c4d.js`. |
+| `--print-current` | Fetch once, print the value on stdout, and exit. |
+
+These flags work only with `--check deploy-hash`. Any other use exits 2.
+
+`--print-current` exits 0 and prints one value. It exits 3 when the value
+cannot be read. Wait mode prints one PASS row when the value differs from the
+baseline. Elapsed time is the sum of the poll intervals. At the timeout it
+prints one FAIL row:
+`no change after <n>s; do not run the live smoke yet`. Fetch errors are retried
+until the timeout. When every attempt fails, the FAIL row names the source
+error. Without `--strict` a FAIL row exits 0; with `--strict` it exits 1.
+
+Sources:
+
+- `html` fetches the page and takes the first match of the bundle pattern,
+  sorted and unique. A page with no match counts as a fetch failure.
+- `etag` sends a HEAD request and reads the `ETag` header. Quotes and a `W/`
+  prefix are removed.
+
+The helper sends no credentials, cookies, or custom auth headers, and it never
+reads a token environment variable.
+
+To add a source, define `deploy_hash_source_<name>` in
+[`../../scripts/lib/deploy-hash.sh`](../../scripts/lib/deploy-hash.sh). It takes
+the URL as its only argument, prints one value on stdout, and returns non-zero
+on failure. Then pass `--source <name>`.
+
+`DEV_LOOP_SLEEP_CMD` replaces the sleep command. It is a test hook; keep the
+default outside tests.
+
+`deploy-hash` is not a CI check. A live smoke after a deploy still needs the
+maintainer's separate approval.
 
 ### gate.config.json
 

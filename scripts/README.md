@@ -64,6 +64,6 @@ using the wrapper scripts:
 
 ## Local gate checks
 
-[`dev-loop-gate.sh`](dev-loop-gate.sh) prints the G1 to G7 table and runs the
-`line-cap` Markdown check. See
+[`dev-loop-gate.sh`](dev-loop-gate.sh) prints the G1 to G7 table, runs the
+`line-cap` Markdown check, and waits on a deploy with `deploy-hash`. See
 [`../templates/dev-loop/GATES.md`](../templates/dev-loop/GATES.md#named-checks).
