@@ -24,6 +24,10 @@ mkdir -p "$home_tmp" "$fake_bin"
 trap 'rm -rf "$work_tmp"' EXIT
 
 unset DEV_LOOP_PR DEV_LOOP_EXPECT_HEAD
+unset DEV_LOOP_BRANCH DEV_LOOP_ALIAS DEV_LOOP_REQUIRED_PATH \
+  DEV_LOOP_SOFT_DENY_COUNT DEV_LOOP_MODEL_LANE DEV_LOOP_DIFF_KIND \
+  DEV_LOOP_PR_STATE DEV_LOOP_OPERATOR_READY DEV_LOOP_VULN_SILENT \
+  DEV_LOOP_RETRO_MARKER DEV_LOOP_OPEN_JOBS DEV_LOOP_OPEN_PRS
 unset PR_STATE_FIXTURE PR_STATE_GH_FAIL
 
 head_full="9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293"
@@ -100,6 +104,22 @@ expect_no_quote() {
     bad "$1" "stdout contains a double quote"
   else
     ok "$1"
+  fi
+}
+
+expect_empty_out() {
+  if [ -z "$out" ]; then
+    ok "$1"
+  else
+    bad "$1" "stdout should be empty"
+  fi
+}
+
+expect_out_file() {
+  if printf '%s\n' "$out" | diff -u "$2" - >/dev/null 2>&1; then
+    ok "$1"
+  else
+    bad "$1" "stdout differs from $2"
   fi
 }
 
@@ -307,35 +327,94 @@ expect_argv_line "13: DEV_LOOP_PR is the number argument" 3 "46"
 
 printf '== default table is unchanged ==\n'
 
-old_gate="$work_tmp/dev-loop-gate-head.sh"
-if git -C "$repo_root" show HEAD:scripts/dev-loop-gate.sh > "$old_gate" 2>/dev/null; then
-  for combo in none ready two_jobs; do
-    case "$combo" in
-      none) env_pair="" ;;
-      ready) env_pair="DEV_LOOP_PR_STATE=ready" ;;
-      two_jobs) env_pair="DEV_LOOP_OPEN_JOBS=2" ;;
-    esac
-    if [ -n "$env_pair" ]; then
-      run_gate "$repo_root" env "$env_pair" bash "$gate"
-    else
-      run_gate "$repo_root" bash "$gate"
-    fi
-    new_status="$status"
-    new_out="$out"
-    if [ -n "$env_pair" ]; then
-      run_gate "$repo_root" env "$env_pair" bash "$old_gate"
-    else
-      run_gate "$repo_root" bash "$old_gate"
-    fi
-    if [ "$status" -eq "$new_status" ] && [ "$out" = "$new_out" ]; then
-      ok "14: table matches HEAD for $combo"
-    else
-      bad "14: table matches HEAD for $combo" "output or status differs"
-    fi
-  done
-else
-  bad "14: table matches HEAD" "git show HEAD failed"
-fi
+table_fixtures="$repo_root/scripts/tests/fixtures/gate-table"
+
+run_gate "$repo_root" bash "$gate"
+expect_status "14: the no-argument table exits 0" 0
+expect_out_file "14: the no-argument table matches the golden fixture" \
+  "$table_fixtures/none.txt"
+
+run_gate "$repo_root" env DEV_LOOP_PR_STATE=ready bash "$gate"
+expect_status "14: a ready pull request stays advisory" 0
+expect_out_file "14: the ready table matches the golden fixture" \
+  "$table_fixtures/ready.txt"
+
+run_gate "$repo_root" env DEV_LOOP_PR_STATE=ready bash "$gate" --strict
+expect_status "14: the ready table under --strict exits 1" 1
+expect_out_file "14: --strict prints the same rows" "$table_fixtures/ready.txt"
+
+run_gate "$repo_root" env DEV_LOOP_OPEN_JOBS=2 bash "$gate"
+expect_status "14: two open jobs fail G1 and G7" 1
+expect_out_file "14: the two-job table matches the golden fixture" \
+  "$table_fixtures/two-jobs.txt"
+
+printf '== invalid gh JSON ==\n'
+
+for fixture_name in empty whitespace null empty-object malformed; do
+  run_gate "$repo_root" env PR_STATE_FIXTURE="$fixture_name" \
+    bash "$gate" --check pr-state --pr 46 --strict
+  expect_status "15: $fixture_name output exits 3" 3
+  expect_err "15: $fixture_name output names the JSON read" \
+    "could not read the gh JSON output"
+  expect_empty_out "15: $fixture_name output prints no table"
+done
+
+printf '== explicit empty flag values ==\n'
+
+run_gate "$repo_root" bash "$gate" --check pr-state --pr 46 --expect-head ""
+expect_status "16: an empty --expect-head exits 2" 2
+expect_err "16: an empty --expect-head names the minimum" \
+  "--expect-head needs at least 7 characters"
+expect_argv_count "16: an empty --expect-head never calls gh" 0
+
+run_gate "$repo_root" bash "$gate" --check pr-state --pr 46 --expect-head=
+expect_status "16: --expect-head= exits 2" 2
+expect_err "16: --expect-head= names the minimum" \
+  "--expect-head needs at least 7 characters"
+
+run_gate "$repo_root" bash "$gate" --check pr-state --pr 46 --gh-repo ""
+expect_status "16: an empty --gh-repo exits 2" 2
+expect_err "16: an empty --gh-repo names the shape" \
+  "--gh-repo must be owner/repo"
+expect_argv_count "16: an empty --gh-repo never calls gh" 0
+
+run_gate "$repo_root" bash "$gate" --check pr-state --pr 46 --gh-repo=
+expect_status "16: --gh-repo= exits 2" 2
+expect_err "16: --gh-repo= names the shape" "--gh-repo must be owner/repo"
+
+run_gate "$repo_root" env DEV_LOOP_PR=46 \
+  bash "$gate" --check pr-state --pr ""
+expect_status "16: an empty --pr does not fall back to the env" 2
+expect_err "16: an empty --pr names the number" "--pr needs a number"
+expect_argv_count "16: an empty --pr never calls gh" 0
+
+run_gate "$repo_root" env DEV_LOOP_PR=46 \
+  bash "$gate" --check pr-state --pr=
+expect_status "16: --pr= does not fall back to the env" 2
+expect_err "16: --pr= names the number" "--pr needs a number"
+
+run_gate "$repo_root" env DEV_LOOP_EXPECT_HEAD=deadbeef \
+  PR_STATE_FIXTURE=open-draft-green \
+  bash "$gate" --check pr-state --pr 46 --strict
+expect_status "16: DEV_LOOP_EXPECT_HEAD applies when the flag is absent" 1
+expect_regex "16: the env expectation is the one compared" \
+  "^PR +head +FAIL +live head $head_short != expected deadbeef"
+
+run_gate "$repo_root" env DEV_LOOP_EXPECT_HEAD=deadbeef \
+  PR_STATE_FIXTURE=open-draft-green \
+  bash "$gate" --check pr-state --pr 46 --expect-head "$head_short" --strict
+expect_status "16: an explicit --expect-head wins over the env" 0
+
+printf '== stale check run ==\n'
+
+run_gate "$repo_root" env PR_STATE_FIXTURE=stale-check \
+  bash "$gate" --check pr-state --pr 46
+expect_status "17: a stale check is advisory without --strict" 0
+expect_regex "17: a stale check counts as failure" "^PR +checks +FAIL +failure 1$"
+
+run_gate "$repo_root" env PR_STATE_FIXTURE=stale-check \
+  bash "$gate" --check pr-state --pr 46 --strict
+expect_status "17: a stale check is a strict failure" 1
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then

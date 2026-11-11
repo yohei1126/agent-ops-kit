@@ -4,7 +4,8 @@
 # Never prints tokens, environment values, or command lines.
 #
 # Globals provided by dev-loop-gate.sh: pr_number_arg, gh_repo_arg,
-# expect_head_arg, repo, strict. shellcheck cannot see the caller.
+# expect_head_arg, have_pr_flag, have_gh_repo_flag, have_expect_head_flag,
+# repo, strict. shellcheck cannot see the caller.
 # shellcheck disable=SC2154
 
 pr_state_jq_program="$(cat <<'JQ'
@@ -14,7 +15,8 @@ def kind:
     (.conclusion // "") as $c
     | if ($c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED") then "success"
       elif ($c == "FAILURE" or $c == "CANCELLED" or $c == "TIMED_OUT"
-            or $c == "ACTION_REQUIRED" or $c == "STARTUP_FAILURE") then "failure"
+            or $c == "ACTION_REQUIRED" or $c == "STARTUP_FAILURE"
+            or $c == "STALE") then "failure"
       else "pending" end
   else
     (.state // "") as $s
@@ -24,40 +26,48 @@ def kind:
   end;
 
 . as $pr
-| ($pr.statusCheckRollup // []) as $rollup
-| ($rollup | map(kind)) as $kinds
-| ($kinds | map(select(. == "failure")) | length) as $failed
-| ($kinds | map(select(. == "pending")) | length) as $pending
-| ($kinds | map(select(. == "success")) | length) as $ok
-| ($pr.headRefOid // "") as $head
-| ($head[0:7]) as $short
-| ($pr.mergeable // "UNKNOWN") as $mergeable
-| (
-    ["state", "PASS", ($pr.state // "UNKNOWN")],
-    ["draft", "PASS", (if $pr.isDraft then "true" else "false" end)],
-    (if $expect == "" then
-       ["head", "PASS", $short]
-     elif (($head | ascii_downcase) | startswith($expect | ascii_downcase)) then
-       ["head", "PASS", $short]
-     else
-       ["head", "FAIL",
-        ("live head " + $short + " != expected " + $expect
-         + "; re-read before reporting")]
-     end),
-    ["mergeable", "PASS",
-     (if $mergeable == "UNKNOWN" then
-        "GitHub still computing; re-run later"
-      else $mergeable end)],
-    (if ($kinds | length) == 0 then
-       ["checks", "PASS", "no checks"]
-     elif $failed > 0 then
-       ["checks", "FAIL", ("failure " + ($failed | tostring))]
-     elif $pending > 0 then
-       ["checks", "PASS", ("pending " + ($pending | tostring))]
-     else
-       ["checks", "PASS", ("success " + ($ok | tostring))]
-     end)
-  )
+| if (($pr | type) != "object"
+      or ($pr.state | type) != "string"
+      or ($pr.headRefOid | type) != "string"
+      or ($pr.headRefOid | length) == 0
+      or ($pr.number | type) != "number")
+  then error("not a pull request object")
+  else
+    (($pr.statusCheckRollup // []) as $rollup
+     | ($rollup | map(kind)) as $kinds
+     | ($kinds | map(select(. == "failure")) | length) as $failed
+     | ($kinds | map(select(. == "pending")) | length) as $pending
+     | ($kinds | map(select(. == "success")) | length) as $ok
+     | $pr.headRefOid as $head
+     | ($head[0:7]) as $short
+     | ($pr.mergeable // "UNKNOWN") as $mergeable
+     | (
+         ["state", "PASS", $pr.state],
+         ["draft", "PASS", (if $pr.isDraft then "true" else "false" end)],
+         (if $expect == "" then
+            ["head", "PASS", $short]
+          elif (($head | ascii_downcase) | startswith($expect | ascii_downcase)) then
+            ["head", "PASS", $short]
+          else
+            ["head", "FAIL",
+             ("live head " + $short + " != expected " + $expect
+              + "; re-read before reporting")]
+          end),
+         ["mergeable", "PASS",
+          (if $mergeable == "UNKNOWN" then
+             "GitHub still computing; re-run later"
+           else $mergeable end)],
+         (if ($kinds | length) == 0 then
+            ["checks", "PASS", "no checks"]
+          elif $failed > 0 then
+            ["checks", "FAIL", ("failure " + ($failed | tostring))]
+          elif $pending > 0 then
+            ["checks", "PASS", ("pending " + ($pending | tostring))]
+          else
+            ["checks", "PASS", ("success " + ($ok | tostring))]
+          end)
+       ))
+  end
 | @tsv
 JQ
 )"
@@ -68,14 +78,24 @@ run_pr_state() {
   local pr_number expect_sha gh_slug gh_fields
   local gh_err_file gh_json gh_status first_line
   local rows name state action any_fail
+  local pr_flag repo_flag expect_flag
 
-  pr_number="${pr_number_arg:-${DEV_LOOP_PR:-}}"
-  expect_sha="${expect_head_arg:-${DEV_LOOP_EXPECT_HEAD:-}}"
-  gh_slug="$gh_repo_arg"
+  pr_flag="${have_pr_flag:-0}"
+  repo_flag="${have_gh_repo_flag:-0}"
+  expect_flag="${have_expect_head_flag:-0}"
 
-  if [ -z "$pr_number" ]; then
-    printf 'dev-loop-gate: --pr or DEV_LOOP_PR is required for pr-state\n' >&2
-    exit 2
+  if [ "$pr_flag" = 1 ]; then
+    pr_number="$pr_number_arg"
+    if [ -z "$pr_number" ]; then
+      printf 'dev-loop-gate: --pr needs a number\n' >&2
+      exit 2
+    fi
+  else
+    pr_number="${DEV_LOOP_PR:-}"
+    if [ -z "$pr_number" ]; then
+      printf 'dev-loop-gate: --pr or DEV_LOOP_PR is required for pr-state\n' >&2
+      exit 2
+    fi
   fi
   case "$pr_number" in
     *[!0-9]*)
@@ -84,6 +104,15 @@ run_pr_state() {
       ;;
   esac
 
+  if [ "$expect_flag" = 1 ]; then
+    expect_sha="$expect_head_arg"
+  else
+    expect_sha="${DEV_LOOP_EXPECT_HEAD:-}"
+  fi
+  if [ "$expect_flag" = 1 ] && [ -z "$expect_sha" ]; then
+    printf 'dev-loop-gate: --expect-head needs at least 7 characters\n' >&2
+    exit 2
+  fi
   if [ -n "$expect_sha" ]; then
     case "$expect_sha" in
       *[!0-9a-fA-F]*)
@@ -97,6 +126,11 @@ run_pr_state() {
     fi
   fi
 
+  gh_slug="$gh_repo_arg"
+  if [ "$repo_flag" = 1 ] && [ -z "$gh_slug" ]; then
+    printf 'dev-loop-gate: --gh-repo must be owner/repo: (empty)\n' >&2
+    exit 2
+  fi
   if [ -n "$gh_slug" ]; then
     if ! [[ "$gh_slug" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
       printf 'dev-loop-gate: --gh-repo must be owner/repo: %s\n' "$gh_slug" >&2
@@ -116,6 +150,12 @@ run_pr_state() {
   gh_fields="number,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,url"
   gh_err_file="$(mktemp "${TMPDIR:-/tmp}/dev-loop-gate-gh.XXXXXX")"
 
+  # Remove the stderr file if gh is interrupted. The main script installs no
+  # traps of its own, so these are cleared as soon as gh returns.
+  trap 'rm -f "$gh_err_file"' EXIT
+  trap 'rm -f "$gh_err_file"; exit 130' INT
+  trap 'rm -f "$gh_err_file"; exit 143' TERM
+
   set -- pr view "$pr_number"
   if [ -n "$gh_slug" ]; then
     set -- "$@" -R "$gh_slug"
@@ -127,16 +167,34 @@ run_pr_state() {
   first_line=""
   IFS= read -r first_line < "$gh_err_file"
   rm -f "$gh_err_file"
+  trap - EXIT INT TERM
 
   if [ "$gh_status" -ne 0 ]; then
     printf 'dev-loop-gate: gh failed: %s\n' "$first_line" >&2
     exit 3
   fi
 
-  if ! rows="$(printf '%s' "$gh_json" | jq -r --arg expect "$expect_sha" "$pr_state_jq_program" 2>/dev/null)"; then
+  # gh can exit 0 with nothing on stdout, or with output that is not a pull
+  # request. Reject both before jq runs so the exit code stays 3.
+  case "$gh_json" in
+    *[![:space:]]*) ;;
+    *)
+      printf 'dev-loop-gate: could not read the gh JSON output\n' >&2
+      exit 3
+      ;;
+  esac
+
+  if ! rows="$(printf '%s' "$gh_json" | jq -er --arg expect "$expect_sha" "$pr_state_jq_program" 2>/dev/null)"; then
     printf 'dev-loop-gate: could not read the gh JSON output\n' >&2
     exit 3
   fi
+  case "$rows" in
+    *[![:space:]]*) ;;
+    *)
+      printf 'dev-loop-gate: could not read the gh JSON output\n' >&2
+      exit 3
+      ;;
+  esac
 
   row Gate Name Status Action
   row ---- ------------------------------ ------ ------

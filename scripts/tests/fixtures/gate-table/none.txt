@@ -1,0 +1,9 @@
+Gate Name                           Status Action
+---- ------------------------------ ------ ------
+G1   checkout + worktree lock       PASS   Continue.
+G2   soft-deny                      PASS   Continue.
+G3   lock + matching constraint     JUDGE  Argon-need via RUBRIC tier A; not an Argon skip.
+G4   draft                          PASS   Continue.
+G5   vulnerability silence          PASS   Continue.
+G6   RETRO ingest                   QUIET  Stay quiet; v1 silence, no invented retro.
+G7   one job                        PASS   Continue.

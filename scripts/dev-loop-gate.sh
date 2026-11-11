@@ -27,7 +27,7 @@ usage() {
     '  -h, --help       Show this help.' \
     '' \
     'Exit codes: 0 pass or advisory, 1 strict or G1 failure, 2 usage or config' \
-    'error, 3 required command missing.'
+    'error, 3 required command missing or gh read failure.'
 }
 
 config_path=""
@@ -39,6 +39,9 @@ pr_number_arg=""
 gh_repo_arg=""
 expect_head_arg=""
 pr_flags_used=0
+have_pr_flag=0
+have_gh_repo_flag=0
+have_expect_head_flag=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -95,11 +98,13 @@ while [ $# -gt 0 ]; do
       fi
       pr_number_arg="$2"
       pr_flags_used=1
+      have_pr_flag=1
       shift 2
       ;;
     --pr=*)
       pr_number_arg="${1#--pr=}"
       pr_flags_used=1
+      have_pr_flag=1
       shift
       ;;
     --gh-repo)
@@ -110,11 +115,13 @@ while [ $# -gt 0 ]; do
       fi
       gh_repo_arg="$2"
       pr_flags_used=1
+      have_gh_repo_flag=1
       shift 2
       ;;
     --gh-repo=*)
       gh_repo_arg="${1#--gh-repo=}"
       pr_flags_used=1
+      have_gh_repo_flag=1
       shift
       ;;
     --expect-head)
@@ -125,11 +132,13 @@ while [ $# -gt 0 ]; do
       fi
       expect_head_arg="$2"
       pr_flags_used=1
+      have_expect_head_flag=1
       shift 2
       ;;
     --expect-head=*)
       expect_head_arg="${1#--expect-head=}"
       pr_flags_used=1
+      have_expect_head_flag=1
       shift
       ;;
     -h|--help)

@@ -124,7 +124,7 @@ Exit codes:
 | 0 | Pass, or an advisory FAIL without `--strict` |
 | 1 | FAIL under `--strict`, or a G1 failure in the table |
 | 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
-| 3 | A required command is missing (`git`, `jq`, or `gh`) while running a named check |
+| 3 | A required command is missing (`git`, `jq`, or `gh`), `gh` fails, or its output is not pull request JSON |
 
 ### line-cap
 
@@ -148,15 +148,21 @@ scripts/dev-loop-gate.sh --check pr-state --pr <number> [--gh-repo <owner/repo>]
 ```
 
 - `--pr <number>` or `DEV_LOOP_PR` is required. A missing or non-numeric number
-  exits 2.
+  exits 2. The environment variable is read only when `--pr` is absent.
 - `--gh-repo <owner/repo>` passes `-R` to `gh`, so a checkout without a remote
   still works. Without it, `gh` infers the repository from `--repo` and runs
-  inside that checkout.
+  inside that checkout. An empty value exits 2.
 - `--expect-head <sha>` or `DEV_LOOP_EXPECT_HEAD` is a full or short head SHA
   prefix of at least 7 hexadecimal characters. A mismatch is a FAIL row with
-  `live head <x> != expected <y>; re-read before reporting`.
+  `live head <x> != expected <y>; re-read before reporting`. The environment
+  variable is read only when `--expect-head` is absent.
+- An explicitly passed empty value for `--pr`, `--gh-repo`, or `--expect-head`
+  exits 2. It never falls back to the environment.
 - `gh` and `jq` must be installed. A missing command exits 3. A `gh` failure
   exits 3 and prints the first stderr line prefixed `dev-loop-gate: gh failed:`.
+  `gh` exiting 0 with empty, whitespace-only, `null`, or other non-pull-request
+  output exits 3 with `dev-loop-gate: could not read the gh JSON output` and
+  prints no rows.
 
 The check calls `gh pr view <N> [-R <slug>] --json
 number,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,url`
@@ -171,9 +177,11 @@ and prints one row per field:
 | `checks` | No failing check | `success N`, `pending N`, or `no checks` |
 | `fetched` | Always | UTC timestamp of the read |
 
-A failing check makes the `checks` row FAIL. Without `--strict` a FAIL row is
-advisory and the exit code stays 0. With `--strict` any FAIL exits 1. The
-`mergeable` row never fails, even while GitHub computes it.
+A failing check makes the `checks` row FAIL. A completed check with a
+`STALE` conclusion counts as a failure, the same as `FAILURE` or `TIMED_OUT`.
+Without `--strict` a FAIL row is advisory and the exit code stays 0. With
+`--strict` any FAIL exits 1. The `mergeable` row never fails, even while GitHub
+computes it.
 
 ### gate.config.json
 
