@@ -29,6 +29,8 @@ check fails, follow the action in [`GATES.md`](GATES.md) instead of improvising.
 - [ ] Soft-deny: stop, then report the exact command and reason.
 - [ ] Empty soft-deny twice in a row: switch to OpenCode Flash and stop.
 - [ ] No live end-to-end test, synthetic event, or operator-live-once run.
+- [ ] Before a live smoke after a deploy, wait with `--check deploy-hash`
+      ([GATES.md](GATES.md#deploy-hash)).
 
 ## Open the pull request
 

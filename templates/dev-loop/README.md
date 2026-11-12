@@ -7,8 +7,9 @@ the decisions that the three parts must share, so the same job does not depend
 on a fresh chat explanation.
 
 The templates are prose and local checks only. They do not read secrets or run
-a live end-to-end job. The default gate table uses no network, and the optional
-`pr-state` named check reads one pull request through the GitHub CLI.
+a live end-to-end job. The default gate table uses no network. The optional `pr-state` named
+check reads one pull request through the GitHub CLI, and `deploy-hash`
+waits for a deployed asset to change.
 
 ## File map
 

@@ -18,13 +18,23 @@ usage() {
     '  --config <path>  Gate config JSON. Default: templates/dev-loop/gate.config.json' \
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
-    '  --check <id>     Run one named check. line-cap, docs-sweep, and pr-state are implemented.' \
+    '  --check <id>     Run one named check. line-cap, docs-sweep, pr-state, and deploy-hash are implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
     '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
     '  --expect-head <sha> Expected head SHA prefix for pr-state, 7 or more' \
     '                   characters. Env: DEV_LOOP_EXPECT_HEAD.' \
     '  -h, --help       Show this help.' \
+    '' \
+    'deploy-hash options (only with --check deploy-hash):' \
+    '  --url <URL>             Page URL. Must start with https:// or http://.' \
+    '  --source <name>         Value source: html (default) or etag.' \
+    '  --baseline <value>      Value recorded before the deploy.' \
+    '  --timeout-sec <n>       Wait limit in seconds. Default 600.' \
+    '  --interval-sec <n>      Poll interval in seconds. Default 15.' \
+    '  --bundle-pattern <ERE>  Asset pattern for the html source.' \
+    '  --print-current         Print the current value and exit.' \
+    '  See templates/dev-loop/GATES.md for the baseline workflow.' \
     '' \
     'Exit codes: 0 pass or advisory, 1 strict or G1 failure, 2 usage or config' \
     'error, 3 required command missing or gh read failure.'
@@ -43,8 +53,163 @@ have_pr_flag=0
 have_gh_repo_flag=0
 have_expect_head_flag=0
 
+deploy_hash_url=""
+deploy_hash_source="html"
+deploy_hash_baseline=""
+deploy_hash_have_baseline=0
+deploy_hash_timeout=600
+deploy_hash_interval=15
+deploy_hash_bundle_pattern=""
+deploy_hash_print_current=0
+have_deploy_hash_flag=0
+
+deploy_hash_value() {
+  if [ -z "$2" ]; then
+    printf 'dev-loop-gate: %s needs a non-empty value\n' "$1" >&2
+    exit 2
+  fi
+}
+
+deploy_hash_number() {
+  local n="$2"
+  case "$n" in
+    ''|*[!0-9]*)
+      printf 'dev-loop-gate: %s needs a positive integer\n' "$1" >&2
+      exit 2
+      ;;
+  esac
+  n=$((10#$n))
+  if [ "$n" -le 0 ]; then
+    printf 'dev-loop-gate: %s needs a positive integer\n' "$1" >&2
+    exit 2
+  fi
+  printf '%s' "$n"
+}
+
+deploy_hash_url_value() {
+  case "$1" in
+    https://*|http://*) printf '%s' "$1" ;;
+    *)
+      printf 'dev-loop-gate: --url must start with https:// or http://\n' >&2
+      exit 2
+      ;;
+  esac
+}
+
+deploy_hash_pattern_value() {
+  local status
+  printf '' | grep -Eq -- "$1" 2>/dev/null
+  status=$?
+  if [ "$status" -gt 1 ]; then
+    printf 'dev-loop-gate: --bundle-pattern is not a valid ERE\n' >&2
+    exit 2
+  fi
+  printf '%s' "$1"
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
+    --url)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --url needs a URL\n' >&2
+        usage >&2
+        exit 2
+      fi
+      deploy_hash_url="$(deploy_hash_url_value "$2")" || exit 2
+      have_deploy_hash_flag=1
+      shift 2
+      ;;
+    --url=*)
+      deploy_hash_url="$(deploy_hash_url_value "${1#--url=}")" || exit 2
+      have_deploy_hash_flag=1
+      shift
+      ;;
+    --source)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --source needs a name\n' >&2
+        usage >&2
+        exit 2
+      fi
+      deploy_hash_value --source "$2"
+      deploy_hash_source="$2"
+      have_deploy_hash_flag=1
+      shift 2
+      ;;
+    --source=*)
+      deploy_hash_value --source "${1#--source=}"
+      deploy_hash_source="${1#--source=}"
+      have_deploy_hash_flag=1
+      shift
+      ;;
+    --baseline)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --baseline needs a value\n' >&2
+        usage >&2
+        exit 2
+      fi
+      deploy_hash_value --baseline "$2"
+      deploy_hash_baseline="$2"
+      deploy_hash_have_baseline=1
+      have_deploy_hash_flag=1
+      shift 2
+      ;;
+    --baseline=*)
+      deploy_hash_value --baseline "${1#--baseline=}"
+      deploy_hash_baseline="${1#--baseline=}"
+      deploy_hash_have_baseline=1
+      have_deploy_hash_flag=1
+      shift
+      ;;
+    --timeout-sec)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --timeout-sec needs a number\n' >&2
+        usage >&2
+        exit 2
+      fi
+      deploy_hash_timeout="$(deploy_hash_number --timeout-sec "$2")" || exit 2
+      have_deploy_hash_flag=1
+      shift 2
+      ;;
+    --timeout-sec=*)
+      deploy_hash_timeout="$(deploy_hash_number --timeout-sec "${1#--timeout-sec=}")" || exit 2
+      have_deploy_hash_flag=1
+      shift
+      ;;
+    --interval-sec)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --interval-sec needs a number\n' >&2
+        usage >&2
+        exit 2
+      fi
+      deploy_hash_interval="$(deploy_hash_number --interval-sec "$2")" || exit 2
+      have_deploy_hash_flag=1
+      shift 2
+      ;;
+    --interval-sec=*)
+      deploy_hash_interval="$(deploy_hash_number --interval-sec "${1#--interval-sec=}")" || exit 2
+      have_deploy_hash_flag=1
+      shift
+      ;;
+    --bundle-pattern)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --bundle-pattern needs an ERE\n' >&2
+        usage >&2
+        exit 2
+      fi
+      deploy_hash_bundle_pattern="$(deploy_hash_pattern_value "$2")" || exit 2
+      have_deploy_hash_flag=1
+      shift 2
+      ;;
+    --bundle-pattern=*)
+      deploy_hash_bundle_pattern="$(deploy_hash_pattern_value "${1#--bundle-pattern=}")" || exit 2
+      have_deploy_hash_flag=1
+      shift
+      ;;
+    --print-current)
+      deploy_hash_print_current=1
+      have_deploy_hash_flag=1
+      shift
+      ;;
     --config)
       if [ $# -lt 2 ]; then
         printf 'dev-loop-gate: --config needs a path\n' >&2
@@ -152,6 +317,15 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+# Deploy-hash flags are only meaningful with the deploy-hash check. Reject them
+# everywhere else, including the no-argument table and other named checks.
+if [ "$have_deploy_hash_flag" = 1 ]; then
+  if [ "$have_check" = 0 ] || [ "$check_id" != "deploy-hash" ]; then
+    printf 'dev-loop-gate: deploy-hash flags need --check deploy-hash\n' >&2
+    exit 2
+  fi
+fi
 
 if [ "$pr_flags_used" = 1 ] && [ "$check_id" != "pr-state" ]; then
   printf 'dev-loop-gate: --pr, --gh-repo, and --expect-head need --check pr-state\n' >&2
@@ -518,6 +692,19 @@ if [ "$have_check" = 0 ]; then
   exit $?
 fi
 
+# deploy-hash reads a public URL, so it does not need a git work tree.
+if [ "$check_id" = "deploy-hash" ]; then
+  deploy_hash_lib="$script_dir/lib/deploy-hash.sh"
+  if [ ! -r "$deploy_hash_lib" ]; then
+    printf 'dev-loop-gate: cannot read %s\n' "$deploy_hash_lib" >&2
+    exit 3
+  fi
+  # shellcheck source=scripts/lib/deploy-hash.sh
+  . "$deploy_hash_lib"
+  run_deploy_hash
+  exit $?
+fi
+
 require_git
 resolve_repo
 
@@ -541,7 +728,7 @@ case "$check_id" in
     run_pr_state
     exit $?
     ;;
-  child-env|deploy-hash|all-offline|all)
+  child-env|all-offline|all)
     printf 'check %s is not implemented yet\n' "$check_id" >&2
     exit 2
     ;;
