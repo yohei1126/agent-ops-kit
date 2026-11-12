@@ -20,13 +20,15 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Check shell syntax
-        run: bash -n scripts/dev-loop-gate.sh scripts/lib/docs-sweep.sh
+        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/tests/test_pr_state.sh
 
       - name: Run shellcheck
-        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/docs-sweep.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_docs_sweep.sh
+        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_pr_state.sh scripts/tests/test_docs_sweep.sh
 
       - name: Run gate tests
-        run: bash scripts/tests/test_dev_loop_gate.sh
+        run: |
+          bash scripts/tests/test_dev_loop_gate.sh
+          bash scripts/tests/test_pr_state.sh
 
       - name: Run docs sweep tests
         run: bash scripts/tests/test_docs_sweep.sh

@@ -65,5 +65,6 @@ using the wrapper scripts:
 ## Local gate checks
 
 [`dev-loop-gate.sh`](dev-loop-gate.sh) prints the G1 to G7 table and runs the
-`line-cap` Markdown check. See
+`line-cap` Markdown check. It also runs a `pr-state` check that reads one pull
+request through `gh`; that is the only networked path. See
 [`../templates/dev-loop/GATES.md`](../templates/dev-loop/GATES.md#named-checks).
