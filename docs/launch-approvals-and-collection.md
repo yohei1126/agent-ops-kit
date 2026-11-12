@@ -165,8 +165,7 @@ constraints in mind:
 
 ## Collect agy handoffs in one Mac shell and keep reporting thin
 
-Retrospective source:
-[edgesentry/agent-ops#25](https://github.com/edgesentry/agent-ops/pull/25).
+Retrospective source: an earlier hub operations pull request.
 
 ### Keep these splits
 
@@ -186,7 +185,7 @@ Retrospective source:
 1. **One Epic comment after an Issue digest.** When an Issue digest posts to the
    hub and the work has an Epic, leave one comment on the Epic that states the
    phase and the scope now on `main`. In the same pass, fix stale owner paths
-   (for example `yohei1126/...` links that moved to `edgesentry/...`).
+   (for example `<old-owner>/...` links that moved to `<new-owner>/...`).
 2. **Collect includes commit and push.** Collect under `~/agy-work/<repo>` after
    a handoff means commit and push too, with `.agy-facts/` excluded. Keep
    Ask-first for destructive git operations, outbound sends, and deletes outside
