@@ -38,6 +38,9 @@ check fails, follow the action in [`GATES.md`](GATES.md) instead of improvising.
 - [ ] Ready only after the operator explicitly said ready.
 - [ ] Summary names files changed, known gaps, and confirm conditions.
 - [ ] One implementation job equals one pull request.
+- [ ] Re-fetch PR state right before a completion report with
+      `scripts/dev-loop-gate.sh --check pr-state --pr <N>` (see
+      [GATES.md](GATES.md#named-checks)).
 
 ## Security
 

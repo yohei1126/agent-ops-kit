@@ -98,10 +98,11 @@ rule can gate a pull request without the full table.
 scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path>]
 ```
 
-- `--check <id>` runs only that check and skips the G1 to G7 table.
-  `line-cap` and `deploy-hash` exist today. Other ids, including `all`, exit 2
-  with a message that the check is not implemented. Later checks will be added
-  under the same flag.
+- `--check <id>` runs only that check and skips the G1 to G7 table. The
+  implemented ids are `line-cap`, `docs-sweep`, `pr-state`, and
+  `deploy-hash`. Other ids, including `all`, exit 2 with a message that
+  the check is not implemented. Later checks will be added under the
+  same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
   row is printed but the exit code stays 0, the same advisory spirit as G2 to
   G7.
@@ -111,7 +112,7 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 - `--config <path>` reads a gate config. The default is
   [`gate.config.json`](gate.config.json) next to this file, resolved from the
   script location, so `--repo` can point at another checkout. A missing default
-  config means a 500-line cap with no exceptions.
+  config means a 500-line cap and no docs-sweep exceptions.
 
 The default table needs neither a git work tree nor an installed `git`: outside
 one it prints the usual G1 to G7 rows and reports the branch as `unknown`. Only
@@ -124,7 +125,7 @@ Exit codes:
 | 0 | Pass, or an advisory FAIL without `--strict` |
 | 1 | FAIL under `--strict`, or a G1 failure in the table |
 | 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
-| 3 | A required command is missing (`git`, `jq`, or `curl`) while running a named check, or the deploy-hash library cannot be read |
+| 3 | A required command is missing (`git`, `jq`, `gh`, or `curl`), `gh` fails or its output is not pull request JSON, or the deploy-hash library cannot be read |
 
 ### line-cap
 
@@ -135,6 +136,92 @@ is compared with its cap: the first matching exception cap, otherwise
 
 The check prints one FAIL row per over-cap file, then one summary row. With
 `--strict`, any over-cap file exits 1.
+
+### docs-sweep
+
+`--check docs-sweep` scans every tracked Markdown file with
+`git ls-files -z -- '*.md'` and prints one FAIL row per hit. Untracked files are
+ignored. Three rules run:
+
+- `phase`: a phase label with a number, matched case-insensitively by
+  `phase[ -]?[0-9]`. `phase-out` and `phases` do not match.
+- `link`: a GitHub issue or pull link, either
+  `github.com/<owner>/<repo>/(issues|pull)/` or a bare `/issues/<number>` or
+  `/pull/<number>`.
+- `name`: an optional local check. Terms come from `$DEV_LOOP_NAME_LIST`, else
+  `${XDG_CONFIG_HOME:-$HOME/.config}/agent-ops-kit/docs-name-list`. The file is
+  untracked, one term per line, with blank lines and `#` comments ignored. Each
+  term is a case-insensitive fixed string. A missing file, or a file with no
+  terms, prints one `name-list SKIP` row and the check continues. The check
+  never prints a term.
+
+A hit row looks like `DS   docs/topic.md:12   FAIL   phase: ...`. The summary
+row counts checked files and hits. With `--strict`, any hit exits 1; without
+it, the rows are advisory and the exit stays 0.
+
+Exceptions live under `docs_sweep.exceptions`. Each entry needs an exact
+repository-relative `path` (no glob characters) and a one-line `reason`. An
+entry may also carry:
+
+- `pattern`: an anchored ERE that starts with `^`, matched against one whole
+  line. Only matching lines are excused.
+- `rules`: any of `phase`, `link`, and `name`. The default is all three.
+
+Without `pattern`, the whole file is excused for the listed rules. Reserve that
+form for an evidence ledger or a license-like file. Invalid config exits 2 with
+a message naming the failing field.
+
+CI runs the check with `--strict` and no name list, so the name rule SKIPs. The
+implementation lives in
+[`../../scripts/lib/docs-sweep.sh`](../../scripts/lib/docs-sweep.sh) so the
+entry script stays small.
+
+### pr-state
+
+`--check pr-state` reads one pull request through the GitHub CLI and prints its
+live state. Together with `deploy-hash`, it is a named check that uses the
+network. It is not a CI step; run it before a completion report instead.
+
+```bash
+scripts/dev-loop-gate.sh --check pr-state --pr <number> [--gh-repo <owner/repo>] \
+  [--expect-head <sha>] [--strict]
+```
+
+- `--pr <number>` or `DEV_LOOP_PR` is required. A missing or non-numeric number
+  exits 2. The environment variable is read only when `--pr` is absent.
+- `--gh-repo <owner/repo>` passes `-R` to `gh`, so a checkout without a remote
+  still works. Without it, `gh` infers the repository from `--repo` and runs
+  inside that checkout. An empty value exits 2.
+- `--expect-head <sha>` or `DEV_LOOP_EXPECT_HEAD` is a full or short head SHA
+  prefix of at least 7 hexadecimal characters. A mismatch is a FAIL row with
+  `live head <x> != expected <y>; re-read before reporting`. The environment
+  variable is read only when `--expect-head` is absent.
+- An explicitly passed empty value for `--pr`, `--gh-repo`, or `--expect-head`
+  exits 2. It never falls back to the environment.
+- `gh` and `jq` must be installed. A missing command exits 3. A `gh` failure
+  exits 3 and prints the first stderr line prefixed `dev-loop-gate: gh failed:`.
+  `gh` exiting 0 with empty, whitespace-only, `null`, or other non-pull-request
+  output exits 3 with `dev-loop-gate: could not read the gh JSON output` and
+  prints no rows.
+
+The check calls `gh pr view <N> [-R <slug>] --json
+number,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,url`
+and prints one row per field:
+
+| Row | PASS when | Action |
+| --- | --- | --- |
+| `state` | Always | `OPEN`, `MERGED`, or `CLOSED` |
+| `draft` | Always | `true` or `false` |
+| `head` | Expected head matches, or no expectation | Short head SHA |
+| `mergeable` | Always | Value, or `GitHub still computing; re-run later` for `UNKNOWN` |
+| `checks` | No failing check | `success N`, `pending N`, or `no checks` |
+| `fetched` | Always | UTC timestamp of the read |
+
+A failing check makes the `checks` row FAIL. A completed check with a
+`STALE` conclusion counts as a failure, the same as `FAILURE` or `TIMED_OUT`.
+Without `--strict` a FAIL row is advisory and the exit code stays 0. With
+`--strict` any FAIL exits 1. The `mergeable` row never fails, even while GitHub
+computes it.
 
 ### deploy-hash
 
@@ -202,6 +289,9 @@ maintainer's separate approval.
   "line_cap": {
     "default": 500,
     "exceptions": []
+  },
+  "docs_sweep": {
+    "exceptions": []
   }
 }
 ```
@@ -215,6 +305,9 @@ maintainer's separate approval.
   as `.*` or `**`.
 - Ship the repository with `exceptions: []`. The cap is a guardrail, not an
   allowlist.
+
+`docs_sweep.exceptions` uses the schema described under
+[docs-sweep](#docs-sweep).
 
 Invalid config exits 2 with a message naming the failing field.
 

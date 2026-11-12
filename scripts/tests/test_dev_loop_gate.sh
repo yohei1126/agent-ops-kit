@@ -269,7 +269,7 @@ run_gate "$non_git" bash "$gate" --repo "$cap_repo" --check line-cap
 expect_status "11: --repo works from another cwd" 0
 expect_regex "11: --repo from another cwd passes" "^LC +line-cap +PASS "
 
-run_gate "$repo_root" bash "$gate" --check docs-sweep
+run_gate "$repo_root" bash "$gate" --check child-env
 expect_status "12: unimplemented check exits 2" 2
 run_gate "$repo_root" bash "$gate" --check bogus
 expect_status "12: unknown check exits 2" 2

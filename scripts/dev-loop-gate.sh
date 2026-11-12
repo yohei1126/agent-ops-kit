@@ -11,13 +11,19 @@ script_root="$(cd "$script_dir/.." && pwd)"
 usage() {
   printf '%s\n' \
     'usage: dev-loop-gate.sh [--config <path>] [--repo <root>] [--check <id>] [--strict]' \
+    '       dev-loop-gate.sh --check pr-state --pr <number> [--gh-repo <owner/repo>]' \
+    '                        [--expect-head <sha>]' \
     '' \
     'Options:' \
     '  --config <path>  Gate config JSON. Default: templates/dev-loop/gate.config.json' \
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
-    '  --check <id>     Run one named check: line-cap or deploy-hash.' \
+    '  --check <id>     Run one named check. line-cap, docs-sweep, pr-state, and deploy-hash are implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
+    '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
+    '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
+    '  --expect-head <sha> Expected head SHA prefix for pr-state, 7 or more' \
+    '                   characters. Env: DEV_LOOP_EXPECT_HEAD.' \
     '  -h, --help       Show this help.' \
     '' \
     'deploy-hash options (only with --check deploy-hash):' \
@@ -31,7 +37,7 @@ usage() {
     '  See templates/dev-loop/GATES.md for the baseline workflow.' \
     '' \
     'Exit codes: 0 pass or advisory, 1 strict or G1 failure, 2 usage or config' \
-    'error, 3 required command missing.'
+    'error, 3 required command missing or gh read failure.'
 }
 
 config_path=""
@@ -39,6 +45,13 @@ repo_arg=""
 check_id=""
 have_check=0
 strict=0
+pr_number_arg=""
+gh_repo_arg=""
+expect_head_arg=""
+pr_flags_used=0
+have_pr_flag=0
+have_gh_repo_flag=0
+have_expect_head_flag=0
 
 deploy_hash_url=""
 deploy_hash_source="html"
@@ -242,6 +255,57 @@ while [ $# -gt 0 ]; do
       strict=1
       shift
       ;;
+    --pr)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --pr needs a number\n' >&2
+        usage >&2
+        exit 2
+      fi
+      pr_number_arg="$2"
+      pr_flags_used=1
+      have_pr_flag=1
+      shift 2
+      ;;
+    --pr=*)
+      pr_number_arg="${1#--pr=}"
+      pr_flags_used=1
+      have_pr_flag=1
+      shift
+      ;;
+    --gh-repo)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --gh-repo needs owner/repo\n' >&2
+        usage >&2
+        exit 2
+      fi
+      gh_repo_arg="$2"
+      pr_flags_used=1
+      have_gh_repo_flag=1
+      shift 2
+      ;;
+    --gh-repo=*)
+      gh_repo_arg="${1#--gh-repo=}"
+      pr_flags_used=1
+      have_gh_repo_flag=1
+      shift
+      ;;
+    --expect-head)
+      if [ $# -lt 2 ]; then
+        printf 'dev-loop-gate: --expect-head needs a SHA prefix\n' >&2
+        usage >&2
+        exit 2
+      fi
+      expect_head_arg="$2"
+      pr_flags_used=1
+      have_expect_head_flag=1
+      shift 2
+      ;;
+    --expect-head=*)
+      expect_head_arg="${1#--expect-head=}"
+      pr_flags_used=1
+      have_expect_head_flag=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -261,6 +325,12 @@ if [ "$have_deploy_hash_flag" = 1 ]; then
     printf 'dev-loop-gate: deploy-hash flags need --check deploy-hash\n' >&2
     exit 2
   fi
+fi
+
+if [ "$pr_flags_used" = 1 ] && [ "$check_id" != "pr-state" ]; then
+  printf 'dev-loop-gate: --pr, --gh-repo, and --expect-head need --check pr-state\n' >&2
+  usage >&2
+  exit 2
 fi
 
 # The table keeps working outside a git work tree and without git installed,
@@ -295,6 +365,9 @@ resolve_repo() {
 }
 
 row() { printf '%-4s %-30s %-6s %s\n' "$1" "$2" "$3" "$4"; }
+
+# shellcheck source=scripts/lib/docs-sweep.sh
+. "$script_dir/lib/docs-sweep.sh"
 
 run_table() {
   local status=0 any_fail=0
@@ -387,7 +460,9 @@ run_table() {
 
 config_errors_program="$(cat <<'JQ'
 def isposint: (type == "number") and (. > 0) and (. == (. | floor));
-if (.line_cap | type) != "object" then
+if (.line_cap | type) == "null" then
+  empty
+elif (.line_cap | type) != "object" then
   "line_cap must be an object"
 else
   (if (.line_cap.default | isposint | not) then
@@ -432,16 +507,69 @@ else
           "line_cap.exceptions[\($i)].reason must be a non-empty single-line string"
         else empty end)
      end)
-end
+end,
+(if (.docs_sweep | type) == "null" then
+   empty
+ elif (.docs_sweep | type) != "object" then
+   "docs_sweep must be an object"
+ else
+   (if ((.docs_sweep | has("exceptions")) | not) then
+      empty
+    elif (.docs_sweep.exceptions | type) != "array" then
+      "docs_sweep.exceptions must be an array"
+    else empty end),
+   ((if (.docs_sweep.exceptions | type) == "array" then .docs_sweep.exceptions else [] end)
+    | to_entries[]
+    | .key as $i
+    | .value as $e
+    | if ($e | type) != "object" then
+        "docs_sweep.exceptions[\($i)] must be an object"
+      else
+        (if (($e | has("path")) | not) then
+           "docs_sweep.exceptions[\($i)].path is required"
+         elif (($e.path | type) != "string") or (($e.path | length) == 0) then
+           "docs_sweep.exceptions[\($i)].path must be a non-empty string"
+         elif (($e.path | contains("*")) or ($e.path | contains("?")) or ($e.path | contains("["))) then
+           "docs_sweep.exceptions[\($i)].path must be an exact path, not a glob"
+         else empty end),
+        (if (($e.reason | type) != "string") or (($e.reason | length) == 0) then
+           "docs_sweep.exceptions[\($i)].reason must be a non-empty single-line string"
+         elif ($e.reason | test("\n")) then
+           "docs_sweep.exceptions[\($i)].reason must be a non-empty single-line string"
+         else empty end),
+        (if ($e | has("pattern")) then
+           (if (($e.pattern | type) != "string") or (($e.pattern | length) == 0) then
+              "docs_sweep.exceptions[\($i)].pattern must be a non-empty string"
+            elif (($e.pattern | startswith("^")) | not) then
+              "docs_sweep.exceptions[\($i)].pattern must start with ^"
+            else empty end)
+         else empty end),
+        (if ($e | has("rules")) then
+           (if (($e.rules | type) != "array") then
+              "docs_sweep.exceptions[\($i)].rules must be an array"
+            elif (($e.rules | length) == 0) then
+              "docs_sweep.exceptions[\($i)].rules must not be empty"
+            elif ([$e.rules[] | select((type != "string") or
+                  ((. != "phase") and (. != "link") and (. != "name")))] | length) > 0 then
+              "docs_sweep.exceptions[\($i)].rules must be a subset of phase, link, name"
+            else empty end)
+         else empty end)
+      end)
+ end)
 JQ
 )"
 
 default_cap=500
 exceptions_blob=""
+docs_exceptions_blob=""
+line_cap_present=0
 
 load_config() {
   local cfg
   local errors
+  local mode="${1:-}"
+
+  line_cap_present=0
 
   if [ -n "$config_path" ]; then
     cfg="$config_path"
@@ -480,8 +608,19 @@ EOF
     exit 2
   fi
 
-  default_cap="$(jq -r '.line_cap.default' "$cfg")"
-  exceptions_blob="$(jq -r '.line_cap.exceptions[] | [(.path // ""), (.pattern // ""), (.cap | tostring)] | join("\u001f")' "$cfg")"
+  if jq -e 'has("line_cap") and ((.line_cap | type) == "object")' "$cfg" >/dev/null 2>&1; then
+    line_cap_present=1
+  fi
+  if [ "$mode" = "line-cap" ] && [ "$line_cap_present" = 0 ]; then
+    printf 'dev-loop-gate: config error: line_cap must be an object\n' >&2
+    exit 2
+  fi
+
+  if [ "$line_cap_present" = 1 ]; then
+    default_cap="$(jq -r '.line_cap.default' "$cfg")"
+    exceptions_blob="$(jq -r '.line_cap.exceptions[] | [(.path // ""), (.pattern // ""), (.cap | tostring)] | join("\u001f")' "$cfg")"
+  fi
+  docs_exceptions_blob="$(jq -r '(.docs_sweep.exceptions // [])[] | [(.path // ""), (.pattern // ""), ((.rules // ["phase", "link", "name"]) | join(","))] | join("\u001f")' "$cfg")"
 }
 
 cap_for_path() {
@@ -511,7 +650,7 @@ run_line_cap() {
   local failed=0
   local path n cap action state
 
-  load_config
+  load_config line-cap
 
   row Gate Name Status Action
   row ---- ------------------------------ ------ ------
@@ -574,7 +713,22 @@ case "$check_id" in
     run_line_cap
     exit $?
     ;;
-  docs-sweep|pr-state|child-env|all-offline|all)
+  docs-sweep)
+    run_docs_sweep
+    exit $?
+    ;;
+  pr-state)
+    if [ ! -f "$script_dir/lib/pr-state.sh" ]; then
+      printf 'dev-loop-gate: missing library: %s\n' "$script_dir/lib/pr-state.sh" >&2
+      exit 2
+    fi
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=lib/pr-state.sh
+    . "$script_dir/lib/pr-state.sh"
+    run_pr_state
+    exit $?
+    ;;
+  child-env|all-offline|all)
     printf 'check %s is not implemented yet\n' "$check_id" >&2
     exit 2
     ;;
