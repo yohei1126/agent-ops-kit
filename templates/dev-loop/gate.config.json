@@ -2,5 +2,39 @@
   "line_cap": {
     "default": 500,
     "exceptions": []
+  },
+  "docs_sweep": {
+    "exceptions": [
+      {
+        "path": "templates/agent-ops-hub/worker/README.md",
+        "pattern": "^  -d '[{]\"jobId\":\"<uuid>\",\"status\":\"done\",\"prUrl\":\"https://github[.]com/YOUR_HUB_OWNER/YOUR_HUB_REPO/pull/123\"[}]'$",
+        "rules": ["link"],
+        "reason": "API example placeholder for the status proxy"
+      },
+      {
+        "path": "templates/agent-ops-hub/worker/README.md",
+        "pattern": "^\\| `prUrl` \\| no \\| `https://github[.]com/<owner>/<repo>/pull/<number>` \\|$",
+        "rules": ["link"],
+        "reason": "API example placeholder in the prUrl field"
+      },
+      {
+        "path": "templates/agent-ops-hub/worker/README.md",
+        "pattern": "^PR: https://github[.]com/YOUR_HUB_OWNER/YOUR_HUB_REPO/pull/123$",
+        "rules": ["link"],
+        "reason": "API example placeholder in the worker comment"
+      },
+      {
+        "path": "templates/retro/RETRO.md",
+        "pattern": "^Source PR: `https://example[.]com/owner/repo/pull/0`$",
+        "rules": ["link"],
+        "reason": "placeholder source in the RETRO template"
+      },
+      {
+        "path": "templates/retro/README.md",
+        "pattern": "^- `[A-Za-z0-9-]+/agent-ops-kit`$",
+        "rules": ["name"],
+        "reason": "repository slug the ingest routine watches"
+      }
+    ]
   }
 }

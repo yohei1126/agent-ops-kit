@@ -213,7 +213,7 @@ backlog:
 - **Structured description fields**: keep four fields in the job description:
   1. **Assignee and lane**: which bot or worker owns the current step.
   2. **Target pull request or checkout path**: generic placeholders until bound,
-     such as `https://github.com/org/repo/pull/N` or `~/agy-work/<repo>` (or
+     such as `<pull request URL>` or `~/agy-work/<repo>` (or
      `~/agent-work/<repo>`) on branch `docs/topic-name`.
   3. **Progress notes**: short timestamped or step-level handoff updates.
   4. **Done criteria**: the verification check and expected deliverable (such as
@@ -226,7 +226,7 @@ Title: [agent→agy] Document job hub visibility rules
 Labels: agy, running
 Description:
 - Assignee / lane: agy (document lane on registered workstation)
-- Target: ~/agy-work/<repo> (branch docs/topic-name, PR https://github.com/org/repo/pull/N)
+- Target: ~/agy-work/<repo> (branch docs/topic-name, PR <pull request URL>)
 - Progress: CLI check finished in agent; handed off to agy for Markdown edits
 - Done criteria: docs updated, <= 500 lines per file, markdownlint clean, PR body refreshed
 ```

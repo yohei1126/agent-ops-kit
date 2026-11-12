@@ -59,9 +59,8 @@ Both passes change wording only. Keep every substantive rule and fact.
 Use these published skills for the two passes (or an equivalent that
 covers the same checks):
 
-- Structure:
-  [english-tech-blog-structure](https://github.com/yohei1126/agent-skills/tree/main/english-tech-blog-structure)
-  in [yohei1126/agent-skills](https://github.com/yohei1126/agent-skills)
+- Structure: the `english-tech-blog-structure` skill in the maintainer's
+  agent-skills repository
 - Humanizer (AI-tells pass):
   [blader/humanizer](https://github.com/blader/humanizer)
   (the pairing recommended by that structure skill)
@@ -109,6 +108,12 @@ Count lines with a plain line count on the file on disk (for example
 
 Run `scripts/dev-loop-gate.sh --strict --check line-cap` to check this locally;
 CI runs the same check.
+
+Run `scripts/dev-loop-gate.sh --strict --check docs-sweep` to catch phase
+labels, GitHub issue or pull links, and local name terms before you open a pull
+request; see
+[`templates/dev-loop/GATES.md`](templates/dev-loop/GATES.md#docs-sweep) for the
+rules and the local name list.
 
 ## Style
 

@@ -18,7 +18,7 @@ usage() {
     '  --config <path>  Gate config JSON. Default: templates/dev-loop/gate.config.json' \
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
-    '  --check <id>     Run one named check: line-cap or pr-state.' \
+    '  --check <id>     Run one named check. line-cap, docs-sweep, and pr-state are implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
     '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
@@ -192,6 +192,9 @@ resolve_repo() {
 
 row() { printf '%-4s %-30s %-6s %s\n' "$1" "$2" "$3" "$4"; }
 
+# shellcheck source=scripts/lib/docs-sweep.sh
+. "$script_dir/lib/docs-sweep.sh"
+
 run_table() {
   local status=0 any_fail=0
 
@@ -283,7 +286,9 @@ run_table() {
 
 config_errors_program="$(cat <<'JQ'
 def isposint: (type == "number") and (. > 0) and (. == (. | floor));
-if (.line_cap | type) != "object" then
+if (.line_cap | type) == "null" then
+  empty
+elif (.line_cap | type) != "object" then
   "line_cap must be an object"
 else
   (if (.line_cap.default | isposint | not) then
@@ -328,16 +333,69 @@ else
           "line_cap.exceptions[\($i)].reason must be a non-empty single-line string"
         else empty end)
      end)
-end
+end,
+(if (.docs_sweep | type) == "null" then
+   empty
+ elif (.docs_sweep | type) != "object" then
+   "docs_sweep must be an object"
+ else
+   (if ((.docs_sweep | has("exceptions")) | not) then
+      empty
+    elif (.docs_sweep.exceptions | type) != "array" then
+      "docs_sweep.exceptions must be an array"
+    else empty end),
+   ((if (.docs_sweep.exceptions | type) == "array" then .docs_sweep.exceptions else [] end)
+    | to_entries[]
+    | .key as $i
+    | .value as $e
+    | if ($e | type) != "object" then
+        "docs_sweep.exceptions[\($i)] must be an object"
+      else
+        (if (($e | has("path")) | not) then
+           "docs_sweep.exceptions[\($i)].path is required"
+         elif (($e.path | type) != "string") or (($e.path | length) == 0) then
+           "docs_sweep.exceptions[\($i)].path must be a non-empty string"
+         elif (($e.path | contains("*")) or ($e.path | contains("?")) or ($e.path | contains("["))) then
+           "docs_sweep.exceptions[\($i)].path must be an exact path, not a glob"
+         else empty end),
+        (if (($e.reason | type) != "string") or (($e.reason | length) == 0) then
+           "docs_sweep.exceptions[\($i)].reason must be a non-empty single-line string"
+         elif ($e.reason | test("\n")) then
+           "docs_sweep.exceptions[\($i)].reason must be a non-empty single-line string"
+         else empty end),
+        (if ($e | has("pattern")) then
+           (if (($e.pattern | type) != "string") or (($e.pattern | length) == 0) then
+              "docs_sweep.exceptions[\($i)].pattern must be a non-empty string"
+            elif (($e.pattern | startswith("^")) | not) then
+              "docs_sweep.exceptions[\($i)].pattern must start with ^"
+            else empty end)
+         else empty end),
+        (if ($e | has("rules")) then
+           (if (($e.rules | type) != "array") then
+              "docs_sweep.exceptions[\($i)].rules must be an array"
+            elif (($e.rules | length) == 0) then
+              "docs_sweep.exceptions[\($i)].rules must not be empty"
+            elif ([$e.rules[] | select((type != "string") or
+                  ((. != "phase") and (. != "link") and (. != "name")))] | length) > 0 then
+              "docs_sweep.exceptions[\($i)].rules must be a subset of phase, link, name"
+            else empty end)
+         else empty end)
+      end)
+ end)
 JQ
 )"
 
 default_cap=500
 exceptions_blob=""
+docs_exceptions_blob=""
+line_cap_present=0
 
 load_config() {
   local cfg
   local errors
+  local mode="${1:-}"
+
+  line_cap_present=0
 
   if [ -n "$config_path" ]; then
     cfg="$config_path"
@@ -376,8 +434,19 @@ EOF
     exit 2
   fi
 
-  default_cap="$(jq -r '.line_cap.default' "$cfg")"
-  exceptions_blob="$(jq -r '.line_cap.exceptions[] | [(.path // ""), (.pattern // ""), (.cap | tostring)] | join("\u001f")' "$cfg")"
+  if jq -e 'has("line_cap") and ((.line_cap | type) == "object")' "$cfg" >/dev/null 2>&1; then
+    line_cap_present=1
+  fi
+  if [ "$mode" = "line-cap" ] && [ "$line_cap_present" = 0 ]; then
+    printf 'dev-loop-gate: config error: line_cap must be an object\n' >&2
+    exit 2
+  fi
+
+  if [ "$line_cap_present" = 1 ]; then
+    default_cap="$(jq -r '.line_cap.default' "$cfg")"
+    exceptions_blob="$(jq -r '.line_cap.exceptions[] | [(.path // ""), (.pattern // ""), (.cap | tostring)] | join("\u001f")' "$cfg")"
+  fi
+  docs_exceptions_blob="$(jq -r '(.docs_sweep.exceptions // [])[] | [(.path // ""), (.pattern // ""), ((.rules // ["phase", "link", "name"]) | join(","))] | join("\u001f")' "$cfg")"
 }
 
 cap_for_path() {
@@ -407,7 +476,7 @@ run_line_cap() {
   local failed=0
   local path n cap action state
 
-  load_config
+  load_config line-cap
 
   row Gate Name Status Action
   row ---- ------------------------------ ------ ------
@@ -457,6 +526,10 @@ case "$check_id" in
     run_line_cap
     exit $?
     ;;
+  docs-sweep)
+    run_docs_sweep
+    exit $?
+    ;;
   pr-state)
     if [ ! -f "$script_dir/lib/pr-state.sh" ]; then
       printf 'dev-loop-gate: missing library: %s\n' "$script_dir/lib/pr-state.sh" >&2
@@ -468,7 +541,7 @@ case "$check_id" in
     run_pr_state
     exit $?
     ;;
-  docs-sweep|child-env|deploy-hash|all-offline|all)
+  child-env|deploy-hash|all-offline|all)
     printf 'check %s is not implemented yet\n' "$check_id" >&2
     exit 2
     ;;

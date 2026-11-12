@@ -16,19 +16,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        # v4.2.2. The repository requires a full commit SHA.
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Check shell syntax
-        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/tests/test_pr_state.sh
+        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/tests/test_pr_state.sh
 
       - name: Run shellcheck
-        run: shellcheck scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_pr_state.sh
+        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_pr_state.sh scripts/tests/test_docs_sweep.sh
 
       - name: Run gate tests
         run: |
           bash scripts/tests/test_dev_loop_gate.sh
           bash scripts/tests/test_pr_state.sh
 
+      - name: Run docs sweep tests
+        run: bash scripts/tests/test_docs_sweep.sh
+
       - name: Check Markdown line caps
         run: scripts/dev-loop-gate.sh --strict --check line-cap
+
+      - name: Check docs sweep
+        run: scripts/dev-loop-gate.sh --strict --check docs-sweep
