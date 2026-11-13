@@ -144,7 +144,11 @@ make_tool_path() {
 
 printf '== default table ==\n'
 
-run_gate "$repo_root" bash "$gate"
+# The repository pins Node 22. Use a stub Node that matches the pin so the
+# table result does not depend on the Node major installed on this machine.
+make_stub_node v22.11.0
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" bash "$gate"
 expect_status "1: no args exits 0" 0
 for id in G1 G2 G3 G4 G5 G6 G7; do
   if printf '%s\n' "$out" | grep -q "^$id "; then
@@ -159,11 +163,11 @@ run_gate "$repo_root" env DEV_LOOP_BRANCH=not-the-branch bash "$gate"
 expect_status "2: branch mismatch exits 1" 1
 expect_out "2: G1 branch failure action" "Do not start; branch is "
 
-run_gate "$repo_root" env DEV_LOOP_PR_STATE=ready bash "$gate"
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" DEV_LOOP_PR_STATE=ready bash "$gate"
 expect_status "3: ready without operator is advisory" 0
 expect_out "3: G4 failure action" "Create or convert the pull request to draft."
 
-run_gate "$repo_root" env DEV_LOOP_PR_STATE=ready bash "$gate" --strict
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" DEV_LOOP_PR_STATE=ready bash "$gate" --strict
 expect_status "3: ready without operator is strict failure" 1
 
 run_gate "$repo_root" env DEV_LOOP_OPEN_JOBS=2 bash "$gate"

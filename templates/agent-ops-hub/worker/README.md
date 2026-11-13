@@ -16,6 +16,7 @@ Related:
 - [Secrets and placeholders](../docs/SECRETS.md)
 - [GitHub App procedure](../docs/GITHUB_APP_SETUP.md)
 - [Mac launcher pattern](../mac/README.md)
+- [Durable Object rate limiter](../../workers-do-rate-limiter/README.md)
 
 ## Routes
 
@@ -28,6 +29,17 @@ Related:
 
 Every other path returns `404`. Every other method on a defined path returns
 `405`. Responses set `Cache-Control: no-store`.
+
+## Rate limits
+
+The public routes (`/github/webhook`, `/v1/claim`, `/v1/status`, and `/health`)
+should each carry a per-key limit. Use the Durable Object limiter in
+[`../../workers-do-rate-limiter/`](../../workers-do-rate-limiter/README.md)
+before the route does its work, with a key such as `${clientIp}:${group}`.
+Workers Rate Limiting bindings can report success without enforcing, so verify
+the limit after each deploy with
+[`scripts/rate-limit-check.sh`](../../../scripts/rate-limit-check.sh). This
+pattern ships no limiter code.
 
 ## Webhook order
 
@@ -201,8 +213,9 @@ suite to your project.
   catch the error and release the claim or the reservation.
 - A claimed job has no heartbeat or lease. If the Mac dies mid-run, the Issue
   keeps `status-running` until the operator clears it.
-- The claim and status routes share one secret and have no per-agent rate
-  limit.
+- The claim and status routes share one secret and ship no per-agent rate
+  limiter. Add one with
+  [`../../workers-do-rate-limiter/`](../../workers-do-rate-limiter/README.md).
 
 ## What was generalized
 

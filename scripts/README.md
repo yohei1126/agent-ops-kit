@@ -119,3 +119,21 @@ check that reads one pull request through `gh`, and a `deploy-hash` check that
 waits for a deployed asset to change. `pr-state` and `deploy-hash` are the
 networked paths. See
 [`../templates/dev-loop/GATES.md`](../templates/dev-loop/GATES.md#named-checks).
+
+## Check rate limiting on one URL
+
+[`rate-limit-check.sh`](rate-limit-check.sh) sends a sequential burst to one URL
+and reports whether the limit is enforced. Use `--mode enforce` to require a
+429 with a `Retry-After` inside the window, or `--mode detect` to fail when
+every response succeeds on a route that should be limited. The script sends no
+credentials, cookies, or custom auth headers, and it never follows redirects.
+A live URL run stays a manual step; tests use a local fixture server.
+
+```bash
+scripts/rate-limit-check.sh --base-url https://example.com \
+  --path /health --limit 100 --window 60 --mode detect
+```
+
+Exit codes: 0 pass, 1 check failed (including transport errors), 2 usage error,
+3 curl missing. The Durable Object limiter it verifies lives in
+[`../templates/workers-do-rate-limiter/`](../templates/workers-do-rate-limiter/README.md).

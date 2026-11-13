@@ -81,6 +81,10 @@ Operators who:
   scrubbed public templates for a private job hub: a Worker webhook relay, a
   Mac launcher pattern, and label, secrets, and GitHub App stubs. It carries
   placeholders only, never live values.
+- [`templates/workers-do-rate-limiter/`](templates/workers-do-rate-limiter/README.md)
+  holds a copy-paste Durable Object fixed-window rate limiter, a Wrangler
+  binding and migration snippet, and a note on measuring Workers Rate Limiting
+  bindings that can report success without enforcing.
 
 ## How to use it
 
