@@ -20,10 +20,10 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Check shell syntax
-        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/lib/agy-settings-check.sh scripts/rate-limit-check.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_pr_state.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh
+        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/lib/agy-settings-check.sh scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_pr_state.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh
 
       - name: Run shellcheck
-        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/lib/agy-settings-check.sh scripts/rate-limit-check.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_pr_state.sh scripts/tests/test_docs_sweep.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh
+        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/lib/agy-settings-check.sh scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_pr_state.sh scripts/tests/test_docs_sweep.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh
 
       - name: Run gate tests
         run: |
@@ -32,6 +32,7 @@ jobs:
           bash scripts/tests/test_pr_state.sh
           bash scripts/tests/test_deploy_hash.sh
           bash scripts/tests/test_rate_limit_check.sh
+          bash scripts/tests/test_worker_deploy.sh
 
       - name: Run docs sweep tests
         run: bash scripts/tests/test_docs_sweep.sh

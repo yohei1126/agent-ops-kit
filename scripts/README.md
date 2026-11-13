@@ -137,3 +137,24 @@ scripts/rate-limit-check.sh --base-url https://example.com \
 Exit codes: 0 pass, 1 check failed (including transport errors), 2 usage error,
 3 curl missing. The Durable Object limiter it verifies lives in
 [`../templates/workers-do-rate-limiter/`](../templates/workers-do-rate-limiter/README.md).
+
+## Deploy a Worker through one shared script
+
+[`worker-deploy.sh`](worker-deploy.sh) runs the preflight and the deploy for one
+Worker, so a maintainer machine and the reusable workflow execute the same
+steps. The preflight runs `npm ci`, a typecheck, the package tests, and
+`npx --no-install wrangler deploy --dry-run`. Deploy mode repeats the preflight,
+then runs `npx --no-install wrangler deploy`, prints `version_id=<id>` on stdout,
+and appends the same line to `GITHUB_OUTPUT` when that file is set.
+
+```bash
+scripts/worker-deploy.sh --dir <worker-dir> --mode preflight
+scripts/worker-deploy.sh --dir <worker-dir> --mode deploy
+```
+
+The optional post-deploy smoke and rate-limit hook stay off by default. The
+script refuses shell xtrace and redacts token, secret, password, and key values
+from all child output. Exit codes: 0 okay, 1 preflight, deploy, smoke, or hook
+failure, 2 usage error, 3 required command missing. See
+[`../docs/worker-deploy.md`](../docs/worker-deploy.md) for the reusable workflow,
+token wiring, concurrency, and rollback.

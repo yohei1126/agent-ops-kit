@@ -72,6 +72,10 @@ Operators who:
   operator routing for security audits, enforcing partial `agy` rules where
   weekly threat news prose and post-audit summaries use `agy` while the audit
   body, live infrastructure defense, and credential handling stay off `agy`.
+- [`docs/worker-deploy.md`](docs/worker-deploy.md) covers the shared Worker
+  deploy path: the reusable `workflow_call` workflow a consumer pins, the local
+  script, scoped token and environment setup, the optional smoke and rate-limit
+  hooks, concurrency, and rollback.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) holds all contribution rules: how to
   propose changes by pull request, the English prose review every PR needs,
   and the generic-examples policy.
