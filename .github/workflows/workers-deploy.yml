@@ -1,0 +1,182 @@
+# Reusable Worker deploy workflow.
+#
+# It is callable only through workflow_call, so this public repository never
+# deploys itself. A consumer adds a thin deploy workflow that calls this file
+# pinned to a full commit SHA, passes the Worker directory and an optional
+# GitHub environment, and maps the two Cloudflare credential names.
+#
+# The job runs the same script a maintainer runs locally:
+# scripts/worker-deploy.sh, checked out from the same commit as this workflow.
+# The preflight step fails fast without credentials. The deploy step repeats the
+# full preflight inside deploy mode, so both paths share one code path. The
+# script prints version_id=<id>, writes it to GITHUB_OUTPUT, and the job
+# exposes it as the version-id output.
+name: Workers deploy
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Worker directory that holds package.json and the wrangler config.
+        type: string
+        default: "."
+      environment:
+        description: GitHub environment for the deploy job. Empty means none.
+        type: string
+        default: ""
+      smoke:
+        description: Run a smoke GET after a successful deploy.
+        type: boolean
+        default: false
+      smoke-url:
+        description: Smoke base URL. https only outside local tests.
+        type: string
+        default: ""
+      smoke-path:
+        description: Smoke request path, starting with a slash.
+        type: string
+        default: "/health"
+      rate-limit-check:
+        description: Run the optional rate-limit hook after the smoke check.
+        type: boolean
+        default: false
+      rate-limit-path:
+        description: Rate-limit request path, starting with a slash.
+        type: string
+        default: "/health"
+      rate-limit-limit:
+        description: Documented request limit per window.
+        type: string
+        default: ""
+      rate-limit-window:
+        description: Documented window length in seconds.
+        type: string
+        default: ""
+      rate-limit-requests:
+        description: Sequential requests for the hook. Empty means limit + 1.
+        type: string
+        default: ""
+      rate-limit-mode:
+        description: enforce or detect.
+        type: string
+        default: "enforce"
+      skip-tests:
+        description: Skip the test step. Discouraged.
+        type: boolean
+        default: false
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        description: Scoped token with Workers Scripts edit and account read.
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        description: Account id for the Worker being deployed.
+        required: true
+    outputs:
+      version-id:
+        description: Wrangler version id of the deployed Worker.
+        value: ${{ jobs.deploy.outputs.version-id }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: worker deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # An empty environment name means no environment. A consumer sets a name
+    # here to require reviewers through that environment's protection rules.
+    environment: ${{ inputs.environment }}
+    # Serialize deploys per repository and environment (or Worker directory).
+    # A running deploy is never cancelled by a later one.
+    concurrency:
+      group: workers-deploy-${{ github.repository }}-${{ inputs.environment || inputs.working-directory }}
+      cancel-in-progress: false
+    outputs:
+      version-id: ${{ steps.deploy.outputs.version_id }}
+    steps:
+      - name: Checkout caller repository
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Checkout this kit at the workflow commit
+        # v5.1.0. job.workflow_repository and job.workflow_sha resolve to the
+        # reusable workflow's own repository and commit, so the script version
+        # always matches the pinned workflow.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .agent-ops-kit
+          persist-credentials: false
+
+      - name: Set up Node
+        # v7.1.0. The repository requires a full commit SHA.
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Preflight
+        # Visible early gate. It runs npm ci, typecheck, tests, and the wrangler
+        # dry run without secrets, so a broken Worker fails before the deploy
+        # step runs. Deploy mode repeats the preflight inside the shared script.
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        run: |
+          set -euo pipefail
+          bash .agent-ops-kit/scripts/worker-deploy.sh \
+            --dir "$WORKING_DIRECTORY" --mode preflight
+
+      - name: Deploy
+        id: deploy
+        # Secrets appear only in this step's env. They are never written into
+        # run text and never printed.
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          SMOKE: ${{ inputs.smoke }}
+          SMOKE_URL: ${{ inputs.smoke-url }}
+          SMOKE_PATH: ${{ inputs.smoke-path }}
+          RATE_LIMIT_CHECK: ${{ inputs.rate-limit-check }}
+          RATE_LIMIT_PATH: ${{ inputs.rate-limit-path }}
+          RATE_LIMIT_LIMIT: ${{ inputs.rate-limit-limit }}
+          RATE_LIMIT_WINDOW: ${{ inputs.rate-limit-window }}
+          RATE_LIMIT_REQUESTS: ${{ inputs.rate-limit-requests }}
+          RATE_LIMIT_MODE: ${{ inputs.rate-limit-mode }}
+          SKIP_TESTS: ${{ inputs.skip-tests }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          args=(--dir "$WORKING_DIRECTORY" --mode deploy)
+          if [ "$SKIP_TESTS" = "true" ]; then
+            args+=(--skip-tests)
+          fi
+          if [ "$SMOKE" = "true" ]; then
+            if [ -z "$SMOKE_URL" ]; then
+              printf 'workers-deploy: smoke is true but smoke-url is empty\n' >&2
+              exit 2
+            fi
+            args+=(--smoke-url "$SMOKE_URL" --smoke-path "$SMOKE_PATH")
+          fi
+          if [ "$RATE_LIMIT_CHECK" = "true" ]; then
+            if [ -z "$SMOKE_URL" ]; then
+              printf 'workers-deploy: rate-limit-check needs smoke-url as its base URL\n' >&2
+              exit 2
+            fi
+            args+=(--rate-limit-check --smoke-url "$SMOKE_URL")
+            args+=(--smoke-path "$SMOKE_PATH" --rl-path "$RATE_LIMIT_PATH")
+            if [ -n "$RATE_LIMIT_LIMIT" ]; then
+              args+=(--rl-limit "$RATE_LIMIT_LIMIT")
+            fi
+            if [ -n "$RATE_LIMIT_WINDOW" ]; then
+              args+=(--rl-window "$RATE_LIMIT_WINDOW")
+            fi
+            if [ -n "$RATE_LIMIT_REQUESTS" ]; then
+              args+=(--rl-requests "$RATE_LIMIT_REQUESTS")
+            fi
+            args+=(--rl-mode "$RATE_LIMIT_MODE")
+          fi
+          bash .agent-ops-kit/scripts/worker-deploy.sh "${args[@]}"
