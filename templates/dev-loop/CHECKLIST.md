@@ -66,7 +66,9 @@ bash ../../scripts/dev-loop-gate.sh
 ```
 
 It exits 0 for every soft status, including FAIL on a later gate, so the table
-is readable in one pass. It exits 1 only on a G1 hard preflight miss.
+is readable in one pass. It exits 1 only on a G1 hard preflight miss, or on the
+`NM` row when `package-lock.json` sits beside a missing `node_modules`
+([GATES.md](GATES.md#npm-ci)).
 
 ## Related
 

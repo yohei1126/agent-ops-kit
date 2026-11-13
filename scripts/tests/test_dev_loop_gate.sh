@@ -303,6 +303,67 @@ expect_regex "16: over-cap row has no quotes" "^LC +docs/big\.md +FAIL +501 line
 expect_regex "16: summary row has no quotes" "^LC +line-cap +FAIL +1 files checked, 1 over cap\.$"
 expect_no_quote "16: line-cap output has no double quote"
 
+printf '== npm-ci ==\n'
+
+npm_repo="$(make_repo)"
+: > "$npm_repo/package-lock.json"
+
+run_gate "$repo_root" bash "$gate" --repo "$npm_repo" --check npm-ci
+expect_status "17: lockfile without node_modules exits 1" 1
+expect_regex "17: npm-ci fail row" "^NM +npm-ci +FAIL "
+expect_out "17: npm-ci hint names npm ci" "npm ci"
+
+run_gate "$npm_repo" bash "$gate"
+expect_status "17: default table fails on missing node_modules" 1
+expect_out "17: default table hint names npm ci" "npm ci"
+for id in G1 G2 G3 G4 G5 G6 G7; do
+  if printf '%s\n' "$out" | grep -q "^$id "; then
+    ok "17: table with missing node_modules has $id row"
+  else
+    bad "17: table with missing node_modules has $id row" "no $id row in stdout"
+  fi
+done
+
+run_gate "$repo_root" bash "$gate" --repo "$npm_repo"
+expect_status "18: default table with --repo fails on missing node_modules" 1
+expect_out "18: --repo table hint names npm ci" "npm ci"
+
+npm_ok_repo="$(make_repo)"
+: > "$npm_ok_repo/package-lock.json"
+mkdir -p "$npm_ok_repo/node_modules"
+
+run_gate "$repo_root" bash "$gate" --repo "$npm_ok_repo" --check npm-ci
+expect_status "19: lockfile with node_modules dir exits 0" 0
+expect_regex "19: npm-ci pass row" "^NM +npm-ci +PASS "
+
+run_gate "$npm_ok_repo" bash "$gate"
+expect_status "19: default table passes with node_modules dir" 0
+expect_regex "19: table pass row" "^NM +npm-ci +PASS "
+
+npm_skip_repo="$(make_repo)"
+run_gate "$repo_root" bash "$gate" --repo "$npm_skip_repo" --check npm-ci
+expect_status "20: no lockfile exits 0" 0
+expect_regex "20: no lockfile skips" "^NM +npm-ci +SKIP "
+
+run_gate "$npm_skip_repo" bash "$gate"
+expect_status "20: default table skips without a lockfile" 0
+expect_regex "20: table skip row" "^NM +npm-ci +SKIP "
+
+npm_file_repo="$(make_repo)"
+: > "$npm_file_repo/package-lock.json"
+: > "$npm_file_repo/node_modules"
+
+run_gate "$repo_root" bash "$gate" --repo "$npm_file_repo" --check npm-ci
+expect_status "21: node_modules file exits 1" 1
+expect_out "21: node_modules file hints npm ci" "npm ci"
+
+run_gate "$repo_root" bash "$gate" --repo "$npm_repo" --check npm-ci --strict
+expect_status "22: strict FAIL still exits 1" 1
+
+run_gate "$repo_root" bash "$gate" --repo "$npm_repo" --check line-cap
+expect_status "22: line-cap ignores the npm-ci preflight" 0
+expect_no_out "22: line-cap prints no npm ci hint" "npm ci"
+
 printf '== this repo ==\n'
 
 run_gate "$repo_root" bash "$gate" --strict --check line-cap
