@@ -404,6 +404,93 @@ else
   ok "21: missing/../ pass writes no stderr"
 fi
 
+printf '== strict allow entries ==\n'
+
+strict_fail() {
+  local label="$1"
+  local entry="$2"
+  local file="$work_tmp/strict-$label.json"
+
+  printf '{"permissions": {"allow": [%s]}}\n' \
+    "$(printf '%s' "$entry" | jq -R .)" >"$file"
+  run_launcher "strict-$label" --check-settings "$file" "$current_run"
+  expect_status "22: $label exits 1" 1
+  expect_err "22: $label names the entry" "$entry"
+}
+
+strict_file="$work_tmp/strict-empty-string.json"
+printf '{"permissions": {"allow": [""]}}\n' >"$strict_file"
+run_launcher strict-empty-string --check-settings "$strict_file" "$current_run"
+expect_status "22: empty string entry exits 1" 1
+expect_err "22: empty string entry is named" 'allow entry "" is empty'
+
+strict_file="$work_tmp/strict-empty-array.json"
+printf '{"permissions": {"allow": []}}\n' >"$strict_file"
+run_launcher strict-empty-array --check-settings "$strict_file" "$current_run"
+expect_status "22: empty allow array exits 1" 1
+expect_err "22: empty allow array is named" 'allow list is empty ([])'
+
+strict_file="$work_tmp/strict-empty-second.json"
+printf '{"permissions": {"allow": [%s, ""]}}\n' \
+  "$(printf 'write_file(%s)' "$current_real" | jq -R .)" >"$strict_file"
+run_launcher strict-empty-second --check-settings "$strict_file" "$current_run"
+expect_status "22: empty second entry exits 1" 1
+expect_err "22: empty second entry is named" 'allow entry "" is empty'
+
+current_name="$(basename "$current_run")"
+strict_fail split-entry "write_file(/outside)/../../$current_name)"
+strict_fail open-paren "write_file((x)"
+strict_fail no-close "write_file($current_real"
+strict_fail empty-tool "($current_real)"
+strict_fail trailing-junk "write_file($current_real)junk"
+strict_fail command-trailing "command(ls) extra"
+strict_fail glob-question "write_file($current_real/?)"
+strict_fail glob-class "write_file($current_real/[a])"
+strict_fail edit-empty "edit_file()"
+strict_fail bare-read "read_file"
+strict_fail command-empty "command()"
+
+strict_file="$work_tmp/strict-relative-ok.json"
+printf '{"permissions": {"allow": ["edit_file(REVIEW.md)"]}}\n' >"$strict_file"
+run_launcher strict-relative-ok --check-settings "$strict_file" "$pass_run"
+expect_status "22: relative edit_file(REVIEW.md) inside the run folder passes" 0
+if [ -n "$err" ]; then
+  bad "22: relative edit_file pass writes no stderr" "stderr: $err"
+else
+  ok "22: relative edit_file pass writes no stderr"
+fi
+
+pass_real="$(cd "$pass_run" && pwd -P)"
+strict_file="$work_tmp/strict-generated.json"
+sed "s|@RUN_DIR@|$pass_real|g" \
+  "$repo_root/scripts/templates/agy-review-settings.json" >"$strict_file"
+run_launcher strict-generated --check-settings "$strict_file" "$pass_run"
+expect_status "22: generated template entries still pass" 0
+
+printf '== symlinked log and pid files are refused ==\n'
+
+for symlink_name in agy.log agy.stderr.log agy.pid; do
+  symlink_slug="${symlink_name//./-}"
+  symlink_run="$runs_root/relaunch-$symlink_slug"
+  mkdir -p "$symlink_run"
+  symlink_target="$work_tmp/target-$symlink_slug"
+  printf 'outside target\n' >"$symlink_target"
+  ln -s "$symlink_target" "$symlink_run/$symlink_name"
+  run_launcher "relaunch-$symlink_slug" "relaunch-$symlink_slug" "$repo_dir" "$brief"
+  expect_status "23: symlinked $symlink_name relaunch exits 1" 1
+  expect_err "23: symlinked $symlink_name is named" "refusing symlinked $symlink_name"
+  if [ "$(cat "$symlink_target")" = "outside target" ]; then
+    ok "23: symlinked $symlink_name target is unchanged"
+  else
+    bad "23: symlinked $symlink_name target is unchanged" "target content changed"
+  fi
+  if [ -s "$argv_file" ]; then
+    bad "23: symlinked $symlink_name does not start agy" "stub recorded argv"
+  else
+    ok "23: symlinked $symlink_name does not start agy"
+  fi
+done
+
 printf '== usage and path validation ==\n'
 
 run_launcher bad-dotdot "../x" "$repo_dir" "$brief"

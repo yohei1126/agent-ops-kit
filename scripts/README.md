@@ -69,12 +69,15 @@ Flow:
    overwrites any existing file. It never reads settings from another run
    folder.
 4. [`lib/agy-settings-check.sh`](lib/agy-settings-check.sh) parses
-   `.permissions.allow[]` and fails when a path-bearing entry resolves outside
-   the run folder, including escapes through `..` or a symlink. A wildcard, a
-   missing `write_file` argument, a non-string entry, or invalid JSON also
-   fails.
-5. After the check passes, `agy` starts in the background with cwd set to the
-   run folder and writes `agy.log`, `agy.stderr.log`, and `agy.pid`.
+   `.permissions.allow[]` and fails when an entry is empty, is not a strict
+   `name(argument)` entry with one parenthesis-free argument, or resolves
+   outside the run folder, including escapes through `..` or a symlink. Every
+   non-`command` argument is treated as a path; wildcards, an empty allow list,
+   a non-string entry, or invalid JSON also fail.
+5. After the check passes, a launch refuses a symlinked `settings.json`,
+   `BRIEF.md`, generated settings temp file, `agy.log`, `agy.stderr.log`, or
+   `agy.pid`, then starts `agy` in the background with cwd set to the run
+   folder and writes those three files.
 
 Use `--dry-run` to create the run folder and settings, run the check, and print
 the command without starting `agy`. Use

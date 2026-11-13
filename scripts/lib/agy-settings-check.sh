@@ -9,10 +9,13 @@
 # argument count.
 #
 # Rules:
-# - command(...) entries are not paths and are skipped.
-# - write_file entries must carry a path and no wildcard.
-# - Other name(arg) entries whose argument starts with /, ~, or . or contains /
-#   are treated as paths.
+# - .permissions.allow must hold at least one entry, and no entry may be empty.
+# - Every entry must have the strict shape name(arg): the tool name matches
+#   [A-Za-z_][A-Za-z0-9_-]*, and arg holds no "(" or ")". Anything else, such
+#   as a bare tool name or trailing text after the closing ")", fails.
+# - command(...) entries are not paths, but still need a non-empty argument.
+# - Every other argument is a path. An empty argument fails, and so does a
+#   glob character (*, ?, or [).
 # - A leading ~ expands against $HOME. Every component is then resolved on
 #   disk in order: a symlink at any position (file, directory, or dangling) is
 #   read and its target is spliced in, so it cannot hide an escape. A symlink
@@ -148,42 +151,45 @@ agy_settings_check_entry() {
   local entry="$1"
   local run_real="$2"
   local tool arg resolved
+  # Strict name(arg) shape. The pattern lives in a variable (unquoted at use)
+  # so bash 3.2 and bash 5 agree on it; the bracket forms keep "(" and ")"
+  # literal in both.
+  local entry_re='^[A-Za-z_][A-Za-z0-9_-]*[(][^()]*[)]$'
 
-  case "$entry" in
-    *'('*')'*)
-      tool="${entry%%(*}"
-      arg="${entry#*(}"
-      arg="${arg%\)}"
-      ;;
-    *)
-      printf 'agy-review-launch: settings: allow entry %s has no name(argument) form\n' "$entry" >&2
-      return 1
-      ;;
-  esac
+  if [ -z "$entry" ]; then
+    printf 'agy-review-launch: settings: allow entry "" is empty; name(argument) entries required\n' >&2
+    return 1
+  fi
+
+  if ! [[ "$entry" =~ $entry_re ]]; then
+    printf 'agy-review-launch: settings: allow entry %s is not a strict name(argument) entry\n' "$entry" >&2
+    return 1
+  fi
+
+  tool="${entry%%(*}"
+  arg="${entry#*(}"
+  arg="${arg%\)}"
+
+  if [ -z "$arg" ]; then
+    if [ "$tool" = "command" ]; then
+      printf 'agy-review-launch: settings: %s has an empty command argument\n' "$entry" >&2
+    else
+      printf 'agy-review-launch: settings: %s has no path argument\n' "$entry" >&2
+    fi
+    return 1
+  fi
 
   # command(...) runs a program; it does not name a write path.
   if [ "$tool" = "command" ]; then
     return 0
   fi
 
-  case "$entry" in
-    *'*'*)
+  case "$arg" in
+    *'*'* | *'?'* | *'['*)
       printf 'agy-review-launch: settings: %s uses a wildcard; allow exact paths only\n' "$entry" >&2
       return 1
       ;;
   esac
-
-  if [ "$tool" = "write_file" ] && [ -z "$arg" ]; then
-    printf 'agy-review-launch: settings: %s has no path argument\n' "$entry" >&2
-    return 1
-  fi
-
-  if [ "$tool" != "write_file" ]; then
-    case "$arg" in
-      /* | '~'* | .* | */*) ;;
-      *) return 0 ;;
-    esac
-  fi
 
   if ! resolved="$(agy_physical_path "$arg" "$run_real")"; then
     printf 'agy-review-launch: settings: cannot resolve %s (%s)\n' "$entry" "$arg" >&2
@@ -231,6 +237,10 @@ agy_settings_check() {
     return 1
   fi
   total="$(jq -r '.permissions.allow | length' "$settings")"
+  if [ "$total" -eq 0 ]; then
+    printf 'agy-review-launch: settings: allow list is empty ([]): %s\n' "$settings" >&2
+    return 1
+  fi
   lines="$(jq -r '.permissions.allow[]' "$settings" | wc -l | tr -d '[:space:]')"
   if [ "$total" != "$lines" ]; then
     printf 'agy-review-launch: settings: an allow entry contains a newline: %s\n' "$settings" >&2
@@ -246,9 +256,6 @@ agy_settings_check() {
   fi
 
   while IFS= read -r entry; do
-    if [ -z "$entry" ]; then
-      continue
-    fi
     if ! agy_settings_check_entry "$entry" "$run_real"; then
       return 1
     fi

@@ -13,10 +13,10 @@
 #   on every launch. It never reads or copies settings from another run folder.
 # - The template's only variable is @RUN_DIR@, replaced with the resolved
 #   physical run folder path.
-# - Runs scripts/lib/agy-settings-check.sh before launch and exits 1 when any
-#   path-bearing allow entry resolves outside the run folder.
-# - Refuses a symlinked run folder, brief, or settings file, and refuses a run
-#   name that is not a plain token.
+# - Runs scripts/lib/agy-settings-check.sh before launch and exits 1 when an
+#   allow entry is empty, malformed, or resolves outside the run folder.
+# - Refuses a symlinked run folder, brief, settings file, settings temp file,
+#   or log/pid file, and refuses a run name that is not a plain token.
 # - Never passes --dangerously-skip-permissions and never writes outside the
 #   run folder (except creating the runs root).
 # - Never reads, writes, or migrates global Antigravity/agy settings; --settings
@@ -225,6 +225,21 @@ if [ "$run_real" = "$runs_root_real" ] || ! agy_path_inside "$run_real" "$runs_r
 fi
 
 settings_file="$run_real/settings.json"
+stdout_log="$run_real/agy.log"
+stderr_log="$run_real/agy.stderr.log"
+pid_file="$run_real/agy.pid"
+
+# Every path the launcher writes must not be a symlink, including a dangling
+# one: a link could redirect a write outside the run folder.
+refuse_symlink_write_target() {
+  local path="$1"
+
+  if [ -L "$path" ]; then
+    printf 'agy-review-launch: refusing symlinked %s: %s\n' "${path##*/}" "$path" >&2
+    exit 1
+  fi
+}
+
 if [ -L "$settings_file" ]; then
   printf 'agy-review-launch: refusing symlinked settings file: %s\n' "$settings_file" >&2
   exit 1
@@ -233,6 +248,9 @@ if [ -L "$run_real/BRIEF.md" ]; then
   printf 'agy-review-launch: refusing symlinked brief: %s\n' "$run_real/BRIEF.md" >&2
   exit 1
 fi
+refuse_symlink_write_target "$stdout_log"
+refuse_symlink_write_target "$stderr_log"
+refuse_symlink_write_target "$pid_file"
 
 if [ "$brief_real" != "$run_real/BRIEF.md" ]; then
   cp -f -- "$brief_real" "$run_real/BRIEF.md"
@@ -244,7 +262,15 @@ if [ ! -r "$settings_template" ]; then
   exit 1
 fi
 escaped_run="$(printf '%s' "$run_real" | sed 's/[\\&|]/\\&/g')"
-settings_tmp="$run_real/.agy-review-settings.$$"
+if ! settings_tmp="$(mktemp "$run_real/.agy-review-settings.XXXXXX")"; then
+  printf 'agy-review-launch: failed to create a settings temp file in %s\n' "$run_real" >&2
+  exit 1
+fi
+if [ -L "$settings_tmp" ]; then
+  rm -f -- "$settings_tmp"
+  printf 'agy-review-launch: refusing symlinked settings temp file: %s\n' "$settings_tmp" >&2
+  exit 1
+fi
 if ! sed "s|@RUN_DIR@|$escaped_run|g" "$settings_template" >"$settings_tmp"; then
   rm -f -- "$settings_tmp"
   printf 'agy-review-launch: failed to generate %s\n' "$settings_file" >&2
@@ -263,10 +289,6 @@ if ! agy_settings_check "$settings_file" "$run_real"; then
 fi
 
 # Model resolved above so usage errors leave the runs root untouched.
-stdout_log="$run_real/agy.log"
-stderr_log="$run_real/agy.stderr.log"
-pid_file="$run_real/agy.pid"
-
 if [ -f "$pid_file" ]; then
   existing_pid="$(tr -d '[:space:]' <"$pid_file" || true)"
   case "$existing_pid" in
