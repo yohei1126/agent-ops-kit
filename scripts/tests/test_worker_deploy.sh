@@ -32,7 +32,7 @@ out=""
 err=""
 status=0
 
-# shellcheck disable=SC2329  # called from the EXIT trap below
+# shellcheck disable=SC2317,SC2329  # called from the EXIT trap below
 cleanup() {
   if [ -n "${sig_pid:-}" ] && kill -0 "$sig_pid" 2>/dev/null; then
     kill -KILL -"$sig_pid" 2>/dev/null || kill -KILL "$sig_pid" 2>/dev/null || true
