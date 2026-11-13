@@ -9,6 +9,7 @@ pass=0
 fail=0
 work_tmp="$(mktemp -d)"
 err_file="$work_tmp/stderr"
+stub_bin="$work_tmp/bin-node"
 : > "$err_file"
 
 out=""
@@ -62,6 +63,20 @@ expect_no_out() {
   esac
 }
 
+expect_err() {
+  case "$err" in
+    *"$2"*) ok "$1" ;;
+    *) bad "$1" "stderr missing: $2" ;;
+  esac
+}
+
+expect_no_err() {
+  case "$err" in
+    *"$2"*) bad "$1" "stderr should not contain: $2" ;;
+    *) ok "$1" ;;
+  esac
+}
+
 expect_no_quote() {
   if printf '%s\n' "$out" | grep -q '"'; then
     bad "$1" "stdout contains a double quote"
@@ -100,6 +115,31 @@ run_gate() {
   out="$(cd "$dir" && "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
+}
+
+make_stub_node() {
+  local version="$1"
+
+  mkdir -p "$stub_bin"
+  cat > "$stub_bin/node" <<EOF
+#!/bin/sh
+printf '%s\n' '$version'
+EOF
+  chmod +x "$stub_bin/node"
+}
+
+make_tool_path() {
+  local dir="$1"
+  shift
+  local tool found
+
+  mkdir -p "$dir"
+  for tool in "$@"; do
+    found="$(command -v "$tool" 2>/dev/null || true)"
+    if [ -n "$found" ]; then
+      ln -s "$found" "$dir/$tool"
+    fi
+  done
 }
 
 printf '== default table ==\n'
@@ -363,6 +403,196 @@ expect_status "22: strict FAIL still exits 1" 1
 run_gate "$repo_root" bash "$gate" --repo "$npm_repo" --check line-cap
 expect_status "22: line-cap ignores the npm-ci preflight" 0
 expect_no_out "22: line-cap prints no npm ci hint" "npm ci"
+
+printf '== node-pin ==\n'
+
+make_stub_node v26.1.0
+
+pin_repo="$(make_repo)"
+printf '22\n' > "$pin_repo/.nvmrc"
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$pin_repo" --check node-pin
+expect_status "23: local major above the pin exits 1" 1
+expect_regex "23: node-pin fail row names both majors" \
+  "^NP +node-pin +FAIL +local Node 26 != pin 22; run tests with npx -y node@22 or nvm use\.$"
+expect_err "23: node-pin hint names the pinned major" "node@22"
+
+wf_repo="$(make_repo)"
+printf '22\n' > "$wf_repo/.nvmrc"
+mkdir -p "$wf_repo/.github/workflows"
+cat > "$wf_repo/.github/workflows/ci.yml" <<'YAML'
+name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+YAML
+make_stub_node v22.11.0
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$wf_repo" --check node-pin
+expect_status "24: hard-coded workflow node-version exits 1" 1
+expect_regex "24: workflow failure row" "^NP +node-pin +FAIL "
+expect_out "24: workflow failure names the file" ".github/workflows/ci.yml"
+expect_out "24: workflow failure names node-version-file" "node-version-file: .nvmrc"
+expect_no_out "24: workflow failure is not the local major" "local Node"
+
+file_repo="$(make_repo)"
+printf '22\n' > "$file_repo/.nvmrc"
+mkdir -p "$file_repo/.github/workflows"
+cat > "$file_repo/.github/workflows/ci.yml" <<'YAML'
+name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+YAML
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$file_repo" --check node-pin
+expect_status "25: node-version-file workflow exits 0" 0
+expect_regex "25: node-pin pass row" "^NP +node-pin +PASS +Continue\.$"
+expect_no_err "25: node-pin pass prints no hint" "dev-loop-gate: node-pin:"
+
+nopin_repo="$(make_repo)"
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$nopin_repo" --check node-pin
+expect_status "26: no pin file exits 0" 0
+expect_regex "26: no pin file skips" \
+  "^NP +node-pin +SKIP +no \.nvmrc or engines\.node; Node is not pinned\.$"
+
+nopin_wf_repo="$(make_repo)"
+mkdir -p "$nopin_wf_repo/.github/workflows"
+cat > "$nopin_wf_repo/.github/workflows/ci.yaml" <<'YAML'
+name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+YAML
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$nopin_wf_repo" --check node-pin
+expect_status "26: no pin file skips despite a hard-coded workflow" 0
+expect_regex "26: hard-coded workflow without a pin skips" "^NP +node-pin +SKIP "
+
+eng_repo="$(make_repo)"
+cat > "$eng_repo/package.json" <<'JSON'
+{"engines":{"node":"22.x"}}
+JSON
+make_stub_node v20.19.0
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$eng_repo" --check node-pin
+expect_status "27: engines 22.x with local 20 exits 1" 1
+expect_regex "27: engines fail row names both majors" \
+  "^NP +node-pin +FAIL +local Node 20 != pin 22; run tests with npx -y node@22 or nvm use\.$"
+
+eng_range_repo="$(make_repo)"
+cat > "$eng_range_repo/package.json" <<'JSON'
+{"engines":{"node":">=20"}}
+JSON
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$eng_range_repo" --check node-pin
+expect_status "27: engines range exits 0" 0
+expect_regex "27: engines range skips with a reason" \
+  "^NP +node-pin +SKIP +engines\.node \(>=20\) is not a single major; Node is not pinned\.$"
+
+eng_caret_repo="$(make_repo)"
+cat > "$eng_caret_repo/package.json" <<'JSON'
+{"engines":{"node":"^22.11.0"}}
+JSON
+make_stub_node v22.5.0
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$eng_caret_repo" --check node-pin
+expect_status "27: caret engines pin accepts the local major" 0
+expect_regex "27: caret engines pin passes" "^NP +node-pin +PASS +Continue\.$"
+
+make_stub_node v25.1.0
+
+run_gate "$pin_repo" env PATH="$stub_bin:$PATH" bash "$gate"
+expect_status "28: default table fails on a pin mismatch without --strict" 1
+expect_regex "28: default table node-pin row" "^NP +node-pin +FAIL "
+expect_out "28: default table hint names node@22" "node@22"
+
+no_node_dir="$work_tmp/no-node"
+make_tool_path "$no_node_dir" bash sh git dirname awk cat env
+
+run_gate "$repo_root" env PATH="$no_node_dir" \
+  bash "$gate" --repo "$pin_repo" --check node-pin
+expect_status "29: missing node exits 1" 1
+expect_regex "29: missing node fail row" "^NP +node-pin +FAIL "
+expect_err "29: missing node hint names the pinned major" "install Node 22"
+
+run_gate "$repo_root" env PATH="$no_node_dir" \
+  bash "$gate" --repo "$eng_repo" --check node-pin
+expect_status "30: package pin without jq exits 0" 0
+expect_regex "30: package pin without jq skips" \
+  "^NP +node-pin +SKIP +jq is needed to read engines\.node"
+
+nvmrc_v_repo="$(make_repo)"
+printf 'v22.11.0\n' > "$nvmrc_v_repo/.nvmrc"
+make_stub_node v22.0.0
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$nvmrc_v_repo" --check node-pin
+expect_status "31: .nvmrc with a v prefix passes" 0
+expect_regex "31: .nvmrc with a v prefix passes" "^NP +node-pin +PASS +Continue\.$"
+
+nvmrc_lts_repo="$(make_repo)"
+printf 'lts/*\n' > "$nvmrc_lts_repo/.nvmrc"
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$nvmrc_lts_repo" --check node-pin
+expect_status "31: .nvmrc alias exits 0" 0
+expect_regex "31: .nvmrc alias skips" \
+  "^NP +node-pin +SKIP +\.nvmrc \(lts/\*\) is not a single major; Node is not pinned\.$"
+
+sha_repo="$(make_repo)"
+printf '22\n' > "$sha_repo/.nvmrc"
+mkdir -p "$sha_repo/.github/workflows"
+cat > "$sha_repo/.github/workflows/ci-sha.yml" <<'YAML'
+name: CI
+on: push
+jobs:
+  one:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          node-version-file: .nvmrc
+  two:
+    steps:
+      - uses: actions/setup-node@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          node-version: 20
+YAML
+make_stub_node v22.1.0
+
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" \
+  bash "$gate" --repo "$sha_repo" --check node-pin
+expect_status "32: inline step with a SHA ref exits 1" 1
+expect_regex "32: second job failure row" "^NP +node-pin +FAIL "
+expect_out "32: second job failure names the file" ".github/workflows/ci-sha.yml"
 
 printf '== this repo ==\n'
 

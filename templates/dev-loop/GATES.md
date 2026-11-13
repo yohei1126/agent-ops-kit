@@ -99,13 +99,13 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 ```
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
-  implemented ids are `line-cap`, `npm-ci`, `docs-sweep`, `pr-state`, and
-  `deploy-hash`. Other ids, including `all`, exit 2 with a message that
-  the check is not implemented. Later checks will be added under the
-  same flag.
+  implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
+  `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
+  message that the check is not implemented. Later checks will be added under
+  the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
   row is printed but the exit code stays 0, the same advisory spirit as G2 to
-  G7. `npm-ci` is the exception: its FAIL always exits 1.
+  G7. `npm-ci` and `node-pin` are the exceptions: their FAIL always exits 1.
 - `--repo <root>` points the check at any git work tree. The default is the
   work tree of the current directory. All git calls run with `git -C`. Passing
   `--repo` with something that is not a git work tree exits 2.
@@ -122,8 +122,8 @@ Exit codes:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci is never advisory) |
-| 1 | FAIL under `--strict`, or a G1 or npm-ci failure in the table |
+| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci and node-pin are never advisory) |
+| 1 | FAIL under `--strict`, or a hard preflight miss: G1, npm-ci, or node-pin, including `--check npm-ci` and `--check node-pin` |
 | 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
 | 3 | A required command is missing (`git`, `jq`, `gh`, or `curl`), `gh` fails or its output is not pull request JSON, or the deploy-hash library cannot be read |
 
@@ -159,6 +159,42 @@ back to the current directory when git cannot resolve a work tree. A FAIL there
 also exits 1 without `--strict`. The other named checks do not run it, so
 `line-cap`, `docs-sweep`, `pr-state`, and `deploy-hash` keep their own exit
 rules.
+
+### node-pin
+
+`--check node-pin` stops a job when the local Node major differs from the
+repository pin, or when a workflow hard-codes a Node version instead of reading
+the pin. The same tests can pass on a newer local major and fail in CI, so both
+sides have to read one pinned value.
+
+The pin comes from the first source that exists:
+
+1. `.nvmrc` at the repository root. The first non-blank, non-comment line is
+   the pin, with whitespace and any trailing comment removed.
+2. `package.json` `engines.node`, read with `jq`. If `jq` is missing and only
+   `package.json` could pin, the check SKIPs and the row asks for `jq`.
+
+A pin names one major. `.nvmrc` accepts `22`, `v22`, `22.11.0`, and
+`v22.11.0`. `engines.node` also accepts `22.x`, `^22`, `~22`, and `=22`.
+Anything else, such as `lts/*`, `node`, `>=20`, or `20 || 22`, is a range or an
+alias: SKIP, with the value and the reason in the row.
+
+- No pin file: SKIP. A repository that does not run Node in CI is not
+  affected.
+- A workflow under `.github/workflows/` with an `actions/setup-node` step that
+  sets `node-version:` instead of `node-version-file:`: FAIL, and the row names
+  the workflow file. Any action ref, such as `@v4` or a commit SHA, is
+  inspected.
+- `node` missing from `PATH`: FAIL, with a hint to install the pinned major.
+- The local major differs from the pin: FAIL, with a hint such as
+  `run tests with npx -y node@22 or nvm use`.
+- The majors match: PASS.
+
+The workflow rule runs before the local major check, so a hard-coded workflow
+fails even when the local Node matches. FAIL exits 1 even without `--strict`,
+the same hard-preflight spirit as G1 and npm-ci. The default G1 to G7 table
+runs this rule as an `NP` row after `NM`, with the same root fallback, and a
+FAIL there also exits 1. The other named checks do not run it.
 
 ### docs-sweep
 
