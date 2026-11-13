@@ -344,6 +344,7 @@ G4   draft                          PASS   Continue.
 G5   vulnerability silence          PASS   Continue.
 G6   RETRO ingest                   QUIET  Stay quiet; v1 silence, no invented retro.
 G7   one job                        PASS   Continue.
+NM   npm-ci                         SKIP   no package-lock.json; npm is not in use.
 TABLE
 )"
 

@@ -65,8 +65,10 @@ using the wrapper scripts:
 ## Local gate checks
 
 [`dev-loop-gate.sh`](dev-loop-gate.sh) prints the G1 to G7 table and runs the
-`line-cap` and `docs-sweep` checks. It also runs a `pr-state` check that reads
-one pull request through `gh`, and a `deploy-hash` check that waits for a
-deployed asset to change. `pr-state` and `deploy-hash` are the networked paths.
-See
+`line-cap` and `docs-sweep` checks. The table also runs an `npm-ci` preflight
+that fails when `package-lock.json` sits beside a missing `node_modules`;
+`--check npm-ci` runs that rule alone. The script also runs a `pr-state` check
+that reads one pull request through `gh`, and a `deploy-hash` check that waits
+for a deployed asset to change. `pr-state` and `deploy-hash` are the networked
+paths. See
 [`../templates/dev-loop/GATES.md`](../templates/dev-loop/GATES.md#named-checks).
