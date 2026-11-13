@@ -44,6 +44,48 @@ Call one workstation `Shell` per phase after the brief exists under
    ~/agy-work/grok-bot-ops/scripts/agy-docs-collect.sh <repo> [log-stem]
    ```
 
+## Review launches generate per-run settings
+
+[`agy-review-launch.sh`](agy-review-launch.sh) prepares a model-review run
+folder and writes its `settings.json` on every launch from
+[`templates/agy-review-settings.json`](templates/agy-review-settings.json). The
+template has one variable, `@RUN_DIR@`, and the launcher replaces it with the
+resolved physical run folder path, so a copied settings file cannot point at an
+older run.
+
+```bash
+~/agy-work/grok-bot-ops/scripts/agy-review-launch.sh <run-name> <repo-checkout> <brief-path> [model]
+```
+
+Flow:
+
+1. `<run-name>` must be a plain token (`[A-Za-z0-9._-]+`, not `.` or `..`, no
+   leading `-`). The run folder is `$HOME/agy-work/runs/<run-name>`; the
+   launcher refuses a symlinked folder or one that resolves outside that root.
+2. `<repo-checkout>` must exist and resolve inside `$HOME/agy-work`.
+   `<brief-path>` must be readable; when it is not already `<run>/BRIEF.md`,
+   the launcher copies it there.
+3. The launcher regenerates `<run>/settings.json` from the template and
+   overwrites any existing file. It never reads settings from another run
+   folder.
+4. [`lib/agy-settings-check.sh`](lib/agy-settings-check.sh) parses
+   `.permissions.allow[]` and fails when a path-bearing entry resolves outside
+   the run folder, including escapes through `..` or a symlink. A wildcard, a
+   missing `write_file` argument, a non-string entry, or invalid JSON also
+   fails.
+5. After the check passes, `agy` starts in the background with cwd set to the
+   run folder and writes `agy.log`, `agy.stderr.log`, and `agy.pid`.
+
+Use `--dry-run` to create the run folder and settings, run the check, and print
+the command without starting `agy`. Use
+`--check-settings <settings.json> <run-dir>` to run only the check on an
+existing file.
+
+The launch keeps the existing guarantees: no
+`--dangerously-skip-permissions`, no edits to global Antigravity settings, and
+`--settings` stays session-only. The model defaults to `gemini-4-argon-medium`;
+the fourth argument or `AGY_REVIEW_MODEL` overrides it.
+
 ## Safety boundaries remain unchanged
 
 Keep every existing launch confirmation and permission boundary in place when
