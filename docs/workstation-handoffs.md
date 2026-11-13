@@ -250,6 +250,25 @@ commands already in the workstation allow list (see
 `agy` stay `write_file`-only, and Grok Bot runs git and the draft PR at collect
 (see [Collect agy handoffs in one Mac shell](launch-approvals-and-collection.md#collect-agy-handoffs-in-one-mac-shell-and-keep-reporting-thin)).
 
+### Six labeled lines for every agent-to-agent handoff
+
+Every bot-to-bot request, routine handoff, and coding-lane brief starts with
+six short labeled lines: From, To, Objective, Artifacts (repository, pull
+request, page, or file with its current head or link), Decisions (already
+made, including operator approvals with their date), and Open questions. Link
+to history instead of pasting it.
+
+Example handoff block:
+
+```text
+From: cost/ops bot
+To: coding lane
+Objective: split docs/topic.md at its 500-line cap and update cross-links
+Artifacts: repo owner/repo, branch docs/topic-split at commit 1a2b3c4
+Decisions: keep sibling topic naming approved by operator on 2026-11-13
+Open questions: none
+```
+
 ## 4. Control parallel `agy` and `agent` runs to prevent branch conflicts
 
 Enforce strict write isolation whenever multiple local CLI sessions (`agy`,

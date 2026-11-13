@@ -90,3 +90,22 @@ details. Link those notes here for the Mac steps.
 
 Public text stays generic. Omit personal vault names, email addresses, and
 real key material.
+
+## 7. Credential setup and injection safety
+
+- Dry-run every setup step that handles a secret (paste, prompt, length
+  limit, access control) once on the real workstation with a fake value of
+  realistic length before handing it to the operator.
+- Give the operator credential setup as one numbered checklist that names
+  every item (service-account token, secret item, vault, keychain entry) and
+  where each one lives.
+- Do not use interactive keychain prompts that silently truncate or mangle
+  long pasted values; prefer a scripted, verified path.
+- Any change that injects a credential into a parent process (for example
+  `op run` or a keychain wrapper) must, from the first design, strip it from
+  every spawned child environment (agents, `gh`, package scripts) and extend
+  log redaction to the token's prefix, with tests that assert the value is
+  absent.
+- Wrapper scripts that handle secrets neutralize inherited shell tracing
+  (`set +x`, unset `BASH_XTRACEFD`, do not export tracing options) before
+  touching the secret.

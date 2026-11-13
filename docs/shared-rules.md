@@ -449,3 +449,5 @@ Quota groups, coding lane order, Japanese writing, and OpenCode thrift live in
 [`docs/zenn-ja-writing-lane.md`](zenn-ja-writing-lane.md), and
 [`docs/opencode-thrift.md`](opencode-thrift.md). Cost reporting is in
 [`docs/tooling-and-cost.md`](tooling-and-cost.md#weekly-progress-cost-section).
+Planning, review gate, verification, and deploy rules are in
+[`docs/dev-loop-rules.md`](dev-loop-rules.md).
