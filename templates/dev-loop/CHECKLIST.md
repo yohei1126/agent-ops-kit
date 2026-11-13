@@ -10,6 +10,9 @@ check fails, follow the action in [`GATES.md`](GATES.md) instead of improvising.
 - [ ] Worktree lock holds: 1 PR / 1 Issue at a time for this job.
 - [ ] Only one implementation job is open.
 - [ ] Soft-deny count is under 2, or the run is already on OpenCode.
+- [ ] Node is pinned (`.nvmrc` or `engines.node`), CI reads the pin with
+      `actions/setup-node` `node-version-file`, and tests run on the pinned
+      major ([GATES.md](GATES.md#node-pin)).
 
 ## Route the first review
 
@@ -67,8 +70,9 @@ bash ../../scripts/dev-loop-gate.sh
 
 It exits 0 for every soft status, including FAIL on a later gate, so the table
 is readable in one pass. It exits 1 only on a G1 hard preflight miss, or on the
-`NM` row when `package-lock.json` sits beside a missing `node_modules`
-([GATES.md](GATES.md#npm-ci)).
+`NM` row when `package-lock.json` sits beside a missing `node_modules`, or on
+the `NP` row when the local Node major or a workflow departs from the pin
+([GATES.md](GATES.md#npm-ci), [GATES.md](GATES.md#node-pin)).
 
 ## Related
 
