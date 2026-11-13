@@ -13,9 +13,10 @@
 # - write_file entries must carry a path and no wildcard.
 # - Other name(arg) entries whose argument starts with /, ~, or . or contains /
 #   are treated as paths.
-# - A leading ~ expands against $HOME. The deepest existing ancestor is
-#   resolved with cd -P/pwd -P so symlinks are followed, then the remaining
-#   components are normalized lexically so .. cannot hide an escape.
+# - A leading ~ expands against $HOME. Every component is then resolved on
+#   disk in order: a symlink at any position (file, directory, or dangling) is
+#   read and its target is spliced in, so it cannot hide an escape. A symlink
+#   loop fails the check.
 # - Inside means equal to the run dir or under it by path component. The prefix
 #   test never accepts /runs/ab for /runs/a.
 #
@@ -23,44 +24,21 @@
 
 set -u
 
-# agy_lexical_normalize <absolute-path>
-# Prints the path with empty and "." components dropped and ".." applied
-# lexically. ".." never climbs above "/". No filesystem access.
-agy_lexical_normalize() {
-  local rest out comp
-
-  rest="${1:-}"
-  out=""
-  while [ -n "$rest" ]; do
-    case "$rest" in
-      */*)
-        comp="${rest%%/*}"
-        rest="${rest#*/}"
-        ;;
-      *)
-        comp="$rest"
-        rest=""
-        ;;
-    esac
-    case "$comp" in
-      '' | .) ;;
-      ..) out="${out%/*}" ;;
-      *) out="$out/$comp" ;;
-    esac
-  done
-  if [ -z "$out" ]; then
-    printf '/\n'
-  else
-    printf '%s\n' "$out"
-  fi
-}
-
 # agy_physical_path <path> [base-dir]
 # Prints the physical absolute path for <path>. Relative paths resolve against
-# [base-dir], defaulting to the current directory. Returns 1 for an empty path
-# or the unsupported ~user form.
+# [base-dir], defaulting to the current directory. Returns 1 for an empty path,
+# the unsupported ~user form, an unreadable symlink target, or a symlink loop.
+#
+# Resolution walks the path one component at a time from "/". `cur` always
+# holds an already resolved prefix, so ".." pops it physically. A symlink at
+# $cur/$comp is read with plain readlink (no -f), and its target is spliced in
+# front of the remaining components: an absolute target restarts from "/", a
+# relative one is relative to `cur`. Missing components and regular files are
+# appended literally; a later ".." still pops them and later components are
+# checked against disk again.
 agy_physical_path() {
-  local target base target_dir rest comp
+  local target base rest comp cur next hops=0
+  local max_hops=40
 
   target="${1:-}"
   base="${2:-$PWD}"
@@ -79,36 +57,68 @@ agy_physical_path() {
     /*) ;;
     *) target="$base/$target" ;;
   esac
+  case "$target" in
+    /*) ;;
+    *) target="$PWD/$target" ;;
+  esac
 
-  # Strip trailing slashes so the last component is a real name.
-  while [ "$target" != "/" ] && [ "${target%/}" != "$target" ]; do
-    target="${target%/}"
-  done
+  cur="/"
+  rest="$target"
+  while [ -n "$rest" ]; do
+    case "$rest" in
+      */*)
+        comp="${rest%%/*}"
+        rest="${rest#*/}"
+        ;;
+      *)
+        comp="$rest"
+        rest=""
+        ;;
+    esac
+    case "$comp" in
+      '' | .) continue ;;
+      ..)
+        if [ "$cur" != "/" ]; then
+          cur="${cur%/*}"
+          if [ -z "$cur" ]; then
+            cur="/"
+          fi
+        fi
+        continue
+        ;;
+    esac
 
-  # Walk up to the deepest existing directory ancestor, remembering the rest.
-  target_dir="$target"
-  rest=""
-  while [ ! -d "$target_dir" ]; do
-    comp="${target_dir##*/}"
-    target_dir="${target_dir%/*}"
-    if [ -z "$target_dir" ]; then
-      target_dir="/"
-    fi
-    if [ -z "$rest" ]; then
-      rest="$comp"
+    if [ "$cur" = "/" ]; then
+      next="/$comp"
     else
-      rest="$comp/$rest"
+      next="$cur/$comp"
     fi
-  done
 
-  if ! base="$(cd -P -- "$target_dir" && pwd -P)"; then
-    return 1
-  fi
-  if [ -z "$rest" ]; then
-    agy_lexical_normalize "$base"
-  else
-    agy_lexical_normalize "$base/$rest"
-  fi
+    if [ -L "$next" ]; then
+      hops=$((hops + 1))
+      if [ "$hops" -gt "$max_hops" ]; then
+        return 1
+      fi
+      if ! target="$(readlink "$next")"; then
+        return 1
+      fi
+      if [ -z "$target" ]; then
+        return 1
+      fi
+      case "$target" in
+        /*) cur="/" ;;
+      esac
+      if [ -n "$rest" ]; then
+        rest="$target/$rest"
+      else
+        rest="$target"
+      fi
+      continue
+    fi
+
+    cur="$next"
+  done
+  printf '%s\n' "$cur"
 }
 
 # agy_path_inside <candidate> <root>

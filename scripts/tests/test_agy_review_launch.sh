@@ -315,6 +315,95 @@ printf '{"permissions": {}}\n' > "$fixture_noallow"
 run_launcher check-noallow --check-settings "$fixture_noallow" "$current_run"
 expect_status "9: missing .permissions.allow exits 1" 1
 
+printf '== settings path resolution through symlinks ==\n'
+
+mkdir -p "$work_tmp/escape-dir"
+printf 'outside file\n' > "$work_tmp/escape-file.md"
+
+ln -s "$work_tmp/escape-file.md" "$current_run/REVIEW.md"
+fixture_file_link="$work_tmp/fixture-file-link.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$current_run/REVIEW.md" > "$fixture_file_link"
+run_launcher check-file-link --check-settings "$fixture_file_link" "$current_run"
+expect_status "14: file symlink to an outside file exits 1" 1
+expect_err "14: file symlink failure names the entry" "write_file($current_run/REVIEW.md)"
+expect_err "14: file symlink failure says outside run folder" "outside run folder $current_real"
+
+ln -s "$work_tmp/escape-dir/not-yet" "$current_run/dang"
+fixture_dangling="$work_tmp/fixture-dangling.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$current_run/dang" > "$fixture_dangling"
+run_launcher check-dangling --check-settings "$fixture_dangling" "$current_run"
+expect_status "15: dangling symlink to an outside path exits 1" 1
+expect_err "15: dangling symlink failure says outside run folder" "outside run folder $current_real"
+
+fixture_dangling_child="$work_tmp/fixture-dangling-child.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$current_run/dang/child" > "$fixture_dangling_child"
+run_launcher check-dangling-child --check-settings "$fixture_dangling_child" "$current_run"
+expect_status "16: path through a dangling symlink exits 1" 1
+expect_err "16: dangling child failure says outside run folder" "outside run folder $current_real"
+
+ln -s "$work_tmp/escape-dir" "$current_run/lo"
+fixture_dotdot_link="$work_tmp/fixture-dotdot-link.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$current_run/missing/../lo" > "$fixture_dotdot_link"
+run_launcher check-dotdot-link --check-settings "$fixture_dotdot_link" "$current_run"
+expect_status "17: .. before an outside dir symlink exits 1" 1
+expect_err "17: .. before a symlink says outside run folder" "outside run folder $current_real"
+
+mkdir -p "$test_home/agy-work/rel-out"
+ln -s "../../rel-out" "$current_run/esc"
+fixture_relative_link="$work_tmp/fixture-relative-link.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$current_run/esc" > "$fixture_relative_link"
+run_launcher check-relative-link --check-settings "$fixture_relative_link" "$current_run"
+expect_status "18: relative symlink escaping via ../.. exits 1" 1
+expect_err "18: relative symlink failure says outside run folder" "outside run folder $current_real"
+
+ln -s loop "$current_run/loop"
+fixture_loop="$work_tmp/fixture-loop.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$current_run/loop" > "$fixture_loop"
+run_launcher check-loop --check-settings "$fixture_loop" "$current_run"
+expect_status "19: symlink loop exits 1" 1
+expect_err "19: symlink loop failure is explained" "cannot resolve write_file($current_run/loop)"
+
+mkdir -p "$current_run/link-in"
+printf 'inner file\n' > "$current_run/link-in/target.md"
+ln -s "$current_run/link-in/target.md" "$current_run/file-link"
+fixture_inner_file_link="$work_tmp/fixture-inner-file-link.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$current_run/file-link" > "$fixture_inner_file_link"
+run_launcher check-inner-file-link --check-settings "$fixture_inner_file_link" "$current_run"
+expect_status "20: symlinked file inside the run folder passes" 0
+
+fixture_inner_dir_link="$work_tmp/fixture-inner-dir-link.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$current_run/inner-link" > "$fixture_inner_dir_link"
+run_launcher check-inner-dir-link --check-settings "$fixture_inner_dir_link" "$current_run"
+expect_status "20: symlinked directory inside the run folder passes" 0
+
+pass_run="$runs_root/pass-run"
+mkdir -p "$pass_run"
+printf 'review notes\n' > "$pass_run/REVIEW.md"
+fixture_pass_file="$work_tmp/fixture-pass-file.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$pass_run/REVIEW.md" > "$fixture_pass_file"
+run_launcher check-pass-file --check-settings "$fixture_pass_file" "$pass_run"
+expect_status "21: plain file inside the run folder passes" 0
+
+fixture_pass_missing="$work_tmp/fixture-pass-missing.json"
+printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' \
+  "$pass_run/missing/../REVIEW.md" > "$fixture_pass_missing"
+run_launcher check-pass-missing --check-settings "$fixture_pass_missing" "$pass_run"
+expect_status "21: missing/../REVIEW.md plain file path still passes" 0
+if [ -n "$err" ]; then
+  bad "21: missing/../ pass writes no stderr" "stderr: $err"
+else
+  ok "21: missing/../ pass writes no stderr"
+fi
+
 printf '== usage and path validation ==\n'
 
 run_launcher bad-dotdot "../x" "$repo_dir" "$brief"
