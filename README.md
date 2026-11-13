@@ -128,3 +128,5 @@ Licensed under the [Apache License 2.0](LICENSE).
   no-poll rules.
 - [`docs/tooling-and-cost.md`](docs/tooling-and-cost.md#weekly-progress-cost-section):
   weekly progress cost section.
+- [`docs/dev-loop-rules.md`](docs/dev-loop-rules.md): planning, review gate,
+  verification, and deploy rules.
