@@ -32,7 +32,17 @@ out=""
 err=""
 status=0
 
-trap 'rm -rf "$work_tmp"' EXIT
+# shellcheck disable=SC2329  # called from the EXIT trap below
+cleanup() {
+  if [ -n "${sig_pid:-}" ] && kill -0 "$sig_pid" 2>/dev/null; then
+    kill -KILL -"$sig_pid" 2>/dev/null || kill -KILL "$sig_pid" 2>/dev/null || true
+  fi
+  if [ -n "${sig_child:-}" ] && kill -0 "$sig_child" 2>/dev/null; then
+    kill -KILL "$sig_child" 2>/dev/null || true
+  fi
+  rm -rf "$work_tmp"
+}
+trap cleanup EXIT
 
 unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID OTHER_SECRET \
   STUB_FAIL STUB_NO_VERSION_ID STUB_CURL_CODE STUB_RL_EXIT
@@ -596,6 +606,354 @@ if grep -qF 'scripts/worker-deploy.sh' "$gate_workflow" &&
 else
   bad "35: dev-loop gate lists the new script and its tests" \
     "gate workflow lists are stale"
+fi
+
+printf '== deploy step argv ==\n'
+
+wf_dir="$work_tmp/wf"
+wf_run_block="$work_tmp/wf-deploy-run.sh"
+wf_stub="$wf_dir/.agent-ops-kit/scripts/worker-deploy.sh"
+argv_log="$work_tmp/wf-argv.log"
+wf_err="$work_tmp/wf-stderr"
+
+mkdir -p "$wf_dir/.agent-ops-kit/scripts"
+cat > "$wf_stub" <<'STUB'
+#!/usr/bin/env bash
+set -u
+: > "${ARGV_LOG:?}"
+for arg in "$@"; do
+  printf '%s\n' "$arg" >> "$ARGV_LOG"
+done
+exit 0
+STUB
+chmod +x "$wf_stub"
+
+# Extract the deploy step's run block from the workflow, de-indented, with awk.
+# The block runs against a stub script in a temporary working directory, so it
+# is exercised as written without deploying anything.
+awk '
+  /^      - name: Deploy$/ { in_step = 1; next }
+  in_step && /^      - name:/ { exit }
+  in_step && /^        run: \|$/ { in_run = 1; next }
+  in_run {
+    if ($0 ~ /^          /) { print substr($0, 11); next }
+    if ($0 ~ /^[[:space:]]*$/) { print ""; next }
+    exit
+  }
+' "$workflow" > "$wf_run_block"
+
+step_status=0
+step_err=""
+
+run_deploy_step() {
+  : > "$argv_log"
+  : > "$wf_err"
+  (
+    cd "$wf_dir" || exit 1
+    WORKING_DIRECTORY="worker" \
+      SMOKE="$1" SMOKE_URL="$3" SMOKE_PATH="/health" \
+      RATE_LIMIT_CHECK="$2" RATE_LIMIT_PATH="/rl" RATE_LIMIT_LIMIT="100" \
+      RATE_LIMIT_WINDOW="60" RATE_LIMIT_REQUESTS="" RATE_LIMIT_MODE="detect" \
+      SKIP_TESTS="false" CLOUDFLARE_API_TOKEN="fake" CLOUDFLARE_ACCOUNT_ID="fake" \
+      ARGV_LOG="$argv_log" bash "$wf_run_block"
+  ) >/dev/null 2>"$wf_err"
+  step_status=$?
+  step_err="$(cat "$wf_err")"
+}
+
+count_arg() {
+  grep -cxF -- "$1" "$argv_log" 2>/dev/null || true
+}
+
+if [ -s "$wf_run_block" ]; then
+  ok "36: deploy step run block is extracted"
+else
+  bad "36: deploy step run block is extracted" "empty extraction from the workflow"
+fi
+
+run_deploy_step true true "https://worker.example.test"
+if [ "$step_status" -eq 0 ]; then
+  ok "36: deploy step exits 0 with both checks on"
+else
+  bad "36: deploy step exits 0 with both checks on" "exit $step_status; stderr: [$step_err]"
+fi
+if [ "$(count_arg --dir)" -eq 1 ] && [ "$(count_arg --mode)" -eq 1 ]; then
+  ok "36: deploy step passes --dir and --mode once"
+else
+  bad "36: deploy step passes --dir and --mode once" "argv: [$(cat "$argv_log")]"
+fi
+if [ "$(count_arg --smoke-url)" -eq 1 ]; then
+  ok "36: both checks on pass --smoke-url exactly once"
+else
+  bad "36: both checks on pass --smoke-url exactly once" \
+    "count $(count_arg --smoke-url); argv: [$(cat "$argv_log")]"
+fi
+if [ "$(count_arg --smoke-path)" -eq 1 ]; then
+  ok "36: both checks on pass --smoke-path exactly once"
+else
+  bad "36: both checks on pass --smoke-path exactly once" \
+    "count $(count_arg --smoke-path); argv: [$(cat "$argv_log")]"
+fi
+if [ "$(count_arg --rate-limit-check)" -eq 1 ] &&
+  [ "$(count_arg --rl-path)" -eq 1 ] &&
+  [ "$(count_arg --rl-mode)" -eq 1 ] &&
+  [ "$(count_arg --rl-requests)" -eq 0 ]; then
+  ok "36: hook on passes its flags once and skips empty optional flags"
+else
+  bad "36: hook on passes its flags once and skips empty optional flags" \
+    "argv: [$(cat "$argv_log")]"
+fi
+
+run_deploy_step true false "https://worker.example.test"
+if [ "$step_status" -eq 0 ] && [ "$(count_arg --smoke-url)" -eq 1 ]; then
+  ok "36: smoke alone passes --smoke-url once"
+else
+  bad "36: smoke alone passes --smoke-url once" \
+    "exit $step_status; argv: [$(cat "$argv_log")]"
+fi
+if [ "$(count_arg --rate-limit-check)" -eq 0 ] &&
+  [ "$(count_arg --rl-path)" -eq 0 ] &&
+  [ "$(count_arg --rl-limit)" -eq 0 ] &&
+  [ "$(count_arg --rl-mode)" -eq 0 ]; then
+  ok "36: smoke alone passes no rate-limit flags"
+else
+  bad "36: smoke alone passes no rate-limit flags" "argv: [$(cat "$argv_log")]"
+fi
+
+run_deploy_step false true "https://worker.example.test"
+if [ "$step_status" -eq 0 ] && [ "$(count_arg --smoke-url)" -eq 1 ] &&
+  [ "$(count_arg --smoke-path)" -eq 1 ]; then
+  ok "36: hook alone passes --smoke-url and --smoke-path once"
+else
+  bad "36: hook alone passes --smoke-url and --smoke-path once" \
+    "exit $step_status; argv: [$(cat "$argv_log")]"
+fi
+if [ "$(count_arg --rate-limit-check)" -eq 1 ] && [ "$(count_arg --rl-mode)" -eq 1 ]; then
+  ok "36: hook alone passes the rate-limit flags"
+else
+  bad "36: hook alone passes the rate-limit flags" "argv: [$(cat "$argv_log")]"
+fi
+
+run_deploy_step false false ""
+if [ "$step_status" -eq 0 ] && [ "$(count_arg --smoke-url)" -eq 0 ] &&
+  [ "$(count_arg --smoke-path)" -eq 0 ]; then
+  ok "36: both checks off passes no smoke flags"
+else
+  bad "36: both checks off passes no smoke flags" \
+    "exit $step_status; argv: [$(cat "$argv_log")]"
+fi
+if [ "$(count_arg --rate-limit-check)" -eq 0 ] && [ "$(count_arg --rl-mode)" -eq 0 ]; then
+  ok "36: both checks off passes no rate-limit flags"
+else
+  bad "36: both checks off passes no rate-limit flags" "argv: [$(cat "$argv_log")]"
+fi
+
+run_deploy_step false false "https://worker.example.test"
+if [ "$step_status" -eq 0 ] && [ "$(count_arg --smoke-url)" -eq 0 ]; then
+  ok "36: both checks off ignores a set smoke URL"
+else
+  bad "36: both checks off ignores a set smoke URL" \
+    "exit $step_status; argv: [$(cat "$argv_log")]"
+fi
+
+run_deploy_step true false ""
+if [ "$step_status" -eq 2 ]; then
+  ok "36: smoke with an empty smoke-url exits 2"
+else
+  bad "36: smoke with an empty smoke-url exits 2" "exit $step_status"
+fi
+case "$step_err" in
+  *"smoke is true but smoke-url is empty"*)
+    ok "36: empty smoke-url names the smoke input" ;;
+  *)
+    bad "36: empty smoke-url names the smoke input" "stderr: [$step_err]" ;;
+esac
+if [ "$(count_arg --smoke-url)" -eq 0 ]; then
+  ok "36: empty smoke-url passes no flags to the script"
+else
+  bad "36: empty smoke-url passes no flags to the script" "argv: [$(cat "$argv_log")]"
+fi
+
+run_deploy_step false true ""
+if [ "$step_status" -eq 2 ]; then
+  ok "36: hook with an empty smoke-url exits 2"
+else
+  bad "36: hook with an empty smoke-url exits 2" "exit $step_status"
+fi
+case "$step_err" in
+  *"rate-limit-check needs smoke-url as its base URL"*)
+    ok "36: empty smoke-url names the hook input" ;;
+  *)
+    bad "36: empty smoke-url names the hook input" "stderr: [$step_err]" ;;
+esac
+
+printf '== signal cleanup ==\n'
+
+sig_bin="$work_tmp/sig-bin"
+sig_tmpdir="$work_tmp/sig-tmpdir"
+sig_ready="$work_tmp/sig-ready"
+sig_child_file="$work_tmp/sig-child"
+sig_err="$work_tmp/sig-stderr"
+mkdir -p "$sig_bin" "$sig_tmpdir"
+
+cat > "$sig_bin/npm" <<'STUB'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$$" > "${SIG_CHILD_FILE:?}"
+: > "${SIG_READY:?}"
+sleep 30
+exit 0
+STUB
+chmod +x "$sig_bin/npm"
+
+rm -f "$sig_ready" "$sig_child_file"
+: > "$sig_err"
+sig_pid=""
+sig_child=""
+sig_status=0
+
+set -m
+PATH="$sig_bin:$PATH" TMPDIR="$sig_tmpdir" SIG_READY="$sig_ready" \
+  SIG_CHILD_FILE="$sig_child_file" CLOUDFLARE_API_TOKEN="$fake_token" \
+  CLOUDFLARE_ACCOUNT_ID="$fake_account" \
+  "$bash_bin" "$deploy_script" --dir "$worker_dir" --mode deploy \
+  >/dev/null 2>"$sig_err" &
+sig_pid=$!
+set +m
+
+sig_wait=0
+while [ ! -e "$sig_ready" ] && [ "$sig_wait" -lt 100 ]; do
+  sig_wait=$((sig_wait + 1))
+  sleep 0.1
+done
+
+if [ -e "$sig_ready" ]; then
+  ok "37: the deploy script starts a long-running child"
+else
+  bad "37: the deploy script starts a long-running child" \
+    "no ready marker; stderr: [$(cat "$sig_err")]"
+fi
+sig_child="$(cat "$sig_child_file" 2>/dev/null || true)"
+
+if [ -n "$sig_pid" ]; then
+  kill -TERM -"$sig_pid" 2>/dev/null || kill -TERM "$sig_pid" 2>/dev/null || true
+fi
+
+sig_wait=0
+while kill -0 "$sig_pid" 2>/dev/null && [ "$sig_wait" -lt 100 ]; do
+  sig_wait=$((sig_wait + 1))
+  sleep 0.1
+done
+if kill -0 "$sig_pid" 2>/dev/null; then
+  bad "37: TERM stops the deploy script" "still running after 10 s"
+  kill -KILL -"$sig_pid" 2>/dev/null || kill -KILL "$sig_pid" 2>/dev/null || true
+fi
+wait "$sig_pid" 2>/dev/null
+sig_status=$?
+sig_pid=""
+
+if [ "$sig_status" -ne 0 ]; then
+  ok "37: TERM makes the deploy script exit non-zero"
+else
+  bad "37: TERM makes the deploy script exit non-zero" "exit $sig_status"
+fi
+
+leftovers="$(find "$sig_tmpdir" -mindepth 1 -maxdepth 1 -name 'worker-deploy.*' 2>/dev/null)"
+if [ -z "$leftovers" ]; then
+  ok "37: TERM removes the captured step directory"
+else
+  bad "37: TERM removes the captured step directory" "leftover: [$leftovers]"
+fi
+
+if [ -n "$sig_child" ]; then
+  sig_wait=0
+  while kill -0 "$sig_child" 2>/dev/null && [ "$sig_wait" -lt 50 ]; do
+    sig_wait=$((sig_wait + 1))
+    sleep 0.1
+  done
+  if kill -0 "$sig_child" 2>/dev/null; then
+    bad "37: TERM stops the sleeping child" "child $sig_child still alive"
+    kill -KILL "$sig_child" 2>/dev/null || true
+  else
+    ok "37: TERM stops the sleeping child"
+  fi
+else
+  bad "37: TERM stops the sleeping child" "no child pid was recorded"
+fi
+sig_child=""
+
+printf '== run blocks never interpolate inputs ==\n'
+
+check_run_inputs() {
+  awk '
+    BEGIN { re = "\\$\\{\\{[[:space:]]*inputs\\." }
+    {
+      if (in_block) {
+        if ($0 ~ /^[[:space:]]*$/) { next }
+        match($0, /[^ ]/)
+        if (RSTART - 1 > block_indent) {
+          if ($0 ~ re) { print NR ": " $0 }
+          next
+        }
+        in_block = 0
+      }
+      if ($0 ~ /^ *run:/) {
+        pos = index($0, "run:")
+        block_indent = pos - 1
+        rest = substr($0, pos + 4)
+        sub(/^[ ]+/, "", rest)
+        if (rest ~ /^[|>]/) {
+          in_block = 1
+        } else if (rest != "" && rest ~ re) {
+          print NR ": " $0
+        }
+        next
+      }
+    }
+  ' "$1"
+}
+
+inputs_fixture="$work_tmp/run-inputs.yml"
+cat > "$inputs_fixture" <<'YAML'
+name: fixture
+jobs:
+  demo:
+    steps:
+      - name: Inline
+        run: echo ${{ inputs.x }}
+      - name: Block
+        env:
+          VALUE: ${{ inputs.y }}
+        run: |
+          set -eu
+          echo ${{ inputs.z }}
+YAML
+
+fixture_hits="$(check_run_inputs "$inputs_fixture")"
+inline_marker="echo \${{ inputs.x }}"
+block_marker="echo \${{ inputs.z }}"
+env_marker="inputs.y"
+if printf '%s\n' "$fixture_hits" | grep -qF -- "$inline_marker"; then
+  ok "38: the checker detects inline run interpolation"
+else
+  bad "38: the checker detects inline run interpolation" "hits: [$fixture_hits]"
+fi
+if printf '%s\n' "$fixture_hits" | grep -qF -- "$block_marker"; then
+  ok "38: the checker detects block-scalar run interpolation"
+else
+  bad "38: the checker detects block-scalar run interpolation" "hits: [$fixture_hits]"
+fi
+if printf '%s\n' "$fixture_hits" | grep -qF -- "$env_marker"; then
+  bad "38: the checker ignores env mappings" "hits: [$fixture_hits]"
+else
+  ok "38: the checker ignores env mappings"
+fi
+
+workflow_hits="$(check_run_inputs "$workflow")"
+if [ -z "$workflow_hits" ]; then
+  ok "38: no workflow run block interpolates inputs"
+else
+  bad "38: no workflow run block interpolates inputs" "$workflow_hits"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

@@ -356,7 +356,7 @@ tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/worker-deploy.XXXXXX")" || {
   exit 1
 }
 trap 'rm -rf "$tmp_dir"' EXIT
-trap 'exit 1' HUP INT TERM
+trap 'rm -rf "$tmp_dir"; exit 1' HUP INT TERM
 
 collect_secret_names
 

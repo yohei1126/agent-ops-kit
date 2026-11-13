@@ -34,6 +34,12 @@
         "pattern": "^- `[A-Za-z0-9-]+/agent-ops-kit`$",
         "rules": ["name"],
         "reason": "repository slug the ingest routine watches"
+      },
+      {
+        "path": "docs/worker-deploy.md",
+        "pattern": "^    uses: [A-Za-z0-9-]+/agent-ops-kit/[.]github/workflows/workers-deploy[.]yml@<kit-commit-sha>$",
+        "rules": ["name"],
+        "reason": "callers must reference the public kit workflow path"
       }
     ]
   }

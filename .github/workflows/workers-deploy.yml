@@ -154,20 +154,21 @@ jobs:
           if [ "$SKIP_TESTS" = "true" ]; then
             args+=(--skip-tests)
           fi
-          if [ "$SMOKE" = "true" ]; then
-            if [ -z "$SMOKE_URL" ]; then
-              printf 'workers-deploy: smoke is true but smoke-url is empty\n' >&2
-              exit 2
-            fi
+          if [ "$SMOKE" = "true" ] && [ -z "$SMOKE_URL" ]; then
+            printf 'workers-deploy: smoke is true but smoke-url is empty\n' >&2
+            exit 2
+          fi
+          if [ "$RATE_LIMIT_CHECK" = "true" ] && [ -z "$SMOKE_URL" ]; then
+            printf 'workers-deploy: rate-limit-check needs smoke-url as its base URL\n' >&2
+            exit 2
+          fi
+          # The smoke URL and path are shared by the smoke check and the hook,
+          # so they are appended once and only when a check needs them.
+          if [ "$SMOKE" = "true" ] || [ "$RATE_LIMIT_CHECK" = "true" ]; then
             args+=(--smoke-url "$SMOKE_URL" --smoke-path "$SMOKE_PATH")
           fi
           if [ "$RATE_LIMIT_CHECK" = "true" ]; then
-            if [ -z "$SMOKE_URL" ]; then
-              printf 'workers-deploy: rate-limit-check needs smoke-url as its base URL\n' >&2
-              exit 2
-            fi
-            args+=(--rate-limit-check --smoke-url "$SMOKE_URL")
-            args+=(--smoke-path "$SMOKE_PATH" --rl-path "$RATE_LIMIT_PATH")
+            args+=(--rate-limit-check --rl-path "$RATE_LIMIT_PATH")
             if [ -n "$RATE_LIMIT_LIMIT" ]; then
               args+=(--rl-limit "$RATE_LIMIT_LIMIT")
             fi
