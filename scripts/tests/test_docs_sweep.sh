@@ -14,6 +14,15 @@ err_file="$work_tmp/stderr"
 
 test_home="$work_tmp/home"
 mkdir -p "$test_home/.config"
+stub_bin="$work_tmp/bin"
+mkdir -p "$stub_bin"
+# The repository pins Node 22. A stub Node that matches the pin keeps the
+# no-argument gate table stable on a machine with another Node major.
+cat > "$stub_bin/node" <<'STUB'
+#!/usr/bin/env bash
+printf 'v22.11.0\n'
+STUB
+chmod +x "$stub_bin/node"
 
 out=""
 err=""
@@ -316,7 +325,7 @@ run_gate "$work_tmp" bash "$gate" --repo "$phase_repo" --check docs-sweep
 expect_status "15: --repo works from another cwd" 0
 expect_regex "15: --repo from another cwd reports hits" "^DS +docs/a\.md:2 +FAIL +phase: "
 
-run_gate "$repo_root" bash "$gate"
+run_gate "$repo_root" env PATH="$stub_bin:$PATH" bash "$gate"
 expect_status "16: no-arg table exits 0" 0
 for id in G1 G2 G3 G4 G5 G6 G7; do
   if printf '%s\n' "$out" | grep -q "^$id "; then

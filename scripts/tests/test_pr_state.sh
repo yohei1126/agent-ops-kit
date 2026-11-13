@@ -48,6 +48,14 @@ cat "$PR_STATE_FIXTURE_DIR/${PR_STATE_FIXTURE:-open-draft-green}.json"
 EOF
 chmod +x "$fake_bin/gh"
 
+# The repository pins Node 22. A stub Node that matches the pin keeps the
+# no-argument gate table stable on a machine with another Node major.
+cat > "$fake_bin/node" <<'EOF'
+#!/usr/bin/env bash
+printf 'v22.11.0\n'
+EOF
+chmod +x "$fake_bin/node"
+
 export PR_STATE_FIXTURE_DIR="$fixtures"
 export PR_STATE_ARGV_FILE="$argv_file"
 export PR_STATE_CWD_FILE="$cwd_file"

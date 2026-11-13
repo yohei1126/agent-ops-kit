@@ -8,4 +8,4 @@ G5   vulnerability silence          PASS   Continue.
 G6   RETRO ingest                   QUIET  Stay quiet; v1 silence, no invented retro.
 G7   one job                        PASS   Continue.
 NM   npm-ci                         SKIP   no package-lock.json; npm is not in use.
-NP   node-pin                       SKIP   no .nvmrc or engines.node; Node is not pinned.
+NP   node-pin                       PASS   Continue.

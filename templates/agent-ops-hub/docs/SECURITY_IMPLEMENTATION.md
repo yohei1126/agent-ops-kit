@@ -26,8 +26,14 @@ Related: [GitHub App procedure](GITHUB_APP_SETUP.md),
 4. Loop prevention: ignore webhook events where the App is the actor, except
    intentional status updates that do not re-add `trigger-run`. Re-adding
    `trigger-run` is outside that exception.
+5. Rate limits: public routes (webhook, claim, status, health) use a Durable
+   Object limiter from
+   [`templates/workers-do-rate-limiter/`](../../workers-do-rate-limiter/README.md),
+   not a Workers Rate Limiting binding, which can report success while doing
+   nothing. Verify the limit after each deploy with
+   [`scripts/rate-limit-check.sh`](../../../scripts/rate-limit-check.sh).
 
-No environment flag disables rules 1, 2, or 4.
+No environment flag disables rules 1, 2, 4, or 5.
 
 ## GitHub App
 

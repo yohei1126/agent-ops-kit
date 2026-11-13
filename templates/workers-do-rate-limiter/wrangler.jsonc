@@ -1,0 +1,22 @@
+// Test-only Wrangler configuration. The vitest plugin loads this file so the
+// suite can bind `RATE_LIMITER` to the class. Do not deploy it as a Worker.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "workers-do-rate-limiter-test",
+  "main": "src/test-worker.ts",
+  "compatibility_date": "2026-10-30",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiter"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "test-v1",
+      "new_sqlite_classes": ["RateLimiter"]
+    }
+  ]
+}

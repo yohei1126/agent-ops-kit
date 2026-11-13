@@ -54,6 +54,14 @@ cat "$line"
 SH
 chmod +x "$fake_bin/curl"
 
+# The repository pins Node 22. A stub Node that matches the pin keeps the
+# no-argument table stable on a machine with another Node major.
+cat > "$fake_bin/node" <<'SH'
+#!/usr/bin/env bash
+printf 'v22.11.0\n'
+SH
+chmod +x "$fake_bin/node"
+
 ok() {
   pass=$((pass + 1))
   printf 'PASS %s\n' "$1"
@@ -329,7 +337,7 @@ fi
 
 printf '== no-arg table ==\n'
 
-out="$(cd "$repo_root" && bash "$gate")"
+out="$(cd "$repo_root" && PATH="$fake_bin:$PATH" bash "$gate")"
 status=$?
 err=""
 expect_status "19: no-arg table exits 0" 0
@@ -345,7 +353,7 @@ G5   vulnerability silence          PASS   Continue.
 G6   RETRO ingest                   QUIET  Stay quiet; v1 silence, no invented retro.
 G7   one job                        PASS   Continue.
 NM   npm-ci                         SKIP   no package-lock.json; npm is not in use.
-NP   node-pin                       SKIP   no .nvmrc or engines.node; Node is not pinned.
+NP   node-pin                       PASS   Continue.
 TABLE
 )"
 
