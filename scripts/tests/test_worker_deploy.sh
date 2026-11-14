@@ -204,6 +204,15 @@ cat > "$bin_dir/npm" <<'STUB'
 #!/usr/bin/env bash
 set -u
 printf 'npm %s\n' "$*" >> "${STUB_LOG:?}"
+token_state=unset
+account_state=unset
+if [ -n "${CLOUDFLARE_API_TOKEN+x}" ]; then
+  token_state=set
+fi
+if [ -n "${CLOUDFLARE_ACCOUNT_ID+x}" ]; then
+  account_state=set
+fi
+printf 'env npm %s token=%s account=%s\n' "$*" "$token_state" "$account_state" >> "${STUB_LOG:?}"
 step=""
 if [ "${1:-}" = "ci" ]; then
   step="npm-ci"
@@ -227,6 +236,15 @@ cat > "$bin_dir/npx" <<'STUB'
 #!/usr/bin/env bash
 set -u
 printf 'npx %s\n' "$*" >> "${STUB_LOG:?}"
+token_state=unset
+account_state=unset
+if [ -n "${CLOUDFLARE_API_TOKEN+x}" ]; then
+  token_state=set
+fi
+if [ -n "${CLOUDFLARE_ACCOUNT_ID+x}" ]; then
+  account_state=set
+fi
+printf 'env npx %s token=%s account=%s\n' "$*" "$token_state" "$account_state" >> "${STUB_LOG:?}"
 step=""
 if [ "${1:-}" = "--no-install" ] && [ "${2:-}" = "wrangler" ] && [ "${3:-}" = "deploy" ]; then
   if [ "${4:-}" = "--dry-run" ]; then
@@ -257,6 +275,15 @@ cat > "$bin_dir/curl" <<'STUB'
 #!/usr/bin/env bash
 set -u
 printf 'curl %s\n' "$*" >> "${STUB_LOG:?}"
+token_state=unset
+account_state=unset
+if [ -n "${CLOUDFLARE_API_TOKEN+x}" ]; then
+  token_state=set
+fi
+if [ -n "${CLOUDFLARE_ACCOUNT_ID+x}" ]; then
+  account_state=set
+fi
+printf 'env curl token=%s account=%s\n' "$token_state" "$account_state" >> "${STUB_LOG:?}"
 code="${STUB_CURL_CODE:-200}"
 printf '%s' "$code"
 if [ "$code" -ge 400 ]; then
@@ -270,12 +297,40 @@ cat > "$rl_dir/rate-limit-check.sh" <<'STUB'
 #!/usr/bin/env bash
 set -u
 printf 'rate-limit-check %s\n' "$*" >> "${STUB_LOG:?}"
-printf 'stub rate-limit-check: token=%s\n' "${CLOUDFLARE_API_TOKEN:-}" >&2
+token_state=unset
+account_state=unset
+if [ -n "${CLOUDFLARE_API_TOKEN+x}" ]; then
+  token_state=set
+fi
+if [ -n "${CLOUDFLARE_ACCOUNT_ID+x}" ]; then
+  account_state=set
+fi
+printf 'env rate-limit-check token=%s account=%s\n' "$token_state" "$account_state" >> "${STUB_LOG:?}"
 exit "${STUB_RL_EXIT:-0}"
 STUB
 
+real_node="$(command -v node)"
+if [ -z "$real_node" ]; then
+  printf 'test setup: node is required to stub package_has_script\n' >&2
+  exit 1
+fi
+cat > "$bin_dir/node" <<STUB
+#!/usr/bin/env bash
+set -u
+token_state=unset
+account_state=unset
+if [ -n "\${CLOUDFLARE_API_TOKEN+x}" ]; then
+  token_state=set
+fi
+if [ -n "\${CLOUDFLARE_ACCOUNT_ID+x}" ]; then
+  account_state=set
+fi
+printf 'env node token=%s account=%s\n' "\$token_state" "\$account_state" >> "\${STUB_LOG:?}"
+exec $(printf '%q' "$real_node") "\$@"
+STUB
+
 cp "$deploy_script" "$rl_dir/worker-deploy.sh"
-chmod +x "$bin_dir/npm" "$bin_dir/npx" "$bin_dir/curl" \
+chmod +x "$bin_dir/npm" "$bin_dir/npx" "$bin_dir/curl" "$bin_dir/node" \
   "$rl_dir/rate-limit-check.sh" "$deploy_script" "$rl_dir/worker-deploy.sh"
 
 printf '== preflight ==\n'
@@ -425,6 +480,60 @@ if [ -z "$out" ]; then
 else
   bad "13: missing token prints no version id" "stdout: [$out]"
 fi
+
+printf '== preflight env isolation in deploy mode ==\n'
+
+export CLOUDFLARE_API_TOKEN="$fake_token"
+export CLOUDFLARE_ACCOUNT_ID="$fake_account"
+export OTHER_SECRET="$fake_secret"
+
+run_script "$deploy_script" --dir "$worker_dir" --mode deploy
+expect_status "39: deploy with isolated preflight exits 0" 0
+expect_call "39: npm ci does not inherit Cloudflare credentials" \
+  "env npm ci token=unset account=unset"
+expect_call "39: typecheck does not inherit Cloudflare credentials" \
+  "env npm run typecheck token=unset account=unset"
+expect_call "39: tests do not inherit Cloudflare credentials" \
+  "env npm test token=unset account=unset"
+expect_call "39: the wrangler dry run does not inherit Cloudflare credentials" \
+  "env npx --no-install wrangler deploy --dry-run token=unset account=unset"
+expect_call "39: the package.json script probe does not inherit Cloudflare credentials" \
+  "env node token=unset account=unset"
+expect_no_call "39: the package.json script probe never sees the token" \
+  "env node token=set account=set"
+expect_call "39: the deploy still sees the token and account id" \
+  "env npx --no-install wrangler deploy token=set account=set"
+
+run_script "$deploy_script" --dir "$ts_worker_dir" --mode deploy
+expect_status "39: deploy via the tsc fallback exits 0" 0
+expect_call "39: the tsc fallback does not inherit Cloudflare credentials" \
+  "env npx --no-install tsc --noEmit token=unset account=unset"
+expect_call "39: the tsc-fallback deploy still sees the token and account id" \
+  "env npx --no-install wrangler deploy token=set account=set"
+
+run_script "$rl_dir/worker-deploy.sh" --dir "$worker_dir" --mode deploy \
+  --smoke-url "http://127.0.0.1:8080" --rate-limit-check \
+  --rl-path "/health" --rl-limit 100 --rl-window 60
+expect_status "39: deploy with smoke and the hook exits 0" 0
+expect_call "39: smoke curl does not inherit Cloudflare credentials" \
+  "env curl token=unset account=unset"
+expect_call "39: the rate-limit hook does not inherit Cloudflare credentials" \
+  "env rate-limit-check token=unset account=unset"
+expect_no_call "39: smoke curl never sees the token" \
+  "env curl token=set account=set"
+expect_no_call "39: the rate-limit hook never sees the token" \
+  "env rate-limit-check token=set account=set"
+expect_call "39: the deploy still sees credentials when smoke and the hook run" \
+  "env npx --no-install wrangler deploy token=set account=set"
+
+unset CLOUDFLARE_ACCOUNT_ID
+run_script "$deploy_script" --dir "$worker_dir" --mode deploy
+expect_status "39: deploy without an account id still exits 0" 0
+expect_call "39: preflight stays isolated when account id is unset" \
+  "env npm ci token=unset account=unset"
+expect_call "39: the deploy still sees the token when account id is unset" \
+  "env npx --no-install wrangler deploy token=set account=unset"
+export CLOUDFLARE_ACCOUNT_ID="$fake_account"
 
 printf '== rate-limit hook ==\n'
 
