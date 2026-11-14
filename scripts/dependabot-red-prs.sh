@@ -9,6 +9,9 @@
 # update, including peer dependency updates in the same change, and propose
 # closing the original as a duplicate. The maintainer closes the original; this
 # script does not.
+#
+# With several --repo values, rows stream per repository, and a later gh failure
+# exits 2 without the summary line.
 set -euo pipefail
 
 script="dependabot-red-prs"
@@ -113,6 +116,9 @@ esac
 
 # Classify the same way scripts/lib/pr-state.sh does. A red pull request is one
 # with any failing check. A pull request with no checks reports "none".
+#
+# The last step sanitizes every field before joining with a tab: a run of tab,
+# carriage return, or newline becomes one space, and a backslash stays as is.
 jq_program="$(cat <<'JQ'
 def kind:
   if type != "object" then "pending"
@@ -155,7 +161,8 @@ def kind:
         | (if $status == "red" or $age > $limit then "FLAG" else "ok" end) as $flag
         | [$flag, ($pr.number | tostring), $status, ($age | tostring),
            $pr.url, $pr.title]
-        | @tsv
+        | map(gsub("[\t\r\n]+"; " "))
+        | join("\t")
       end
   end
 JQ
@@ -164,6 +171,9 @@ JQ
 gh_err="$(mktemp "${TMPDIR:-/tmp}/dependabot-red-prs.XXXXXX")" ||
   usage_error "could not create a temporary file"
 trap 'rm -f "$gh_err"' EXIT
+trap 'rm -f "$gh_err"; exit 129' HUP
+trap 'rm -f "$gh_err"; exit 130' INT
+trap 'rm -f "$gh_err"; exit 143' TERM
 
 checked=0
 flagged=0

@@ -135,6 +135,9 @@ expect_argv_calls() {
 fixture=no-prs
 gh_fail=0
 
+# The PATH the check runs with. Tests that hide a tool replace it.
+check_path="$fake_bin:$PATH"
+
 run_check() {
   : > "$argv_file"
   : > "$err_file"
@@ -144,10 +147,35 @@ run_check() {
     DEPENDABOT_RED_FIXTURE="$fixture" \
     DEPENDABOT_RED_GH_FAIL="$gh_fail" \
     DEPENDABOT_RED_ARGV_FILE="$argv_file" \
-    PATH="$fake_bin:$PATH" \
+    PATH="$check_path" \
     bash "$check" "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
+}
+
+# Link only the named commands into a fresh directory, following
+# scripts/tests/test_pr_state.sh. A PATH built from that directory alone keeps
+# the real gh or jq out of reach.
+make_tool_path() {
+  local dir="$1"
+  shift
+  local tool found
+
+  mkdir -p "$dir"
+  for tool in "$@"; do
+    found="$(command -v "$tool" 2>/dev/null || true)"
+    if [ -n "$found" ]; then
+      ln -s "$found" "$dir/$tool"
+    fi
+  done
+}
+
+expect_no_tab() {
+  if printf '%s\n' "$out" | grep -q $'\t'; then
+    bad "$1" "stdout contains a literal tab"
+  else
+    ok "$1"
+  fi
 }
 
 printf '== no pull requests ==\n'
@@ -319,6 +347,90 @@ expect_argv_has "14: argv contains pr list" "pr list"
 expect_argv_has "14: argv filters to Dependabot" "--author app/dependabot"
 expect_argv_has "14: argv filters to open pull requests" "--state open"
 expect_argv_never "14: argv never uses a write verb"
+
+printf '== title sanitizing ==\n'
+
+fixture=title-tab
+gh_fail=0
+run_check --repo example-org/example-repo
+expect_status "15: a tab in the title exits 0" 0
+expect_line "15: a backslash stays and a tab becomes a space" \
+  'ok  example-org/example-repo#109  green  1d  https://example.com/pulls/109  Bump example-package from 1.0.0 to 1.0.1 \ paste here'
+expect_no_tab "15: no literal tab reaches the report"
+expect_last_line "15: a sanitized title keeps the summary" \
+  "summary: 1 open dependabot PRs, 0 flagged"
+
+printf '== age equals --days ==\n'
+
+fixture=pending-old
+gh_fail=0
+run_check --repo example-org/example-repo --days 9
+expect_status "16: age equal to --days exits 0" 0
+expect_line "16: age equal to --days reports ok" \
+  "ok  example-org/example-repo#103  pending  9d  https://example.com/pulls/103  Bump example-package from 1.0.0 to 1.0.1"
+expect_last_line "16: age equal to --days flags nothing" \
+  "summary: 1 open dependabot PRs, 0 flagged"
+
+run_check --repo example-org/example-repo --days 8
+expect_status "16: one day under the age exits 1" 1
+expect_line "16: a 9 day old pending pull request is flagged at --days 8" \
+  "FLAG  example-org/example-repo#103  pending  9d  https://example.com/pulls/103  Bump example-package from 1.0.0 to 1.0.1"
+
+printf '== --repo= and --days= forms ==\n'
+
+fixture=green-young
+gh_fail=0
+run_check --repo=example-org/example-repo
+expect_status "17: --repo=OWNER/REPO exits 0" 0
+expect_line "17: --repo= reports the pull request" \
+  "ok  example-org/example-repo#101  green  1d  https://example.com/pulls/101  Bump example-package from 1.0.0 to 1.0.1"
+expect_argv_has "17: --repo= passes the slug to gh" \
+  "-R example-org/example-repo"
+
+fixture=pending-old
+run_check --repo=example-org/example-repo --days=10
+expect_status "17: --days=10 exits 0" 0
+expect_line "17: --days=10 reports the pull request as ok" \
+  "ok  example-org/example-repo#103  pending  9d  https://example.com/pulls/103  Bump example-package from 1.0.0 to 1.0.1"
+
+run_check --repo=example-org/example-repo --days=9
+expect_status "17: --days=9 at the boundary exits 0" 0
+
+run_check --repo=example-org/example-repo --days=abc
+expect_status "17: --days=abc exits 2" 2
+expect_err "17: --days=abc names the rule" \
+  "must be a non-negative integer"
+expect_argv_calls "17: --days=abc never calls gh" 0
+
+fixture=two-prs
+run_check --repo=example-org/example-repo --repo=example-org/second-repo
+expect_status "17: two --repo= values exit 1" 1
+expect_line "17: the second --repo= value reaches the report" \
+  "ok  example-org/second-repo#107  green  1d  https://example.com/pulls/107  Bump example-package from 1.0.0 to 1.0.1"
+expect_argv_calls "17: two --repo= values call gh twice" 2
+
+printf '== missing tools ==\n'
+
+fixture=green-young
+gh_fail=0
+
+# A PATH built from one directory keeps the real gh and jq out of reach.
+make_tool_path "$work_tmp/no-gh" bash sh cat date mktemp rm jq
+check_path="$work_tmp/no-gh"
+run_check --repo example-org/example-repo
+expect_status "18: missing gh exits 2" 2
+expect_err "18: missing gh is named" "gh is required"
+expect_argv_calls "18: missing gh never calls gh" 0
+
+make_tool_path "$work_tmp/no-jq" bash sh cat date mktemp rm
+ln -s "$fake_bin/gh" "$work_tmp/no-jq/gh"
+check_path="$work_tmp/no-jq"
+run_check --repo example-org/example-repo
+expect_status "18: missing jq exits 2" 2
+expect_err "18: missing jq is named" "jq is required"
+expect_argv_calls "18: missing jq never calls gh" 0
+
+check_path="$fake_bin:$PATH"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
