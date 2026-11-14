@@ -7,9 +7,10 @@
 # process's output is redacted before it is printed. Secret values never reach
 # argv, are never echoed, and are never written to disk unredacted except the
 # mode 600 wrangler capture file inside a trap-removed mktemp directory. curl
-# sends no credentials and never follows redirects. Preflight children run
-# without CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID, even in deploy mode.
-# Those values are present only for the real wrangler deploy.
+# sends no credentials and never follows redirects. Every child except the
+# real wrangler deploy runs without CLOUDFLARE_API_TOKEN or
+# CLOUDFLARE_ACCOUNT_ID, even in deploy mode. Those values are present only
+# for the real wrangler deploy.
 #
 # Exit codes: 0 okay, 1 preflight, deploy, smoke, or hook failure, 2 usage
 # error, 3 required command missing (npm, npx, node, or curl when smoke or the
@@ -293,6 +294,11 @@ if [ "$mode" = "deploy" ] && [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   exit 1
 fi
 
+# Drop Cloudflare credentials from every child except the real wrangler deploy.
+without_cloudflare_env() {
+  env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID "$@"
+}
+
 secret_names=""
 
 add_secret_name() {
@@ -322,11 +328,11 @@ collect_secret_names() {
     case "$name" in
       ''|[0-9]*|*[!A-Za-z0-9_]*) continue ;;
     esac
-    upper="$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')"
+    upper="$(printf '%s' "$name" | without_cloudflare_env tr '[:lower:]' '[:upper:]')"
     case "$upper" in
       *TOKEN*|*SECRET*|*PASSWORD*|*_KEY|*API_KEY*) add_secret_name "$name" ;;
     esac
-  done < <(env)
+  done < <(without_cloudflare_env env)
 }
 
 redact_text() {
@@ -346,14 +352,14 @@ print_redacted_file() {
   local file="$1"
   local content
 
-  content="$(cat "$file" || true)"
+  content="$(without_cloudflare_env cat "$file" || true)"
   if [ -n "$content" ]; then
     redact_text "$content" >&2
     printf '\n' >&2
   fi
 }
 
-tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/worker-deploy.XXXXXX")" || {
+tmp_dir="$(without_cloudflare_env mktemp -d "${TMPDIR:-/tmp}/worker-deploy.XXXXXX")" || {
   printf '%s: could not create a temporary directory\n' "$script_name" >&2
   exit 1
 }
@@ -364,10 +370,10 @@ collect_secret_names
 
 step_log="$tmp_dir/step.log"
 : > "$step_log"
-chmod 600 "$step_log" 2>/dev/null || true
+without_cloudflare_env chmod 600 "$step_log" 2>/dev/null || true
 
 package_has_script() {
-  node -e '
+  without_cloudflare_env node -e '
     const fs = require("node:fs");
     const file = process.argv[1];
     const name = process.argv[2];
@@ -383,10 +389,11 @@ package_has_script() {
   ' "$dir/package.json" "$1"
 }
 
-# Preflight children must not inherit Cloudflare credentials, even when this
-# script is in deploy mode. The real wrangler deploy uses run_deploy_in_worker_dir.
+# Preflight and other non-deploy children must not inherit Cloudflare
+# credentials, even when this script is in deploy mode. The real wrangler
+# deploy uses run_deploy_in_worker_dir, which is the only path that keeps them.
 run_in_worker_dir() {
-  ( cd "$dir" && env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID "$@" ) >"$step_log" 2>&1
+  ( cd "$dir" && without_cloudflare_env "$@" ) >"$step_log" 2>&1
 }
 
 run_deploy_in_worker_dir() {
@@ -461,7 +468,8 @@ run_deploy() {
   fi
   print_redacted_file "$step_log"
 
-  id="$(awk '
+  # shellcheck disable=SC2016  # $0 is an awk field, not a shell expansion
+  id="$(without_cloudflare_env awk '
     /Version ID:/ {
       line = $0
       sub(/^.*Version ID:[[:space:]]*/, "", line)
@@ -471,7 +479,7 @@ run_deploy() {
     }
   ' "$step_log")"
 
-  if ! printf '%s' "$id" | grep -Eq '^[0-9a-fA-F-]{8,}$'; then
+  if ! printf '%s' "$id" | without_cloudflare_env grep -Eq '^[0-9a-fA-F-]{8,}$'; then
     printf '%s: deploy output has no valid Version ID; refusing to report success\n' \
       "$script_name" >&2
     exit 1
@@ -497,11 +505,11 @@ run_smoke() {
 
   printf '%s: smoke: GET %s\n' "$script_name" "$url" >&2
   : > "$curl_err"
-  chmod 600 "$curl_err" 2>/dev/null || true
+  without_cloudflare_env chmod 600 "$curl_err" 2>/dev/null || true
 
   while [ "$attempt" -le 3 ]; do
     : > "$curl_err"
-    if code="$(curl --fail --silent --show-error --max-time 10 --proto '=https,http' \
+    if code="$(without_cloudflare_env curl --fail --silent --show-error --max-time 10 --proto '=https,http' \
       -o /dev/null -w '%{http_code}' "$url" 2>"$curl_err")"; then
       case "$code" in
         2[0-9][0-9])
@@ -518,7 +526,7 @@ run_smoke() {
     fi
     attempt=$((attempt + 1))
     if [ "$attempt" -le 3 ]; then
-      sleep 2
+      without_cloudflare_env sleep 2
     fi
   done
 
@@ -531,13 +539,13 @@ run_rate_limit() {
   local hook_log="$tmp_dir/rate-limit.log"
 
   : > "$hook_log"
-  chmod 600 "$hook_log" 2>/dev/null || true
+  without_cloudflare_env chmod 600 "$hook_log" 2>/dev/null || true
 
   printf '%s: rate-limit hook: rate-limit-check.sh --base-url %s --path %s --limit %s --window %s\n' \
     "$script_name" "$smoke_url" "$rl_path" "$rl_limit" "$rl_window" >&2
 
   if [ -n "$rl_requests" ]; then
-    if ! bash "$rate_limit_script" --base-url "$smoke_url" --path "$rl_path" \
+    if ! without_cloudflare_env bash "$rate_limit_script" --base-url "$smoke_url" --path "$rl_path" \
       --limit "$rl_limit" --window "$rl_window" --requests "$rl_requests" \
       --mode "$rl_mode" >"$hook_log" 2>&1; then
       print_redacted_file "$hook_log"
@@ -546,7 +554,7 @@ run_rate_limit() {
       exit 1
     fi
   else
-    if ! bash "$rate_limit_script" --base-url "$smoke_url" --path "$rl_path" \
+    if ! without_cloudflare_env bash "$rate_limit_script" --base-url "$smoke_url" --path "$rl_path" \
       --limit "$rl_limit" --window "$rl_window" --mode "$rl_mode" \
       >"$hook_log" 2>&1; then
       print_redacted_file "$hook_log"
