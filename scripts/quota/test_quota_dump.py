@@ -22,7 +22,8 @@ record = Path("__RECORD__")
 argv = sys.argv[1:]
 i = argv.index("--settings")
 settings = json.loads(Path(argv[i + 1]).read_text())
-record.write_text(json.dumps({"argv": sys.argv, "settings": settings}))
+mode = Path(argv[i + 1]).stat().st_mode & 0o777
+record.write_text(json.dumps({"argv": sys.argv, "settings": settings, "mode": mode}))
 payload = '{"quota": {"gemini-weekly": {"remaining_fraction": 0.5, "reset_time": "2026-11-10T00:00:00Z"}}}'
 subprocess.run([settings["statusLine"]["command"]], input=payload, text=True)
 '''
@@ -127,6 +128,9 @@ class QuotaSchema(unittest.TestCase):
             argv = rec["argv"]
             i = argv.index("--settings")
             settings_path = Path(argv[i + 1])
+            self.assertEqual(i, 1)
+            self.assertEqual(argv[i + 2:], ["-p", "ok"])
+            self.assertEqual(rec["mode"], 0o600)
             self.assertEqual(settings_path.name, "session-settings.json")
             self.assertEqual(set(rec["settings"]), {"statusLine"})
             self.assertFalse(settings_path.parent.exists())

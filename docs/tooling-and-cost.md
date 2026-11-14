@@ -346,7 +346,7 @@ own authentication.
 
 ```bash
 python3 scripts/quota/quota_dump.py --agy-payload agy.json --cursor-json plan.json
-python3 scripts/quota/quota_dump.py --agy-capture --out quota.json
+python3 scripts/quota/quota_dump.py --agy-capture --agy-cmd none --out quota.json
 ```
 
 By default it prints one line. Add `--json` for the full document or `--out FILE`
@@ -370,7 +370,17 @@ invents numbers.
 `agy --settings <file>` flag. It never reads or writes the global
 `settings.json`, so it is safe while other `agy` sessions run. It removes the
 temporary files afterwards. Run the tests with
-`python3 -m unittest scripts/quota/test_quota_dump.py`.
+`python3 -m unittest scripts/quota/test_quota_dump.py`. CI runs them in
+`.github/workflows/dev-loop-gate.yml`.
+
+Headless `agy -p` does not run the `statusLine` command (checked on `agy`
+1.5.9), so the default `--agy-cmd` times out with no payload. Use
+`--agy-cmd none`. The script prints `start: agy --settings <file>`. Run that
+command in another terminal and complete one turn before the timeout.
+
+```bash
+python3 scripts/quota/quota_dump.py --agy-capture --agy-cmd none --timeout 120
+```
 
 > The `agy` mapping is verified against a real `agy` 1.5.0 `statusLine` payload
 > (`quota.<pool>.remaining_fraction` and `reset_time`). The first payload after
