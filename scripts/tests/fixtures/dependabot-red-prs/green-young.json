@@ -1,0 +1,22 @@
+[
+  {
+    "number": 101,
+    "title": "Bump example-package from 1.0.0 to 1.0.1",
+    "url": "https://example.com/pulls/101",
+    "createdAt": "2026-01-09T00:00:00Z",
+    "headRefOid": "1111111111111111111111111111111111111111",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "name": "build",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      },
+      {
+        "__typename": "StatusContext",
+        "context": "ci",
+        "state": "SUCCESS"
+      }
+    ]
+  }
+]
