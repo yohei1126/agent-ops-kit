@@ -1,0 +1,35 @@
+# Dependabot configuration.
+# Options reference:
+# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+#
+# Cloudflare tooling is released in lockstep: wrangler declares a peer on
+# @cloudflare/workers-types and pins miniflare, and @cloudflare/vitest-plugin
+# tracks the same releases. Bumping one without the others fails `npm ci`
+# with ERESOLVE, so they are grouped into a single pull request.
+#
+# A group's `applies-to` takes one value, so version updates and security
+# updates each have their own group. `npm-security` bundles every security
+# fix in a directory into one PR instead of one PR per advisory. It does not
+# pull in packages that have no advisory, so the weekly `cloudflare-tooling`
+# group keeps the whole set aligned before a security fix arrives.
+#
+# When another npm directory is added, add it to `directories` below; the
+# same groups apply.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directories:
+      - "/templates/workers-do-rate-limiter"
+    schedule:
+      interval: "weekly"
+    groups:
+      cloudflare-tooling:
+        applies-to: version-updates
+        patterns:
+          - "wrangler"
+          - "miniflare"
+          - "@cloudflare/*"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
