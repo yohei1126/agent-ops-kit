@@ -83,7 +83,10 @@ workflow's own commit into `.agent-ops-kit`. Node comes from the caller's
 `.nvmrc` through `node-version-file`, never a hard-coded version. The first
 preflight step runs without secrets, so a broken Worker fails before the deploy
 step. Deploy mode repeats the full preflight inside the shared script, so
-automatic and manual runs share one code path.
+automatic and manual runs share one code path. During that repeated preflight
+the script withholds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from
+`npm ci`, typecheck, tests, and the wrangler dry run, and exposes them only
+to the real `wrangler deploy`.
 
 Inputs:
 
@@ -195,6 +198,11 @@ helpers stay separate today.
   --proto =https,http` with no redirects, credentials, cookies, or auth headers.
 - The reusable workflow keeps secrets in the deploy step's `env:` only, pins
   every action to a full commit SHA, and sets `contents: read`.
+- In deploy mode, preflight children (`npm ci`, typecheck, tests, and the
+  wrangler dry run) run without `CLOUDFLARE_API_TOKEN` or
+  `CLOUDFLARE_ACCOUNT_ID` in their environment. Only the real `wrangler deploy`
+  sees those values. This is enforced by
+  [`../scripts/tests/test_worker_deploy.sh`](../scripts/tests/test_worker_deploy.sh).
 
 ## Related
 

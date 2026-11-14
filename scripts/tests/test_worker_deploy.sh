@@ -204,6 +204,15 @@ cat > "$bin_dir/npm" <<'STUB'
 #!/usr/bin/env bash
 set -u
 printf 'npm %s\n' "$*" >> "${STUB_LOG:?}"
+token_state=unset
+account_state=unset
+if [ -n "${CLOUDFLARE_API_TOKEN+x}" ]; then
+  token_state=set
+fi
+if [ -n "${CLOUDFLARE_ACCOUNT_ID+x}" ]; then
+  account_state=set
+fi
+printf 'env npm %s token=%s account=%s\n' "$*" "$token_state" "$account_state" >> "${STUB_LOG:?}"
 step=""
 if [ "${1:-}" = "ci" ]; then
   step="npm-ci"
@@ -227,6 +236,15 @@ cat > "$bin_dir/npx" <<'STUB'
 #!/usr/bin/env bash
 set -u
 printf 'npx %s\n' "$*" >> "${STUB_LOG:?}"
+token_state=unset
+account_state=unset
+if [ -n "${CLOUDFLARE_API_TOKEN+x}" ]; then
+  token_state=set
+fi
+if [ -n "${CLOUDFLARE_ACCOUNT_ID+x}" ]; then
+  account_state=set
+fi
+printf 'env npx %s token=%s account=%s\n' "$*" "$token_state" "$account_state" >> "${STUB_LOG:?}"
 step=""
 if [ "${1:-}" = "--no-install" ] && [ "${2:-}" = "wrangler" ] && [ "${3:-}" = "deploy" ]; then
   if [ "${4:-}" = "--dry-run" ]; then
@@ -425,6 +443,34 @@ if [ -z "$out" ]; then
 else
   bad "13: missing token prints no version id" "stdout: [$out]"
 fi
+
+printf '== preflight env isolation in deploy mode ==\n'
+
+export CLOUDFLARE_API_TOKEN="$fake_token"
+export CLOUDFLARE_ACCOUNT_ID="$fake_account"
+export OTHER_SECRET="$fake_secret"
+
+run_script "$deploy_script" --dir "$worker_dir" --mode deploy
+expect_status "39: deploy with isolated preflight exits 0" 0
+expect_call "39: npm ci does not inherit Cloudflare credentials" \
+  "env npm ci token=unset account=unset"
+expect_call "39: typecheck does not inherit Cloudflare credentials" \
+  "env npm run typecheck token=unset account=unset"
+expect_call "39: tests do not inherit Cloudflare credentials" \
+  "env npm test token=unset account=unset"
+expect_call "39: the wrangler dry run does not inherit Cloudflare credentials" \
+  "env npx --no-install wrangler deploy --dry-run token=unset account=unset"
+expect_call "39: the deploy still sees the token and account id" \
+  "env npx --no-install wrangler deploy token=set account=set"
+
+unset CLOUDFLARE_ACCOUNT_ID
+run_script "$deploy_script" --dir "$worker_dir" --mode deploy
+expect_status "39: deploy without an account id still exits 0" 0
+expect_call "39: preflight stays isolated when account id is unset" \
+  "env npm ci token=unset account=unset"
+expect_call "39: the deploy still sees the token when account id is unset" \
+  "env npx --no-install wrangler deploy token=set account=unset"
+export CLOUDFLARE_ACCOUNT_ID="$fake_account"
 
 printf '== rate-limit hook ==\n'
 

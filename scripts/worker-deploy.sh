@@ -7,7 +7,9 @@
 # process's output is redacted before it is printed. Secret values never reach
 # argv, are never echoed, and are never written to disk unredacted except the
 # mode 600 wrangler capture file inside a trap-removed mktemp directory. curl
-# sends no credentials and never follows redirects.
+# sends no credentials and never follows redirects. Preflight children run
+# without CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID, even in deploy mode.
+# Those values are present only for the real wrangler deploy.
 #
 # Exit codes: 0 okay, 1 preflight, deploy, smoke, or hook failure, 2 usage
 # error, 3 required command missing (npm, npx, node, or curl when smoke or the
@@ -381,7 +383,13 @@ package_has_script() {
   ' "$dir/package.json" "$1"
 }
 
+# Preflight children must not inherit Cloudflare credentials, even when this
+# script is in deploy mode. The real wrangler deploy uses run_deploy_in_worker_dir.
 run_in_worker_dir() {
+  ( cd "$dir" && env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID "$@" ) >"$step_log" 2>&1
+}
+
+run_deploy_in_worker_dir() {
   ( cd "$dir" && "$@" ) >"$step_log" 2>&1
 }
 
@@ -446,7 +454,7 @@ run_deploy() {
   local id
 
   printf '%s: deploy: npx --no-install wrangler deploy\n' "$script_name" >&2
-  if ! run_in_worker_dir npx --no-install wrangler deploy; then
+  if ! run_deploy_in_worker_dir npx --no-install wrangler deploy; then
     print_redacted_file "$step_log"
     printf '%s: deploy failed; wrangler exited non-zero\n' "$script_name" >&2
     exit 1
