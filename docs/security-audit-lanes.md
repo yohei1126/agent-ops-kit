@@ -116,6 +116,32 @@ control repository returned a non-zero count. Record HTTP status for
 code-scanning and secret-scanning reads in the pull request or issue that
 changes this routing.
 
+## Flag red Dependabot pull requests weekly
+
+Run [`dependabot-red-prs.sh`](../scripts/dependabot-red-prs.sh) from the
+workstation `gh` login as part of the weekly sweep:
+
+```bash
+scripts/dependabot-red-prs.sh --repo OWNER/REPO
+```
+
+Repeat `--repo` for each repository. The script runs one `gh pr list` per
+repository and reads only open Dependabot pull requests.
+
+It flags a pull request when any check failed, or when the pull request has
+been open longer than 3 days. Change the age limit with `--days N`.
+
+Exit codes: 0 nothing flagged, 1 at least one flagged, 2 usage error, missing
+`gh` or `jq`, a `gh` failure, or unreadable JSON.
+
+The script is read-only and report-only. It never comments, closes, rebases, or
+merges. When a pull request is flagged, open one human pull request that fixes
+the update, including peer dependency updates, and propose closing the original
+as a duplicate. The maintainer closes the original.
+
+`scripts/tests/test_dependabot_red_prs.sh` enforces the classification and the
+read-only rule.
+
 ## Keep the AWS Serverless MCP pinned and read-only
 
 The AWS Serverless MCP server has a known advisory

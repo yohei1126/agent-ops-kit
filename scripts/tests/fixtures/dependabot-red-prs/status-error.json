@@ -1,0 +1,16 @@
+[
+  {
+    "number": 104,
+    "title": "Bump example-package from 1.0.0 to 1.0.1",
+    "url": "https://example.com/pulls/104",
+    "createdAt": "2026-01-09T00:00:00Z",
+    "headRefOid": "4444444444444444444444444444444444444444",
+    "statusCheckRollup": [
+      {
+        "__typename": "StatusContext",
+        "context": "ci",
+        "state": "ERROR"
+      }
+    ]
+  }
+]
