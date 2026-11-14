@@ -118,9 +118,10 @@ scripts/worker-deploy.sh --dir <worker-dir> --mode deploy
 ```
 
 The local run uses the consumer's `node_modules` and lockfile, so
-`npm ci` and the wrangler version match CI. Authenticate with the maintainer's
-`wrangler login`, or export `CLOUDFLARE_API_TOKEN` in the shell before a deploy.
-Never place a token value in a command argument, a file, or a log.
+`npm ci` and the wrangler version match CI. Deploy mode requires
+`CLOUDFLARE_API_TOKEN` in the environment. `wrangler login` alone is not
+enough for this script. Preflight mode does not require the token. Never
+place a token value in a command argument, a file, or a log.
 
 ## Token and environment setup
 
@@ -128,6 +129,9 @@ Create a scoped Cloudflare API token with Workers Scripts edit and account read
 only. Store it as a GitHub environment secret named `CLOUDFLARE_API_TOKEN`, and
 store the account id as `CLOUDFLARE_ACCOUNT_ID`. The reusable workflow declares
 both as required secrets and maps them only through the deploy step's `env:`.
+A local `--mode deploy` run also requires `CLOUDFLARE_API_TOKEN` in the
+environment; `wrangler login` alone is not enough. Preflight mode, including
+the workflow's dedicated preflight step, does not need the token.
 
 Environment protection (required reviewers, deployment branches) stays with the
 consumer's maintainer. An `environment` input that names a protected environment
@@ -196,6 +200,10 @@ helpers stay separate today.
   trap removes. The wrangler capture file is the only unredacted disk copy.
 - Smoke and hook requests use `curl --fail --silent --show-error --max-time 10
   --proto =https,http` with no redirects, credentials, cookies, or auth headers.
+- Deploy mode requires `CLOUDFLARE_API_TOKEN` in the environment and fails
+  closed when it is unset. `wrangler login` alone is not enough. Preflight
+  mode does not require the token. This is enforced by
+  [`../scripts/tests/test_worker_deploy.sh`](../scripts/tests/test_worker_deploy.sh).
 - The reusable workflow keeps secrets in the deploy step's `env:` only, pins
   every action to a full commit SHA, and sets `contents: read`.
 - In deploy mode, preflight children (`npm ci`, typecheck, tests, and the
