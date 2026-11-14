@@ -1,7 +1,9 @@
 """Golden-fixture schema tests. Run: python3 -m unittest scripts/quota/test_quota_dump.py"""
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,9 +12,25 @@ SCRIPT = HERE / "quota_dump.py"
 FIELDS = {"agent_id", "pool_id", "kind", "status", "remaining_fraction", "used_fraction",
           "reset_time", "captured_at", "plan_tier", "source"}
 
+FAKE_AGY = '''#!/usr/bin/env python3
+import json
+import subprocess
+import sys
+from pathlib import Path
 
-def run(*args):
-    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
+record = Path("__RECORD__")
+argv = sys.argv[1:]
+i = argv.index("--settings")
+settings = json.loads(Path(argv[i + 1]).read_text())
+record.write_text(json.dumps({"argv": sys.argv, "settings": settings}))
+payload = '{"quota": {"gemini-weekly": {"remaining_fraction": 0.5, "reset_time": "2026-11-10T00:00:00Z"}}}'
+subprocess.run([settings["statusLine"]["command"]], input=payload, text=True)
+'''
+
+
+def run(*args, env=None):
+    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True,
+                          text=True, env=env)
 
 
 class QuotaSchema(unittest.TestCase):
@@ -69,20 +87,62 @@ class QuotaSchema(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("reset_time missing", r.stderr)
 
-    def test_capture_always_restores_settings(self):
-        import os
-        import tempfile
+    def test_capture_leaves_global_settings_byte_identical(self):
         with tempfile.TemporaryDirectory() as home:
             cfg = Path(home) / ".gemini/antigravity-cli/settings.json"
             cfg.parent.mkdir(parents=True)
             cfg.write_text('{"model": "x"}\n')
             before = cfg.read_bytes()
-            r = subprocess.run([sys.executable, str(SCRIPT), "--agy-capture", "--agy-cmd", "true",
-                                "--timeout", "1"], capture_output=True, text=True,
-                               env={**os.environ, "HOME": home})
+            r = run("--agy-capture", "--agy-cmd", "true", "--timeout", "1",
+                    env={**os.environ, "HOME": home})
             self.assertNotEqual(r.returncode, 0)
             self.assertEqual(cfg.read_bytes(), before)
             self.assertNotIn("statusLine", cfg.read_text())
+
+    def test_capture_does_not_create_global_settings(self):
+        with tempfile.TemporaryDirectory() as home:
+            cfg = Path(home) / ".gemini/antigravity-cli/settings.json"
+            r = run("--agy-capture", "--agy-cmd", "true", "--timeout", "1",
+                    env={**os.environ, "HOME": home})
+            self.assertNotEqual(r.returncode, 0)
+            self.assertFalse(cfg.exists())
+
+    def test_capture_uses_session_only_settings(self):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(home) / ".gemini/antigravity-cli/settings.json"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text('{"model": "x"}\n')
+            before = cfg.read_bytes()
+            record = Path(tmp) / "record.json"
+            fake = Path(tmp) / "fake-agy"
+            fake.write_text(FAKE_AGY.replace("__RECORD__", str(record)))
+            fake.chmod(0o700)
+            r = run("--agy-capture", "--agy-cmd", f"{fake} -p ok", "--json", "--timeout", "10",
+                    env={**os.environ, "HOME": home})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            agy = {x["pool_id"]: x for x in json.loads(r.stdout)["records"]
+                   if x["agent_id"] == "agy"}
+            self.assertEqual(agy["gemini-weekly"]["remaining_fraction"], 0.5)
+            rec = json.loads(record.read_text())
+            argv = rec["argv"]
+            i = argv.index("--settings")
+            settings_path = Path(argv[i + 1])
+            self.assertEqual(settings_path.name, "session-settings.json")
+            self.assertEqual(set(rec["settings"]), {"statusLine"})
+            self.assertFalse(settings_path.parent.exists())
+            self.assertEqual(cfg.read_bytes(), before)
+
+    def test_capture_none_prints_session_settings_command(self):
+        with tempfile.TemporaryDirectory() as home:
+            cfg = Path(home) / ".gemini/antigravity-cli/settings.json"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text('{"model": "x"}\n')
+            before = cfg.read_bytes()
+            r = run("--agy-capture", "--agy-cmd", "none", "--timeout", "1",
+                    env={**os.environ, "HOME": home})
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("--settings", r.stderr)
+            self.assertEqual(cfg.read_bytes(), before)
 
 
 if __name__ == "__main__":

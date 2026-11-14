@@ -350,8 +350,7 @@ python3 scripts/quota/quota_dump.py --agy-capture --out quota.json
 ```
 
 By default it prints one line. Add `--json` for the full document or `--out FILE`
-to save it. Exit code 2 means the schema is incomplete. Exit code 3 means the
-`agy` settings restore failed.
+to save it. Exit code 2 means the schema is incomplete.
 
 | Lane | Pool ids | Kind |
 | --- | --- | --- |
@@ -366,9 +365,11 @@ Each record has `agent_id`, `pool_id`, `kind`, `status`, `remaining_fraction`,
 pass `--fireworks-remaining-usd` and `--fireworks-budget-usd`. The script never
 invents numbers.
 
-`--agy-capture` backs up `settings.json`, points `statusLine` at a temporary
-dump hook, runs `--agy-cmd` (default `agy -p ok`), and always restores the
-original bytes. Run the tests with
+`--agy-capture` writes a temporary dump hook. It passes the hook only to its own
+`--agy-cmd` run (default `agy -p ok`) through the session-only
+`agy --settings <file>` flag. It never reads or writes the global
+`settings.json`, so it is safe while other `agy` sessions run. It removes the
+temporary files afterwards. Run the tests with
 `python3 -m unittest scripts/quota/test_quota_dump.py`.
 
 > The `agy` mapping is verified against a real `agy` 1.5.0 `statusLine` payload
