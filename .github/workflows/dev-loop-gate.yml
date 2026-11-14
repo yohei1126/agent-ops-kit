@@ -34,6 +34,9 @@ jobs:
           bash scripts/tests/test_rate_limit_check.sh
           bash scripts/tests/test_worker_deploy.sh
 
+      - name: Run quota dump tests
+        run: python3 -m unittest scripts/quota/test_quota_dump.py
+
       - name: Run docs sweep tests
         run: bash scripts/tests/test_docs_sweep.sh
 

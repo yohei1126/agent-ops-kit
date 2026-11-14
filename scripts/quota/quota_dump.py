@@ -10,7 +10,7 @@ Usage:
                 [--fireworks-remaining-usd N --fireworks-budget-usd N]
                 [--out FILE] [--json]
 
-Exit codes: 0 ok, 2 schema incomplete, 3 agy settings restore failed.
+Exit codes: 0 ok, 2 schema incomplete.
 No API keys are read or stored. Inputs are files you produce with your own auth.
 """
 from __future__ import annotations
@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -36,7 +35,6 @@ AGY_POOLS = (
     "gemini-argon-wtu-weekly",
 )
 KIND_BY_POOL_SUFFIX = {"weekly": "weekly", "5h": "5h"}
-SETTINGS = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
 
 
 def now_utc() -> dt.datetime:
@@ -153,22 +151,31 @@ def goat_records(captured) -> list[dict]:
 
 
 def agy_capture(timeout: float, agy_cmd: list[str], save_raw: str | None = None) -> dict:
-    """Temporarily point statusLine at a dump hook, then always restore settings."""
-    original = SETTINGS.read_bytes() if SETTINGS.exists() else None
-    existed = original is not None
+    """Install a dump hook through a session-only settings file, then remove it.
+
+    The global `~/.gemini/antigravity-cli/settings.json` is never read or written,
+    so running sessions keep their own statusLine while capture runs.
+    """
     tmp = Path(tempfile.mkdtemp(prefix="quota-dump-"))
-    dump = tmp / "payload.json"
-    hook = tmp / "hook.sh"
-    hook.write_text(f'#!/bin/sh\ncat >> "{dump}"; echo >> "{dump}"\necho quota-dump\n')
-    hook.chmod(0o700)
+    child: subprocess.Popen | None = None
     try:
-        cfg = json.loads(original) if original else {}
-        cfg["statusLine"] = {"type": "command", "command": str(hook), "enabled": True, "padding": 0}
-        SETTINGS.write_text(json.dumps(cfg, indent=2))
+        dump = tmp / "payload.json"
+        hook = tmp / "hook.sh"
+        settings = tmp / "session-settings.json"
+        hook.write_text(f'#!/bin/sh\ncat >> "{dump}"; echo >> "{dump}"\necho quota-dump\n')
+        hook.chmod(0o700)
+        settings.write_text(json.dumps({
+            "statusLine": {"type": "command", "command": str(hook), "enabled": True, "padding": 0},
+        }))
+        settings.chmod(0o600)
         if agy_cmd and agy_cmd != ["none"]:
-            subprocess.Popen(agy_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            child = subprocess.Popen(
+                [agy_cmd[0], "--settings", str(settings), *agy_cmd[1:]],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
         else:
-            print("hook installed; start `agy` in another terminal and run one turn", file=sys.stderr)
+            print(f"start: agy --settings {settings}", file=sys.stderr)
+            print("run one turn in agy to emit a payload", file=sys.stderr)
         deadline = time.time() + timeout
         payloads: list[dict] = []
         best = None
@@ -185,19 +192,14 @@ def agy_capture(timeout: float, agy_cmd: list[str], save_raw: str | None = None)
             raise TimeoutError(f"no payload with quota fields before timeout ({len(payloads)} payloads seen)")
         return best
     finally:
-        try:
-            if existed:
-                SETTINGS.write_bytes(original)
-                ok = SETTINGS.read_bytes() == original
-            else:
-                SETTINGS.unlink(missing_ok=True)
-                ok = not SETTINGS.exists()
-        except OSError:
-            ok = False
+        if child is not None and child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
         shutil.rmtree(tmp, ignore_errors=True)
-        if not ok:
-            print("ERROR: failed to restore agy settings.json", file=sys.stderr)
-            os._exit(3)
 
 
 def validate(doc: dict) -> list[str]:
@@ -245,7 +247,8 @@ def build(args) -> dict:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--agy-payload", help="saved agy statusLine JSON payload")
-    p.add_argument("--agy-capture", action="store_true", help="temporary statusLine hook, then restore")
+    p.add_argument("--agy-capture", action="store_true",
+                   help="capture a payload with a session-only `agy --settings` hook")
     p.add_argument("--agy-cmd", default="agy -p ok", help="command that makes agy emit a statusLine payload, or `none` to start agy yourself")
     p.add_argument("--save-raw", help="with --agy-capture, also save the raw payload (may hold paths)")
     p.add_argument("--timeout", type=float, default=60.0)
