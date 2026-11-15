@@ -25,11 +25,14 @@ Call one workstation `Shell` per phase after the brief exists under
    generates per-run settings (see
    [Docs launches generate per-run settings](#docs-launches-generate-per-run-settings)),
    starts `agy --project "$HOME/agy-work/<repo>" --model "$model" --settings
-   <settings> -p` in the background via `nohup`, and writes
-   `$HOME/agy-inbox/<stem>.pid`, `<stem>-stdout.log`, and `<stem>-stderr.log`.
+   <settings> -p`, writes `$HOME/agy-inbox/<stem>.pid`, `<stem>-stdout.log`,
+   and `<stem>-stderr.log`, and waits for the run to finish (see
+   [Shared launch retry](#shared-launch-retry)). Operators who need a
+   detached session can run the launcher itself under a terminal multiplexer
+   or `nohup`.
 
    ```bash
-   ~/agy-work/grok-bot-ops/scripts/agy-docs-launch.sh <repo> ~/agy-inbox/<brief>.txt [log-stem] [model]
+   scripts/agy-docs-launch.sh <repo> ~/agy-inbox/<brief>.txt [log-stem] [model]
    ```
 
    The script defaults to Gemini 3.8 Flash (`gemini-3.8-flash-medium`) because
@@ -43,7 +46,7 @@ Call one workstation `Shell` per phase after the brief exists under
    80 lines of the stdout and stderr logs.
 
    ```bash
-   ~/agy-work/grok-bot-ops/scripts/agy-docs-collect.sh <repo> [log-stem]
+   scripts/agy-docs-collect.sh <repo> [log-stem]
    ```
 
 ## Review launches generate per-run settings
@@ -79,23 +82,15 @@ Flow:
 5. After the check passes, a launch refuses a symlinked `settings.json`,
    `BRIEF.md`, generated settings temp file, `agy.log`, `agy.stderr.log`, or
    `agy.pid`. It then starts `agy` with cwd set to the run folder and writes
-   those three files. On macOS (`uname -s` is `Darwin`), when `caffeinate` is
-   on `PATH`, the child is started as `caffeinate -i agy ...` so the host will
-   not idle-sleep during the review (Apple `caffeinate(8)`). On Linux, or when
-   `caffeinate` is missing, `agy` starts unwrapped; a missing binary is not an
-   error.
-6. The launcher waits for the run. If `<run>/agy.log` is empty (0 bytes or
-   missing), it rotates the first attempt's logs to `agy.log.attempt1` and
-   `agy.stderr.log.attempt1` and relaunches the same command exactly once. A
-   second empty log exits 1 (fail closed). A non-empty log does not retry,
-   even when that log has no `VERDICT` line. Whitespace-only counts as
-   non-empty. Operators who need a detached session can run the launcher
-   itself under a terminal multiplexer or `nohup`.
+   those three files. Idle-sleep wrapping and the single automatic relaunch
+   are provided by the shared helper (see
+   [Shared launch retry](#shared-launch-retry)).
 
 Use `--dry-run` to create the run folder and settings, run the check, and print
 the command (including `caffeinate -i` when the wrapper would be used) without
 starting `agy`. Use `--check-settings <settings.json> <run-dir>` to run only
-the check on an existing file. Neither flag waits or retries.
+the check on an existing file. Neither flag waits or retries, and neither has
+side effects beyond the folder and settings already created for the dry run.
 
 The launch keeps the existing guarantees: no
 `--dangerously-skip-permissions`, no edits to global Antigravity settings, and
@@ -120,12 +115,52 @@ The write root is the resolved checkout `$HOME/agy-work/<repo>`:
 3. The launcher refuses a symlinked checkout, settings file, settings temp
    file, PID file, or log file, and a checkout path that holds a quote,
    backslash, parenthesis, wildcard, or control character. It then passes the
-   file as `--settings`, which stays session-only.
+   file as `--settings`, which stays session-only. Idle-sleep wrapping and
+   the single automatic relaunch are provided by the shared helper (see
+   [Shared launch retry](#shared-launch-retry)). The launcher now waits for
+   the worker; that is a contract change from the earlier fire-and-forget
+   `nohup` start.
 
 The template allows `write_file` on the checkout plus the same read-only
 commands as the review template. It narrows what a docs worker may do and never
 widens an allow list; run `git` and `gh` steps outside the worker. The usage
 signature and printed lines stay the same, plus a new `SETTINGS=` line.
+
+## Shared launch retry
+
+[`agy-review-launch.sh`](agy-review-launch.sh) and
+[`agy-docs-launch.sh`](agy-docs-launch.sh) both source
+[`lib/agy-launch-run.sh`](lib/agy-launch-run.sh). The helper owns idle-sleep
+wrapping and the single automatic relaunch budget; that logic must not live
+in only one of the two launchers.
+
+- On macOS (`uname -s` is `Darwin`), when `caffeinate` is on `PATH`, the
+  helper holds an idle-sleep assertion with `caffeinate -i` for the lifetime
+  of `agy` (Apple `caffeinate(8)`). On Linux, or when `caffeinate` is
+  missing, `agy` starts unwrapped; a missing binary is not an error.
+- The helper waits for the run. It retries **exactly once, in total**, when
+  stdout is empty (0 bytes or missing), when stderr contains the official
+  headless auto-deny notice (`headless mode cannot prompt for`), or when
+  both stdout and stderr stop growing for `AGY_LAUNCH_STALL_SECONDS`
+  (default 900 seconds; set to `0` to disable) while the child PID is still
+  alive (`kill -0` only; the helper never inspects process arguments). The
+  stall fallback is conservative: official headless mode auto-denies tools
+  that need approval and exits rather than hanging on a prompt. A second
+  empty, auto-deny, or stall result exits 1 (fail closed) and asks the
+  operator to inspect the logs. Do not add allow-rules or pass
+  `--dangerously-skip-permissions`.
+- An auto-deny or stall retry appends this instruction to a new brief file
+  and leaves the original brief unchanged: "use simple commands one at a
+  time; no pipes, no redirects, no regex special characters." A generic
+  empty-output retry does not append that instruction.
+- Empty stdout is still 0 bytes or missing. Whitespace-only counts as
+  non-empty. A non-empty review log without a `VERDICT` line is a review
+  quality issue, not a launch failure, and does not retry.
+- **A relaunch consumes model quota again.** Treat the automatic retry as a
+  second paid/quota run, not a free restart.
+- The helper never edits that run's `settings.json`, never widens an allow
+  list, never touches global Antigravity/agy settings, and never reads or
+  writes secrets.
 
 ## Safety boundaries remain unchanged
 

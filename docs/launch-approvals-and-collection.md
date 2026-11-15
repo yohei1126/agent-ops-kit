@@ -67,8 +67,8 @@ Configure Grok local execution and batch workstation calls to reduce prompt chur
   [`scripts/README.md`](../scripts/README.md)):
 
   ```bash
-  ~/agy-work/grok-bot-ops/scripts/agy-docs-launch.sh <repo> ~/agy-inbox/<brief>.txt [stem] [model]
-  ~/agy-work/grok-bot-ops/scripts/agy-docs-collect.sh <repo> [stem]
+  scripts/agy-docs-launch.sh <repo> ~/agy-inbox/<brief>.txt [stem] [model]
+  scripts/agy-docs-collect.sh <repo> [stem]
   ```
 
 - **Confirm heavy launches once and rely on event signals**: gate heavy runs on

@@ -44,6 +44,7 @@ copy_root="$work_tmp/kit"
 mkdir -p "$copy_root/scripts/lib" "$copy_root/scripts/templates"
 cp "$repo_root/scripts/agy-docs-launch.sh" "$copy_root/scripts/"
 cp "$repo_root/scripts/lib/agy-settings-check.sh" "$copy_root/scripts/lib/"
+cp "$repo_root/scripts/lib/agy-launch-run.sh" "$copy_root/scripts/lib/"
 copy_template="$copy_root/scripts/templates/agy-docs-settings.json"
 
 fake_bin="$work_tmp/bin"
@@ -51,6 +52,17 @@ mkdir -p "$fake_bin"
 cat >"$fake_bin/agy" <<'SH'
 #!/usr/bin/env bash
 set -u
+n=0
+if [ -n "${FAKE_AGY_LAUNCHES:-}" ]; then
+  if [ -f "$FAKE_AGY_LAUNCHES" ]; then
+    n="$(tr -d '[:space:]' <"$FAKE_AGY_LAUNCHES" || true)"
+    case "$n" in
+      '' | *[!0-9]*) n=0 ;;
+    esac
+  fi
+  n=$((n + 1))
+  printf '%s\n' "$n" >"$FAKE_AGY_LAUNCHES"
+fi
 {
   printf 'ARGV_START\n'
   for arg in "$@"; do
@@ -58,6 +70,33 @@ set -u
   done
   printf 'ARGV_END\n'
 } >"$FAKE_AGY_ARGV"
+if [ -n "${FAKE_AGY_ARGV_ALL:-}" ]; then
+  {
+    printf 'ARGV_START\n'
+    for arg in "$@"; do
+      printf '%s\n' "$arg"
+    done
+    printf 'ARGV_END\n'
+  } >>"$FAKE_AGY_ARGV_ALL"
+fi
+if [ "${FAKE_AGY_STALL:-}" = 1 ] || { [ "${FAKE_AGY_STALL_FIRST:-}" = 1 ] && [ "$n" -eq 1 ]; }; then
+  trap 'exit 0' TERM INT HUP
+  while true; do
+    sleep 1
+  done
+fi
+if [ "${FAKE_AGY_EMPTY_FIRST:-}" = 1 ] && [ "$n" -eq 1 ]; then
+  exit 0
+fi
+if [ "${FAKE_AGY_AUTODENY:-}" = 1 ] || { [ "${FAKE_AGY_AUTODENY_FIRST:-}" = 1 ] && [ "$n" -eq 1 ]; }; then
+  printf 'no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied.\n' >&2
+  exit 0
+fi
+if [ "${FAKE_AGY_EMPTY:-}" = 1 ]; then
+  exit 0
+fi
+# Non-empty stdout so a successful first run is not retried.
+printf 'docs output\n'
 SH
 chmod +x "$fake_bin/agy"
 
@@ -151,9 +190,174 @@ run_launcher() {
   local launcher="$2"
   shift 2
   argv_file="$work_tmp/argv-$tag"
+  launch_file="$work_tmp/launches-$tag"
+  argv_all="$work_tmp/argv-all-$tag"
   : >"$argv_file"
+  : >"$launch_file"
+  : >"$argv_all"
   : >"$err_file"
   out="$(HOME="$test_home" PATH="$fake_bin:$PATH" FAKE_AGY_ARGV="$argv_file" \
+    FAKE_AGY_ARGV_ALL="$argv_all" FAKE_AGY_LAUNCHES="$launch_file" \
+    FAKE_AGY_EMPTY="${FAKE_AGY_EMPTY:-}" \
+    FAKE_AGY_EMPTY_FIRST="${FAKE_AGY_EMPTY_FIRST:-}" \
+    FAKE_AGY_AUTODENY="${FAKE_AGY_AUTODENY:-}" \
+    FAKE_AGY_AUTODENY_FIRST="${FAKE_AGY_AUTODENY_FIRST:-}" \
+    FAKE_AGY_STALL="${FAKE_AGY_STALL:-}" \
+    FAKE_AGY_STALL_FIRST="${FAKE_AGY_STALL_FIRST:-}" \
+    AGY_LAUNCH_STALL_SECONDS="${AGY_LAUNCH_STALL_SECONDS:-}" \
+    bash "$launcher" "$@" 2>"$err_file")"
+  status=$?
+  err="$(cat "$err_file")"
+}
+
+launch_count() {
+  local file="$1"
+  local n=0
+  if [ -f "$file" ]; then
+    n="$(tr -d '[:space:]' <"$file" || true)"
+    case "$n" in
+      '' | *[!0-9]*) n=0 ;;
+    esac
+  fi
+  printf '%s\n' "$n"
+}
+
+expect_launches() {
+  local got
+  got="$(launch_count "$launch_file")"
+  if [ "$got" = "$2" ]; then
+    ok "$1"
+  else
+    bad "$1" "expected $2 launches, got $got"
+  fi
+}
+
+expect_file() {
+  if [ -f "$2" ]; then
+    ok "$1"
+  else
+    bad "$1" "missing file: $2"
+  fi
+}
+
+build_path_hiding() {
+  local dest="$1"
+  local cmd path
+  mkdir -p "$dest"
+  for cmd in bash jq tr mkdir kill cp mv cat uname mktemp sed wc rm ln \
+    readlink realpath dirname basename chmod date head env nohup tee cut \
+    sort uniq touch sleep grep; do
+    path="$(command -v "$cmd" 2>/dev/null)" || continue
+    case "$path" in
+      '' | */agy | */caffeinate) continue ;;
+    esac
+    rm -f "$dest/$cmd"
+    ln -s "$path" "$dest/$cmd"
+  done
+}
+
+write_uname_stub() {
+  local dest="$1"
+  local os="$2"
+  local real_uname
+  real_uname="$(command -v uname)"
+  rm -f "$dest/uname"
+  cat >"$dest/uname" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = "-s" ]; then
+  printf '%s\n' "$os"
+  exit 0
+fi
+exec $(printf '%q' "$real_uname") "\$@"
+SH
+  chmod +x "$dest/uname"
+}
+
+write_caffeinate_stub() {
+  local dest="$1"
+  rm -f "$dest/caffeinate"
+  cat >"$dest/caffeinate" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ -n "${FAKE_CAFFEINATE_ARGV:-}" ]; then
+  {
+    printf 'CAFFEINATE_START\n'
+    for arg in "$@"; do
+      printf '%s\n' "$arg"
+    done
+    printf 'CAFFEINATE_END\n'
+  } >>"$FAKE_CAFFEINATE_ARGV"
+fi
+wait_pid=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -t)
+      shift
+      [ "$#" -gt 0 ] && shift
+      ;;
+    -w)
+      shift
+      if [ "$#" -gt 0 ]; then
+        wait_pid="$1"
+        shift
+      fi
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+if [ "$#" -eq 0 ]; then
+  trap 'exit 0' TERM INT HUP
+  if [ -n "$wait_pid" ]; then
+    while kill -0 "$wait_pid" 2>/dev/null; do
+      sleep 0.1
+    done
+    exit 0
+  fi
+  while true; do
+    sleep 1
+  done
+fi
+exec "$@"
+SH
+  chmod +x "$dest/caffeinate"
+}
+
+run_launcher_on_path() {
+  local tag="$1"
+  local extra_bin="$2"
+  local rest_path="$3"
+  local launcher="$4"
+  shift 4
+  argv_file="$work_tmp/argv-$tag"
+  launch_file="$work_tmp/launches-$tag"
+  argv_all="$work_tmp/argv-all-$tag"
+  caffeinate_argv="$work_tmp/caffeinate-$tag"
+  : >"$argv_file"
+  : >"$launch_file"
+  : >"$argv_all"
+  : >"$err_file"
+  : >"$caffeinate_argv"
+  if [ -n "$rest_path" ]; then
+    launcher_path="$extra_bin:$fake_bin:$rest_path"
+  else
+    launcher_path="$extra_bin:$fake_bin"
+  fi
+  out="$(HOME="$test_home" PATH="$launcher_path" \
+    FAKE_AGY_ARGV="$argv_file" FAKE_AGY_ARGV_ALL="$argv_all" \
+    FAKE_AGY_LAUNCHES="$launch_file" \
+    FAKE_CAFFEINATE_ARGV="$caffeinate_argv" \
+    FAKE_AGY_EMPTY="${FAKE_AGY_EMPTY:-}" \
+    FAKE_AGY_EMPTY_FIRST="${FAKE_AGY_EMPTY_FIRST:-}" \
+    FAKE_AGY_AUTODENY="${FAKE_AGY_AUTODENY:-}" \
+    FAKE_AGY_AUTODENY_FIRST="${FAKE_AGY_AUTODENY_FIRST:-}" \
+    FAKE_AGY_STALL="${FAKE_AGY_STALL:-}" \
+    FAKE_AGY_STALL_FIRST="${FAKE_AGY_STALL_FIRST:-}" \
+    AGY_LAUNCH_STALL_SECONDS="${AGY_LAUNCH_STALL_SECONDS:-}" \
     bash "$launcher" "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
@@ -171,6 +375,7 @@ printf '== happy path ==\n'
 
 run_launcher happy "$launcher" repo "$brief"
 expect_status "1: launch exits 0" 0
+expect_launches "1: default stub launches once" 1
 expect_jq "1: write_file allows only the resolved checkout" \
   "$settings" '.permissions.allow[0]' "write_file($checkout_real)"
 expect_jq "1: template keeps the seven read-only commands" \
@@ -337,6 +542,113 @@ case "$check_err" in
   *"refusing symlinked settings file"*) ok "17: refusal is explained" ;;
   *) bad "17: refusal is explained" "got: $check_err" ;;
 esac
+
+printf '== caffeinate wrapper, empty-output retry, auto-deny, and stall ==\n'
+
+darwin_bin="$work_tmp/darwin-bin"
+mkdir -p "$darwin_bin"
+write_uname_stub "$darwin_bin" Darwin
+write_caffeinate_stub "$darwin_bin"
+
+hidden_bin="$work_tmp/hidden-bin"
+build_path_hiding "$hidden_bin"
+write_uname_stub "$hidden_bin" Darwin
+
+unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST FAKE_AGY_AUTODENY FAKE_AGY_AUTODENY_FIRST
+unset FAKE_AGY_STALL FAKE_AGY_STALL_FIRST
+run_launcher_on_path cafe-present "$darwin_bin" "$PATH" "$launcher" repo "$brief" cafe-present
+expect_status "18: caffeinate present exits 0" 0
+expect_launches "18: caffeinate present launches once" 1
+if grep -q -F 'holding idle-sleep assertion with caffeinate -i' "$inbox_real/cafe-present-stderr.log"; then
+  ok "18: wrapper holds a caffeinate -i idle-sleep assertion"
+else
+  bad "18: wrapper holds a caffeinate -i idle-sleep assertion" "stderr log: $(tr '\n' ' ' <"$inbox_real/cafe-present-stderr.log")"
+fi
+
+unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
+run_launcher_on_path cafe-absent "$fake_bin" "$hidden_bin" "$launcher" repo "$brief" cafe-absent
+expect_status "19: caffeinate absent exits 0" 0
+expect_launches "19: caffeinate absent launches once" 1
+if [ -s "$caffeinate_argv" ]; then
+  bad "19: caffeinate absent does not invoke caffeinate" "argv: $(tr '\n' ' ' <"$caffeinate_argv")"
+else
+  ok "19: caffeinate absent does not invoke caffeinate"
+fi
+
+FAKE_AGY_EMPTY_FIRST=1
+unset FAKE_AGY_EMPTY
+run_launcher_on_path empty-then-ok "$darwin_bin" "$PATH" "$launcher" repo "$brief" empty-then-ok
+unset FAKE_AGY_EMPTY_FIRST
+expect_status "20: empty then non-empty exits 0" 0
+expect_launches "20: empty then non-empty launches twice" 2
+expect_err "20: empty then non-empty mentions the retry" "empty stdout log"
+if printf '%s' "$err" | grep -q 'giving up\|automatic retry also failed'; then
+  bad "20: empty then non-empty does not give up" "stderr: $err"
+else
+  ok "20: empty then non-empty does not give up"
+fi
+expect_file "20: first empty log is preserved" "$inbox_real/empty-then-ok-stdout.log.attempt1"
+if [ -s "$inbox_real/empty-then-ok-stdout.log" ]; then
+  ok "20: second stdout log is non-empty"
+else
+  bad "20: second stdout log is non-empty" "missing or empty"
+fi
+if [ -e "$inbox_real/empty-then-ok.retry-brief.txt" ]; then
+  bad "20: empty retry does not write a retry brief" "retry brief exists"
+else
+  ok "20: empty retry does not write a retry brief"
+fi
+if grep -q -F 'use simple commands one at a time' "$brief"; then
+  bad "20: original brief is not mutated on empty retry" "brief was appended to"
+else
+  ok "20: original brief is not mutated on empty retry"
+fi
+
+FAKE_AGY_EMPTY=1
+unset FAKE_AGY_EMPTY_FIRST
+run_launcher_on_path both-empty "$darwin_bin" "$PATH" "$launcher" repo "$brief" both-empty
+unset FAKE_AGY_EMPTY
+expect_status "21: both empty exits 1" 1
+expect_launches "21: both empty launches twice" 2
+expect_err "21: both empty mentions the retry" "retrying once"
+expect_err "21: both empty fails closed after retry" "automatic retry also failed"
+expect_err "21: both empty asks the operator" "ask the operator"
+expect_err "21: both empty does not suggest widening allow" "Do not add allow-rules"
+
+FAKE_AGY_AUTODENY_FIRST=1
+unset FAKE_AGY_AUTODENY FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
+run_launcher_on_path deny-then-ok "$darwin_bin" "$PATH" "$launcher" repo "$brief" deny-then-ok
+unset FAKE_AGY_AUTODENY_FIRST
+expect_status "22: auto-deny then non-empty exits 0" 0
+expect_launches "22: auto-deny then non-empty launches twice" 2
+expect_err "22: auto-deny then non-empty mentions auto-deny" "headless auto-deny"
+expect_file "22: retry brief is written under the inbox" "$inbox_real/deny-then-ok.retry-brief.txt"
+if grep -q -F 'use simple commands one at a time; no pipes, no redirects, no regex special characters.' "$inbox_real/deny-then-ok.retry-brief.txt"; then
+  ok "22: retry brief has the simpler-commands instruction"
+else
+  bad "22: retry brief has the simpler-commands instruction" "missing instruction"
+fi
+if grep -q -F 'use simple commands one at a time' "$brief"; then
+  bad "22: original brief is not mutated" "brief was appended to"
+else
+  ok "22: original brief is not mutated"
+fi
+
+FAKE_AGY_STALL_FIRST=1
+unset FAKE_AGY_STALL
+AGY_LAUNCH_STALL_SECONDS=2
+run_launcher_on_path stall-then-ok "$darwin_bin" "$PATH" "$launcher" repo "$brief" stall-then-ok
+unset FAKE_AGY_STALL_FIRST
+unset AGY_LAUNCH_STALL_SECONDS
+expect_status "23: stall then non-empty exits 0" 0
+expect_launches "23: stall then non-empty launches twice" 2
+expect_err "23: stall then non-empty mentions the stall" "no log growth"
+expect_file "23: stall retry writes a retry brief" "$inbox_real/stall-then-ok.retry-brief.txt"
+if grep -q -F 'use simple commands one at a time' "$brief"; then
+  bad "23: stall retry does not mutate the original brief" "brief was appended to"
+else
+  ok "23: stall retry does not mutate the original brief"
+fi
 
 printf '== usage stays the same ==\n'
 

@@ -22,13 +22,20 @@
 #   run folder (except creating the runs root).
 # - Never reads, writes, or migrates global Antigravity/agy settings; --settings
 #   stays session-only.
-# - On Darwin, when caffeinate is on PATH, starts agy as `caffeinate -i agy ...`
-#   so the host will not idle-sleep during the review. On Linux, or when
-#   caffeinate is missing, starts agy unwrapped. Missing caffeinate is not an
-#   error.
-# - Waits for the run to finish. If agy.log is empty (0 bytes or missing),
-#   retries the same command exactly once. A second empty log exits 1 (fail
-#   closed). A non-empty log does not retry. --dry-run and --check-settings
+# - Shared launch/retry logic lives in scripts/lib/agy-launch-run.sh (also
+#   sourced by scripts/agy-docs-launch.sh).
+# - On Darwin, when caffeinate is on PATH, holds an idle-sleep assertion
+#   with `caffeinate -i` for the lifetime of agy (Apple caffeinate(8)). On
+#   Linux, or when caffeinate is missing, starts agy unwrapped. Missing
+#   caffeinate is not an error.
+# - Waits for the run to finish. Retries exactly once, in total, if stdout
+#   is empty (0 bytes or missing), if stderr contains the official headless
+#   auto-deny notice, or if both logs stop growing for AGY_LAUNCH_STALL_SECONDS
+#   (default 900) while the child PID is still alive. A second failure of
+#   any of those kinds exits 1 (fail closed) and asks the operator to
+#   inspect the logs. An auto-deny or stall retry appends a simpler-commands
+#   instruction to a new brief file; the original brief is not mutated.
+#   Settings and allow lists are never edited. --dry-run and --check-settings
 #   stay immediate and never start or retry agy.
 #
 # Exit codes: 0 ok, 1 check or launch failure, 2 usage.
@@ -37,6 +44,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 settings_lib="$script_dir/lib/agy-settings-check.sh"
+launch_lib="$script_dir/lib/agy-launch-run.sh"
 settings_template="$script_dir/templates/agy-review-settings.json"
 default_model="gemini-4-argon-medium"
 
@@ -125,12 +133,19 @@ if [ ! -r "$settings_lib" ]; then
   printf 'agy-review-launch: missing library: %s\n' "$settings_lib" >&2
   exit 1
 fi
+if [ ! -r "$launch_lib" ]; then
+  printf 'agy-review-launch: missing library: %s\n' "$launch_lib" >&2
+  exit 1
+fi
 # Library messages name this launcher.
 # shellcheck disable=SC2034
 agy_settings_tag="agy-review-launch"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/agy-settings-check.sh
 . "$settings_lib"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/agy-launch-run.sh
+. "$launch_lib"
 
 if [ -z "${HOME:-}" ]; then
   printf 'agy-review-launch: HOME is not set\n' >&2
@@ -293,31 +308,33 @@ if [ -f "$pid_file" ]; then
   esac
 fi
 
-# Optional idle-sleep assertion. Apple's caffeinate(8): `caffeinate -i <utility>`
-# prevents idle sleep for the utility's lifetime. -s is AC-power only; -d/-u
-# target the display and are not used. Missing caffeinate is not an error.
-use_caffeinate=0
-if [ "$(uname -s)" = Darwin ] && command -v caffeinate >/dev/null 2>&1; then
-  use_caffeinate=1
-fi
+# Optional idle-sleep assertion and shared retry. Detection, caffeinate,
+# and the single-retry budget live in scripts/lib/agy-launch-run.sh.
+# shellcheck disable=SC2034 # assigned here, consumed by agy-launch-run.sh
+agy_launch_tag="agy-review-launch"
+agy_launch_cwd="$run_real"
+agy_launch_stdout_log="$stdout_log"
+agy_launch_stderr_log="$stderr_log"
+agy_launch_pid_file="$pid_file"
+agy_launch_brief="$run_real/BRIEF.md"
+agy_launch_retry_brief="$run_real/BRIEF.retry.md"
+agy_launch_attempt1_out="$run_real/agy.log.attempt1"
+agy_launch_attempt1_err="$run_real/agy.stderr.log.attempt1"
+agy_launch_caffeinate="$(agy_launch_use_caffeinate)"
 
-print_command() {
-  printf 'AGY_COMMAND='
-  if [ "$use_caffeinate" = 1 ]; then
-    printf '%q ' caffeinate -i
-  fi
-  printf '%q ' agy \
-    --project "$run_real" \
-    --model "$model" \
-    --settings "$settings_file" \
-    --add-dir "$run_real" \
-    --add-dir "$repo_real" \
-    --mode accept-edits \
-    --print "$(cat "$run_real/BRIEF.md")"
-  printf '\n'
+agy_launch_prepare_args() {
+  agy_launch_args=(
+    --project "$run_real"
+    --model "$model"
+    --settings "$settings_file"
+    --add-dir "$run_real"
+    --add-dir "$repo_real"
+    --mode accept-edits
+    --print "$(cat "$agy_launch_brief_used")"
+  )
 }
 
-print_launch_metadata() {
+agy_launch_print_metadata() {
   printf 'AGY_PID=%s\n' "$(tr -d '[:space:]' <"$pid_file")"
   printf 'RUN_DIR=%s\n' "$run_real"
   printf 'SETTINGS=%s\n' "$settings_file"
@@ -327,43 +344,13 @@ print_launch_metadata() {
   printf 'PID_FILE=%s\n' "$pid_file"
 }
 
-# Start agy (optionally under caffeinate -i), record its PID, and wait. A
-# non-zero child status is ignored here; emptiness of agy.log decides retry.
-run_agy_and_wait() {
-  local saved="$PWD"
-  local child_pid
-
-  cd -- "$run_real" || return 1
-  if [ "$use_caffeinate" = 1 ]; then
-    caffeinate -i agy --project "$run_real" --model "$model" --settings "$settings_file" \
-      --add-dir "$run_real" --add-dir "$repo_real" --mode accept-edits \
-      --print "$(cat "$run_real/BRIEF.md")" >"$stdout_log" 2>"$stderr_log" </dev/null &
-  else
-    agy --project "$run_real" --model "$model" --settings "$settings_file" \
-      --add-dir "$run_real" --add-dir "$repo_real" --mode accept-edits \
-      --print "$(cat "$run_real/BRIEF.md")" >"$stdout_log" 2>"$stderr_log" </dev/null &
-  fi
-  child_pid=$!
-  printf '%s\n' "$child_pid" >"$pid_file"
-  cd -- "$saved" || return 1
-  if [ "${1:-}" = "print" ]; then
-    print_launch_metadata
-  fi
-  wait "$child_pid" || true
-}
-
-rotate_empty_attempt_logs() {
-  local attempt1_out="$run_real/agy.log.attempt1"
-  local attempt1_err="$run_real/agy.stderr.log.attempt1"
-
-  refuse_symlink_write_target "$attempt1_out"
-  refuse_symlink_write_target "$attempt1_err"
-  if [ -e "$stdout_log" ]; then
-    mv -f -- "$stdout_log" "$attempt1_out"
-  fi
-  if [ -e "$stderr_log" ]; then
-    mv -f -- "$stderr_log" "$attempt1_err"
-  fi
+print_command() {
+  agy_launch_brief_used="$agy_launch_brief"
+  agy_launch_prepare_args
+  printf 'AGY_COMMAND='
+  agy_launch_wrapper_prefix
+  printf '%q ' agy "${agy_launch_args[@]}"
+  printf '\n'
 }
 
 if [ "$dry_run" = 1 ]; then
@@ -382,24 +369,6 @@ if ! command -v agy >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! run_agy_and_wait print; then
-  printf 'agy-review-launch: failed to start agy in %s\n' "$run_real" >&2
+if ! agy_launch_run; then
   exit 1
-fi
-
-# Empty means 0 bytes or missing. Whitespace-only counts as non-empty.
-if [ ! -s "$stdout_log" ]; then
-  printf 'agy-review-launch: empty stdout log (%s); retrying once\n' "$stdout_log" >&2
-  rotate_empty_attempt_logs
-  refuse_symlink_write_target "$stdout_log"
-  refuse_symlink_write_target "$stderr_log"
-  if ! run_agy_and_wait; then
-    printf 'agy-review-launch: failed to start agy in %s\n' "$run_real" >&2
-    exit 1
-  fi
-  if [ ! -s "$stdout_log" ]; then
-    printf 'agy-review-launch: empty stdout log after retry (%s); giving up\n' \
-      "$stdout_log" >&2
-    exit 1
-  fi
 fi
