@@ -336,13 +336,59 @@ trim_text() {
     }'
 }
 
-# Strip single-line HTML comments before the emptiness check.
+# Strip HTML comments, including comments that span lines, before the
+# emptiness check. Nested comments are out of scope.
+strip_html_comments() {
+  printf '%s\n' "$1" | awk '
+    {
+      line = $0
+      out = ""
+      while (line != "") {
+        if (in_comment) {
+          at = index(line, "-->")
+          if (at == 0) {
+            line = ""
+          } else {
+            line = substr(line, at + 3)
+            in_comment = 0
+          }
+        } else {
+          at = index(line, "<!--")
+          if (at == 0) {
+            out = out line
+            line = ""
+          } else {
+            out = out substr(line, 1, at - 1)
+            line = substr(line, at + 4)
+            in_comment = 1
+          }
+        }
+      }
+      print out
+    }'
+}
+
 section_has_content() {
-  local text="$1"
   local stripped
 
-  stripped="$(printf '%s\n' "$text" | sed -e 's/<!--[^>]*-->//g')"
+  stripped="$(strip_html_comments "$1")"
   printf '%s' "$stripped" | grep -q '[^[:space:]]'
+}
+
+# The agent name is the trimmed text before the first / on the first non-empty,
+# non-comment line of the Agent and model section.
+section_agent_name() {
+  strip_html_comments "$1" | awk '
+    {
+      line = $0
+      sub(/^[ \t]+/, "", line)
+      sub(/[ \t]+$/, "", line)
+      if (line == "" || line ~ /^#/) next
+      sub(/\/.*/, "", line)
+      sub(/[ \t]+$/, "", line)
+      print line
+      exit
+    }'
 }
 
 has_placeholder() {
@@ -479,6 +525,15 @@ validate_section "Acceptance criteria and output format" "$acceptance"
 validate_section "Constraints" "$constraints"
 validate_section "Where to write the result" "$result"
 
+# The section that will be written into the body must name the same agent as
+# --agent. With --model the section is already rewritten to "$agent / $model".
+section_agent="$(section_agent_name "$agent_section")"
+if [ "$section_agent" != "$agent" ]; then
+  printf '%s: Agent and model section names "%s" but --agent is "%s"; make them match\n' \
+    "$script" "$section_agent" "$agent" >&2
+  exit 1
+fi
+
 body="$(printf '## Agent and model\n\n%s\n\n## Goal\n\n%s\n\n## Context links\n\n%s\n\n## Scope In-Out\n\n%s\n\n## Steps or review focus\n\n%s\n\n## Acceptance criteria and output format\n\n%s\n\n## Constraints\n\n%s\n\n## Where to write the result\n\n%s\n' \
   "$agent_section" "$goal" "$context" "$scope" "$steps" "$acceptance" "$constraints" "$result")"
 
@@ -542,14 +597,30 @@ if ! command -v gh >/dev/null 2>&1; then
   usage_error "gh is required to create an issue"
 fi
 
-if ! labels="$(gh label list --repo "$repo" --limit 200 --json name)"; then
-  printf '%s: gh label list failed for %s\n' "$script" "$repo" >&2
-  exit 2
-fi
+# Encode a label name for the REST path. agent:<name> needs the colon escaped.
+encode_label() {
+  printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/:/%3A/g' -e 's#/#%2F#g' -e 's/ /%20/g'
+}
 
+# Look up one label by name. A direct lookup avoids the page cap on a label
+# listing. Returns 0 when the label exists, 1 when the API reports 404, and
+# exits 2 on any other gh failure.
 label_exists() {
   local name="$1"
-  printf '%s' "$labels" | grep -Eq "\"name\"[[:space:]]*:[[:space:]]*\"$name\""
+  local encoded status err
+
+  encoded="$(encode_label "$name")"
+  status=0
+  err="$(gh api "repos/$repo/labels/$encoded" 2>&1 >/dev/null)" || status=$?
+  if [ "$status" -eq 0 ]; then
+    return 0
+  fi
+  case "$err" in
+    *404*|*"Not Found"*|*"not found"*) return 1 ;;
+  esac
+  printf '%s: gh api label lookup failed for %s in %s: %s\n' \
+    "$script" "$name" "$repo" "$err" >&2
+  exit 2
 }
 
 have_task_label=0

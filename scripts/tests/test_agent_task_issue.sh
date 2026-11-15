@@ -27,7 +27,7 @@ trap 'rm -rf "$work_tmp"' EXIT
 unset AGENT_TASK_REPO PUBLIC_TERMS_NO_RG
 
 # The fake gh records its argv and returns canned answers. Tests drive the
-# label list and issue URL through environment variables.
+# label lookups and issue URL through environment variables.
 cat > "$fake_bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -u
@@ -39,6 +39,10 @@ fi
 agent="${AGENT_TASK_AGENT:-agy}"
 case "${1:-} ${2:-}" in
   "label list")
+    if [ "${AGENT_TASK_LABEL_LIST_HIDES:-0}" = 1 ]; then
+      printf '[]\n'
+      exit 0
+    fi
     items=""
     if [ "${AGENT_TASK_HAS_TASK_LABEL:-1}" = 1 ]; then
       items="${items}{\"name\":\"agent-task\"}"
@@ -49,6 +53,26 @@ case "${1:-} ${2:-}" in
     fi
     printf '[%s]\n' "$items"
     exit 0
+    ;;
+  "api "*)
+    label="${2##*/}"
+    case "$label" in
+      agent-task)
+        wanted="${AGENT_TASK_HAS_TASK_LABEL:-1}"
+        ;;
+      "agent:${agent}"|"agent%3A${agent}")
+        wanted="${AGENT_TASK_HAS_AGENT_LABEL:-1}"
+        ;;
+      *)
+        wanted=0
+        ;;
+    esac
+    if [ "$wanted" = 1 ]; then
+      printf '{"name":"%s"}\n' "$label"
+      exit 0
+    fi
+    printf 'gh: Not Found (HTTP 404)\n' >&2
+    exit 1
     ;;
   "label create")
     printf 'Created label %s\n' "${3:-}"
@@ -171,6 +195,7 @@ has_agent_label=1
 agent_name=agy
 issue_url="https://github.com/example-org/example-repo/issues/42"
 gh_fail=0
+label_list_hides=0
 repo_env=""
 check_path="$fake_bin:$PATH"
 
@@ -185,6 +210,7 @@ run_check() {
     AGENT_TASK_HAS_TASK_LABEL="$has_task_label" \
     AGENT_TASK_HAS_AGENT_LABEL="$has_agent_label" \
     AGENT_TASK_AGENT="$agent_name" \
+    AGENT_TASK_LABEL_LIST_HIDES="$label_list_hides" \
     AGENT_TASK_ISSUE_URL="$issue_url" \
     AGENT_TASK_GH_FAIL="$gh_fail" \
     /bin/bash "$check" "$@" 2>"$err_file")"
@@ -285,6 +311,18 @@ expect_status "2: leftover placeholder exits non-zero" 1
 expect_err "2: leftover placeholder is named" "leftover placeholder"
 expect_argv_calls "2: leftover placeholder never calls gh" 0
 
+run_check --agent agy --repo example-org/example-repo --title "Review change" \
+  --file "$fixtures/multiline-comment-goal.md"
+expect_status "1b: comment-only Goal exits non-zero" 1
+expect_err "1b: comment-only Goal is named" "missing or empty section: Goal"
+expect_argv_calls "1b: comment-only Goal never calls gh" 0
+
+run_check --agent agy --repo example-org/example-repo --file "$fixtures/filled.md" --dry-run
+expect_status "1c: a truly filled file still passes dry run" 0
+expect_out "1c: filled dry run prints the Goal content" \
+  "Summarize the change for the reviewer."
+expect_argv_calls "1c: filled dry run calls no gh command" 0
+
 printf '== agent validation ==\n'
 
 run_check --repo example-org/example-repo --title "Review change" \
@@ -304,6 +342,19 @@ run_check --agent Agy --repo example-org/example-repo --title "Review change" \
 expect_status "2d: mixed-case agent exits non-zero" 2
 expect_err "2d: mixed-case agent is rejected" "unknown agent: Agy"
 expect_argv_calls "2d: mixed-case agent never calls gh" 0
+
+run_check --agent agy --repo example-org/example-repo --title "Review change" \
+  --file "$fixtures/filled-opencode.md"
+expect_status "2e: --file agent mismatch exits non-zero" 1
+expect_err "2e: --file agent mismatch names the section value" '"opencode"'
+expect_err "2e: --file agent mismatch names the flag value" '"agy"'
+expect_argv_calls "2e: --file agent mismatch never calls gh" 0
+
+run_check --agent opencode --repo example-org/example-repo --file \
+  "$fixtures/filled-opencode.md" --model example-model --dry-run
+expect_status "2f: --model keeps the file agent section matching" 0
+expect_out "2f: --model rewrites the Agent and model line" "opencode / example-model"
+expect_argv_calls "2f: --model dry run calls no gh command" 0
 
 printf '== dry run ==\n'
 
@@ -361,7 +412,7 @@ expect_err "5: missing labels name agent:agy" "agent:agy"
 expect_err "5: missing labels suggest the flag" "--create-label"
 expect_argv_never "5: missing labels never create an issue" "issue create"
 expect_argv_never "5: missing labels never create a label" "label create"
-expect_argv_calls "5: missing labels only list labels" 1
+expect_argv_calls "5: missing labels only look up labels" 2
 
 has_task_label=0
 has_agent_label=0
@@ -381,6 +432,21 @@ expect_status "6b: only the missing agent label is created" 0
 expect_argv_has "6b: missing agent label is created" "label create agent:agy"
 expect_argv_never "6b: existing task label is not created" "label create agent-task"
 expect_argv_has "6b: issue create still runs" "issue create"
+
+has_task_label=1
+has_agent_label=1
+label_list_hides=1
+run_check --agent agy --repo example-org/example-repo --title "Review change" \
+  --file "$fixtures/filled.md"
+expect_status "6c: direct label lookup is not capped at 200" 0
+expect_argv_has "6c: task label is looked up directly" \
+  "api repos/example-org/example-repo/labels/agent-task"
+expect_argv_has "6c: agent label lookup encodes the colon" \
+  "api repos/example-org/example-repo/labels/agent%3Aagy"
+expect_argv_never "6c: label lookup does not request a page limit" "--limit"
+expect_argv_never "6c: found labels are not created again" "label create"
+expect_argv_has "6c: issue create still runs" "issue create"
+label_list_hides=0
 
 printf '== handoff line and agy notice ==\n'
 
@@ -497,13 +563,13 @@ expect_argv_calls "9: section flags never call gh" 0
 
 has_task_label=1
 has_agent_label=1
-agent_name=cursor
-run_check --agent=cursor --repo=example-org/example-repo --title=Review \
+agent_name=agy
+run_check --agent=agy --repo=example-org/example-repo --title=Review \
   --file="$fixtures/filled.md"
 expect_status "9: --flag=value forms exit 0" 0
 expect_argv_has "9: --repo= reaches gh" "--repo example-org/example-repo"
 expect_argv_has "9: --title= reaches gh" "--title Review"
-expect_argv_has "9: --agent= reaches the agent label" "--label agent:cursor"
+expect_argv_has "9: --agent= reaches the agent label" "--label agent:agy"
 
 printf '== missing gh ==\n'
 
