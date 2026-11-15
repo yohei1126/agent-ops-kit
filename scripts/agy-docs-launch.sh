@@ -13,9 +13,23 @@
 # - Requires <brief-path> to exist and resolve inside the realpath of
 #   $HOME/agy-inbox/.
 # - Writes logs and a PID file under $HOME/agy-inbox/.
-# - Never passes --dangerously-skip-permissions or alters Antigravity settings.
+# - Generates $HOME/agy-inbox/<stem>.settings.json on every launch from
+#   scripts/templates/agy-docs-settings.json, replacing @RUN_DIR@ with the
+#   resolved checkout path, and passes it as agy --settings (session-only). It
+#   never reads settings from another run and never writes into the checkout.
+# - Runs the shared check in scripts/lib/agy-settings-check.sh before launch
+#   and exits 1 when an allow entry is empty, malformed, a wildcard, or
+#   resolves outside the checkout (including .. and symlink escapes).
+# - Refuses a symlinked checkout, settings file, settings temp file, PID file,
+#   or log file.
+# - Never passes --dangerously-skip-permissions, never reads or writes global
+#   Antigravity settings, and never widens an allow list.
 
 set -euo pipefail
+
+script_dir="$(cd "$(dirname "$0")" && pwd -P)"
+settings_lib="$script_dir/lib/agy-settings-check.sh"
+settings_template="$script_dir/templates/agy-docs-settings.json"
 
 usage() {
   cat >&2 <<'EOF'
@@ -30,17 +44,10 @@ Arguments:
 EOF
 }
 
+# Physical absolute path; every symlink component is resolved by the shared
+# library, so the result does not depend on realpath being installed.
 resolve_path() {
-  local target="$1"
-  if command -v realpath >/dev/null 2>&1; then
-    realpath "$target"
-  elif [[ -d "$target" ]]; then
-    (cd -P -- "$target" && pwd -P)
-  else
-    local dir
-    dir="$(cd -P -- "$(dirname -- "$target")" && pwd -P)"
-    printf '%s/%s\n' "$dir" "$(basename -- "$target")"
-  fi
+  agy_physical_path "$1"
 }
 
 validate_token() {
@@ -64,6 +71,22 @@ model_input="${4:-}"
 
 validate_token "repository name" "$repo"
 
+if [[ ! -r "$settings_lib" ]]; then
+  printf 'Error: missing library: %s\n' "$settings_lib" >&2
+  exit 1
+fi
+# Library messages name this launcher.
+# shellcheck disable=SC2034
+agy_settings_tag="agy-docs-launch"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/agy-settings-check.sh
+. "$settings_lib"
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: 'jq' is required to generate and check settings." >&2
+  exit 1
+fi
+
 if ! command -v agy >/dev/null 2>&1; then
   echo "Error: 'agy' binary not found on PATH." >&2
   exit 1
@@ -77,6 +100,10 @@ work_root_real="$(resolve_path "$work_root")"
 inbox_root_real="$(resolve_path "$inbox_root")"
 
 checkout_dir="$work_root/$repo"
+if [[ -L "$checkout_dir" ]]; then
+  printf 'Error: refusing symlinked checkout %s; use the real directory under %s.\n' "$checkout_dir" "$work_root" >&2
+  exit 1
+fi
 if [[ ! -d "$checkout_dir" ]]; then
   printf 'Error: checkout directory missing at %s. Clone the repository under %s first.\n' "$checkout_dir" "$checkout_dir" >&2
   exit 1
@@ -121,6 +148,14 @@ pid_file="$inbox_root/$stem.pid"
 stdout_log="$inbox_root/$stem-stdout.log"
 stderr_log="$inbox_root/$stem-stderr.log"
 
+# A symlinked log or PID file could redirect a write outside the inbox.
+for write_target in "$pid_file" "$stdout_log" "$stderr_log"; do
+  if [[ -L "$write_target" ]]; then
+    printf 'Error: refusing symlinked %s: %s\n' "${write_target##*/}" "$write_target" >&2
+    exit 1
+  fi
+done
+
 if [[ -f "$pid_file" ]]; then
   existing_pid="$(tr -d '[:space:]' <"$pid_file" || true)"
   if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
@@ -140,12 +175,24 @@ else
   model="gemini-3.8-flash-medium"
 fi
 
-nohup agy --project "$HOME/agy-work/$repo" --model "$model" -p "$(cat "$brief_real")" >"$stdout_log" 2>"$stderr_log" </dev/null &
+# Per-run settings: the checkout is the only write root.
+settings_file="$inbox_root_real/$stem.settings.json"
+if ! agy_settings_generate "$settings_template" "$settings_file" "$checkout_real"; then
+  exit 1
+fi
+if ! agy_settings_check "$settings_file" "$checkout_real"; then
+  printf 'Error: settings check failed; not launching.\n' >&2
+  exit 1
+fi
+
+nohup agy --project "$HOME/agy-work/$repo" --model "$model" --settings "$settings_file" \
+  -p "$(cat "$brief_real")" >"$stdout_log" 2>"$stderr_log" </dev/null &
 agy_pid=$!
 printf '%s\n' "$agy_pid" >"$pid_file"
 
 printf 'AGY_PID=%s\n' "$agy_pid"
 printf 'PID_FILE=%s\n' "$pid_file"
 printf 'MODEL=%s\n' "$model"
+printf 'SETTINGS=%s\n' "$settings_file"
 printf 'STDOUT_LOG=%s\n' "$stdout_log"
 printf 'STDERR_LOG=%s\n' "$stderr_log"
