@@ -107,7 +107,8 @@ changed in Insights. Stay silent when nothing is new.
 3. Leave the Inbox original in place. Do not move or delete it.
 
 Treat an item as already summarized when an existing document matches
-it by file name, title, or source URL.
+it by file name, title, or source URL and the source is unchanged. If
+the source changed, follow the edited-source rule under Edge cases.
 
 ### Meeting notes
 
@@ -147,8 +148,8 @@ run that found nothing new.
 
 | Case | What to do |
 | --- | --- |
-| Duplicate detection | Match on file name, title, or source URL. If any of those match an existing summary, skip the item. |
-| Edited or replaced source | If the source URL is the same and the title or content changed, update the existing summary in place, or append a dated revision. Do not create a second document for the same URL. Leave the Inbox original untouched. |
+| Duplicate detection | Match on file name, title, or source URL. If any of those match an existing summary and the source is unchanged, skip the item. If the source changed, apply the edited-source rule below instead of skipping. |
+| Edited or replaced source | Check this before skipping a duplicate. If the source URL is the same and the title or content changed, update the existing summary in place, or append a dated revision. Do not create a second document for the same URL. Leave the Inbox original untouched. |
 | Processing window boundaries | Include items whose timestamp falls in the processing window, from the end of the last successful run up to the start of this run. Exclude items already processed. An item that lands exactly on the boundary belongs in this run if it was not in the previous one. |
 | Failure notification | For periodic ingest, tell the operator if the run could not list a folder, read a source, or write a document. For bookmark ingest, notify only on credit exhaustion, a needed reconnect, or skipped items. |
 | No-op conditions | Stay silent on the ingest job when Inbox has no unprocessed items, the processing window has no new meeting notes, and no insight change meets the bar. Stay silent on the bookmark job when the bookmarks source has nothing new and the run had no failure. |
