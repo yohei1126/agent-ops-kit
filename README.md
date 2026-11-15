@@ -85,6 +85,11 @@ Operators who:
   and the generic-examples policy.
 - [`AGENTS.md`](AGENTS.md) points coding agents and bots at `CONTRIBUTING.md`
   and states the topic-file and 500-line split rule for `docs/`.
+- [`templates/agent-task-issue.md`](templates/agent-task-issue.md) and
+  [`scripts/agent-task-issue.sh`](scripts/agent-task-issue.sh) prepare a
+  coding-agent task as a GitHub Issue, the single spec before any agent
+  works on it. For `agy`, the maintainer runs the issue by hand; bots
+  never launch `agy`.
 - [`templates/agent-ops-hub/`](templates/agent-ops-hub/README.md) holds
   scrubbed public templates for a private job hub: a Worker webhook relay, a
   Mac launcher pattern, and label, secrets, and GitHub App stubs. It carries
