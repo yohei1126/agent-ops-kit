@@ -24,11 +24,30 @@
 #   or log file.
 # - Never passes --dangerously-skip-permissions, never reads or writes global
 #   Antigravity settings, and never widens an allow list.
+# - Shared launch/retry logic lives in scripts/lib/agy-launch-run.sh (also
+#   sourced by scripts/agy-review-launch.sh).
+# - On Darwin, when caffeinate is on PATH, holds an idle-sleep assertion
+#   with `caffeinate -i` for the lifetime of agy. On Linux, or when
+#   caffeinate is missing, starts agy unwrapped. Missing caffeinate is not
+#   an error.
+# - Waits for the run to finish. Retries exactly once, in total, if stdout
+#   is empty (0 bytes or missing), if stderr contains the official headless
+#   auto-deny notice, or if both logs stop growing for
+#   AGY_LAUNCH_STALL_SECONDS (default 900) while the child PID is still
+#   alive. A second failure of any of those kinds exits 1 (fail closed)
+#   and asks the operator to inspect the logs. An auto-deny or stall retry
+#   appends a simpler-commands instruction to a new brief file under the
+#   inbox; the original brief is not mutated. Settings and allow lists are
+#   never edited. Operators who need a detached session can run the
+#   launcher itself under a terminal multiplexer or nohup.
+#
+# Exit codes: 0 ok, 1 check or launch failure, 2 usage.
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 settings_lib="$script_dir/lib/agy-settings-check.sh"
+launch_lib="$script_dir/lib/agy-launch-run.sh"
 settings_template="$script_dir/templates/agy-docs-settings.json"
 
 usage() {
@@ -75,12 +94,19 @@ if [[ ! -r "$settings_lib" ]]; then
   printf 'Error: missing library: %s\n' "$settings_lib" >&2
   exit 1
 fi
+if [[ ! -r "$launch_lib" ]]; then
+  printf 'Error: missing library: %s\n' "$launch_lib" >&2
+  exit 1
+fi
 # Library messages name this launcher.
 # shellcheck disable=SC2034
 agy_settings_tag="agy-docs-launch"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/agy-settings-check.sh
 . "$settings_lib"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/agy-launch-run.sh
+. "$launch_lib"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "Error: 'jq' is required to generate and check settings." >&2
@@ -185,14 +211,36 @@ if ! agy_settings_check "$settings_file" "$checkout_real"; then
   exit 1
 fi
 
-nohup agy --project "$HOME/agy-work/$repo" --model "$model" --settings "$settings_file" \
-  -p "$(cat "$brief_real")" >"$stdout_log" 2>"$stderr_log" </dev/null &
-agy_pid=$!
-printf '%s\n' "$agy_pid" >"$pid_file"
+# shellcheck disable=SC2034,SC2154 # assigned here, consumed by agy-launch-run.sh
+agy_launch_tag="agy-docs-launch"
+agy_launch_cwd=""
+agy_launch_stdout_log="$stdout_log"
+agy_launch_stderr_log="$stderr_log"
+agy_launch_pid_file="$pid_file"
+agy_launch_brief="$brief_real"
+agy_launch_retry_brief="$inbox_root_real/$stem.retry-brief.txt"
+agy_launch_attempt1_out="$stdout_log.attempt1"
+agy_launch_attempt1_err="$stderr_log.attempt1"
+agy_launch_caffeinate="$(agy_launch_use_caffeinate)"
 
-printf 'AGY_PID=%s\n' "$agy_pid"
-printf 'PID_FILE=%s\n' "$pid_file"
-printf 'MODEL=%s\n' "$model"
-printf 'SETTINGS=%s\n' "$settings_file"
-printf 'STDOUT_LOG=%s\n' "$stdout_log"
-printf 'STDERR_LOG=%s\n' "$stderr_log"
+agy_launch_prepare_args() {
+  agy_launch_args=(
+    --project "$HOME/agy-work/$repo"
+    --model "$model"
+    --settings "$settings_file"
+    -p "$(cat "$agy_launch_brief_used")"
+  )
+}
+
+agy_launch_print_metadata() {
+  printf 'AGY_PID=%s\n' "$(tr -d '[:space:]' <"$pid_file")"
+  printf 'PID_FILE=%s\n' "$pid_file"
+  printf 'MODEL=%s\n' "$model"
+  printf 'SETTINGS=%s\n' "$settings_file"
+  printf 'STDOUT_LOG=%s\n' "$stdout_log"
+  printf 'STDERR_LOG=%s\n' "$stderr_log"
+}
+
+if ! agy_launch_run; then
+  exit 1
+fi

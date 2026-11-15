@@ -68,10 +68,22 @@ if [ -n "${FAKE_AGY_ARGV_ALL:-}" ]; then
     printf 'ARGV_END\n'
   } >> "$FAKE_AGY_ARGV_ALL"
 fi
-if [ "${FAKE_AGY_EMPTY:-}" = 1 ]; then
-  exit 0
+if [ "${FAKE_AGY_STALL:-}" = 1 ] || { [ "${FAKE_AGY_STALL_FIRST:-}" = 1 ] && [ "$n" -eq 1 ]; }; then
+  # Stay alive without writing logs so the stall fallback can fire.
+  # Honours TERM from the launcher watchdog.
+  trap 'exit 0' TERM INT HUP
+  while true; do
+    sleep 1
+  done
 fi
 if [ "${FAKE_AGY_EMPTY_FIRST:-}" = 1 ] && [ "$n" -eq 1 ]; then
+  exit 0
+fi
+if [ "${FAKE_AGY_AUTODENY:-}" = 1 ] || { [ "${FAKE_AGY_AUTODENY_FIRST:-}" = 1 ] && [ "$n" -eq 1 ]; }; then
+  printf 'no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. command(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.\n' >&2
+  exit 0
+fi
+if [ "${FAKE_AGY_EMPTY:-}" = 1 ]; then
   exit 0
 fi
 # Non-empty stdout so a successful first run is not retried.
@@ -182,8 +194,18 @@ run_launcher() {
   : > "$argv_file"
   : > "$launch_file"
   : > "$err_file"
+  argv_all="$work_tmp/argv-all-$tag"
+  : > "$argv_all"
   out="$(HOME="$test_home" PATH="$fake_bin:$PATH" FAKE_AGY_ARGV="$argv_file" \
-    FAKE_AGY_LAUNCHES="$launch_file" bash "$launcher" "$@" 2>"$err_file")"
+    FAKE_AGY_ARGV_ALL="$argv_all" FAKE_AGY_LAUNCHES="$launch_file" \
+    FAKE_AGY_EMPTY="${FAKE_AGY_EMPTY:-}" \
+    FAKE_AGY_EMPTY_FIRST="${FAKE_AGY_EMPTY_FIRST:-}" \
+    FAKE_AGY_AUTODENY="${FAKE_AGY_AUTODENY:-}" \
+    FAKE_AGY_AUTODENY_FIRST="${FAKE_AGY_AUTODENY_FIRST:-}" \
+    FAKE_AGY_STALL="${FAKE_AGY_STALL:-}" \
+    FAKE_AGY_STALL_FIRST="${FAKE_AGY_STALL_FIRST:-}" \
+    AGY_LAUNCH_STALL_SECONDS="${AGY_LAUNCH_STALL_SECONDS:-}" \
+    bash "$launcher" "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
 }
@@ -231,11 +253,19 @@ run_launcher_on_path() {
     # Do not append a trailing colon: that would put "." on PATH.
     launcher_path="$extra_bin:$fake_bin"
   fi
+  argv_all="$work_tmp/argv-all-$tag"
+  : > "$argv_all"
   out="$(HOME="$test_home" PATH="$launcher_path" \
-    FAKE_AGY_ARGV="$argv_file" FAKE_AGY_LAUNCHES="$launch_file" \
+    FAKE_AGY_ARGV="$argv_file" FAKE_AGY_ARGV_ALL="$argv_all" \
+    FAKE_AGY_LAUNCHES="$launch_file" \
     FAKE_CAFFEINATE_ARGV="$caffeinate_argv" \
     FAKE_AGY_EMPTY="${FAKE_AGY_EMPTY:-}" \
     FAKE_AGY_EMPTY_FIRST="${FAKE_AGY_EMPTY_FIRST:-}" \
+    FAKE_AGY_AUTODENY="${FAKE_AGY_AUTODENY:-}" \
+    FAKE_AGY_AUTODENY_FIRST="${FAKE_AGY_AUTODENY_FIRST:-}" \
+    FAKE_AGY_STALL="${FAKE_AGY_STALL:-}" \
+    FAKE_AGY_STALL_FIRST="${FAKE_AGY_STALL_FIRST:-}" \
+    AGY_LAUNCH_STALL_SECONDS="${AGY_LAUNCH_STALL_SECONDS:-}" \
     bash "$launcher" "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
@@ -249,7 +279,7 @@ build_path_hiding() {
   mkdir -p "$dest"
   for cmd in bash jq tr mkdir kill cp mv cat uname mktemp sed wc rm ln \
     readlink realpath dirname basename chmod date head env nohup tee cut \
-    sort uniq touch; do
+    sort uniq touch sleep grep; do
     path="$(command -v "$cmd" 2>/dev/null)" || continue
     case "$path" in
       '' | */agy | */caffeinate) continue ;;
@@ -291,11 +321,19 @@ if [ -n "${FAKE_CAFFEINATE_ARGV:-}" ]; then
     printf 'CAFFEINATE_END\n'
   } >> "$FAKE_CAFFEINATE_ARGV"
 fi
+wait_pid=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -t | -w)
+    -t)
       shift
       [ "$#" -gt 0 ] && shift
+      ;;
+    -w)
+      shift
+      if [ "$#" -gt 0 ]; then
+        wait_pid="$1"
+        shift
+      fi
       ;;
     -*)
       shift
@@ -306,7 +344,16 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 if [ "$#" -eq 0 ]; then
-  exit 0
+  trap 'exit 0' TERM INT HUP
+  if [ -n "$wait_pid" ]; then
+    while kill -0 "$wait_pid" 2>/dev/null; do
+      sleep 0.1
+    done
+    exit 0
+  fi
+  while true; do
+    sleep 1
+  done
 fi
 exec "$@"
 SH
@@ -690,10 +737,15 @@ unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
 run_launcher_on_path cafe-present "$darwin_bin" "$PATH" run-cafe-present "$repo_dir" "$brief"
 expect_status "24: caffeinate present exits 0" 0
 expect_launches "24: caffeinate present launches once" 1
-if grep -qx -- '-i' "$caffeinate_argv" && grep -qx -- 'agy' "$caffeinate_argv"; then
-  ok "24: caffeinate is invoked as caffeinate -i agy"
+if grep -q -F 'holding idle-sleep assertion with caffeinate -i' "$runs_root/run-cafe-present/agy.stderr.log"; then
+  ok "24: wrapper holds a caffeinate -i idle-sleep assertion"
 else
-  bad "24: caffeinate is invoked as caffeinate -i agy" "argv: $(tr '\n' ' ' <"$caffeinate_argv")"
+  bad "24: wrapper holds a caffeinate -i idle-sleep assertion" "stderr log: $(tr '\n' ' ' <"$runs_root/run-cafe-present/agy.stderr.log")"
+fi
+if grep -qx -- 'agy' "$caffeinate_argv"; then
+  bad "24: caffeinate is assertion-only (agy is not the operand)" "argv: $(tr '\n' ' ' <"$caffeinate_argv")"
+else
+  ok "24: caffeinate is assertion-only (agy is not the operand)"
 fi
 expect_out "24: caffeinate present prints AGY_PID" "AGY_PID="
 cafe_present="$runs_root/run-cafe-present"
@@ -749,7 +801,8 @@ unset FAKE_AGY_EMPTY
 expect_status "27: both empty exits 1" 1
 expect_launches "27: both empty launches twice" 2
 expect_err "27: both empty mentions the retry" "retrying once"
-expect_err "27: both empty fails closed after retry" "giving up"
+expect_err "27: both empty fails closed after retry" "automatic retry also failed"
+expect_err "27: both empty asks the operator" "ask the operator"
 both_empty="$runs_root/run-both-empty"
 expect_file "27: both empty preserves the first log" "$both_empty/agy.log.attempt1"
 if [ ! -s "$both_empty/agy.log" ]; then
@@ -780,6 +833,127 @@ fi
 run_launcher default-nonempty run-default-nonempty "$repo_dir" "$brief"
 expect_status "29: default stub launch exits 0" 0
 expect_launches "29: default stub launches once" 1
+
+printf '== auto-deny, stall fallback, and shared retry budget ==\n'
+
+# First run auto-denies (official stderr notice, empty stdout), second
+# succeeds: exactly two launches, retry brief contains the instruction,
+# original BRIEF.md is unchanged.
+FAKE_AGY_AUTODENY_FIRST=1
+unset FAKE_AGY_AUTODENY FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST FAKE_AGY_STALL FAKE_AGY_STALL_FIRST
+run_launcher_on_path deny-then-ok "$darwin_bin" "$PATH" run-deny-then-ok "$repo_dir" "$brief"
+unset FAKE_AGY_AUTODENY_FIRST
+expect_status "30: auto-deny then non-empty exits 0" 0
+expect_launches "30: auto-deny then non-empty launches twice" 2
+expect_err "30: auto-deny then non-empty mentions auto-deny" "headless auto-deny"
+if printf '%s' "$err" | grep -q 'giving up'; then
+  bad "30: auto-deny then non-empty does not give up" "stderr: $err"
+else
+  ok "30: auto-deny then non-empty does not give up"
+fi
+deny_then_ok="$runs_root/run-deny-then-ok"
+expect_file "30: auto-deny preserves the first stderr log" "$deny_then_ok/agy.stderr.log.attempt1"
+if grep -q -F 'headless mode cannot prompt for' "$deny_then_ok/agy.stderr.log.attempt1"; then
+  ok "30: preserved first stderr has the auto-deny notice"
+else
+  bad "30: preserved first stderr has the auto-deny notice" "missing needle"
+fi
+expect_file "30: retry brief is written" "$deny_then_ok/BRIEF.retry.md"
+if grep -q -F 'use simple commands one at a time; no pipes, no redirects, no regex special characters.' "$deny_then_ok/BRIEF.retry.md"; then
+  ok "30: retry brief has the simpler-commands instruction"
+else
+  bad "30: retry brief has the simpler-commands instruction" "missing instruction"
+fi
+if grep -q -F 'use simple commands one at a time' "$deny_then_ok/BRIEF.md"; then
+  bad "30: original brief is not mutated" "BRIEF.md was appended to"
+else
+  ok "30: original brief is not mutated"
+fi
+if grep -q -F 'use simple commands one at a time' "$argv_all"; then
+  ok "30: second launch passes the retry brief"
+else
+  bad "30: second launch passes the retry brief" "instruction missing from argv"
+fi
+
+# Both auto-denies: fail closed, exactly two launches, ask the operator.
+FAKE_AGY_AUTODENY=1
+unset FAKE_AGY_AUTODENY_FIRST
+run_launcher_on_path both-deny "$darwin_bin" "$PATH" run-both-deny "$repo_dir" "$brief"
+unset FAKE_AGY_AUTODENY
+expect_status "31: both auto-deny exits 1" 1
+expect_launches "31: both auto-deny launches twice" 2
+expect_err "31: both auto-deny fails closed after retry" "automatic retry also failed"
+expect_err "31: both auto-deny asks the operator" "ask the operator"
+expect_err "31: both auto-deny does not suggest widening allow" "Do not add allow-rules"
+
+# Shared budget: empty first, auto-deny second: still only two launches.
+FAKE_AGY_EMPTY_FIRST=1
+FAKE_AGY_AUTODENY=1
+unset FAKE_AGY_EMPTY FAKE_AGY_AUTODENY_FIRST
+run_launcher_on_path empty-then-deny "$darwin_bin" "$PATH" run-empty-then-deny "$repo_dir" "$brief"
+unset FAKE_AGY_EMPTY_FIRST FAKE_AGY_AUTODENY
+expect_status "32: empty then auto-deny exits 1" 1
+expect_launches "32: empty then auto-deny launches twice" 2
+expect_err "32: empty then auto-deny mentions the empty retry" "empty stdout log"
+expect_err "32: empty then auto-deny fails closed after retry" "automatic retry also failed"
+# Empty-only first retry must not write or pass a retry brief.
+empty_then_deny="$runs_root/run-empty-then-deny"
+if [ -e "$empty_then_deny/BRIEF.retry.md" ]; then
+  bad "32: empty-first retry does not write a retry brief" "BRIEF.retry.md exists"
+else
+  ok "32: empty-first retry does not write a retry brief"
+fi
+
+# Stall then success: override the fallback window so the test stays short.
+FAKE_AGY_STALL_FIRST=1
+unset FAKE_AGY_STALL FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST FAKE_AGY_AUTODENY FAKE_AGY_AUTODENY_FIRST
+AGY_LAUNCH_STALL_SECONDS=2
+run_launcher_on_path stall-then-ok "$darwin_bin" "$PATH" run-stall-then-ok "$repo_dir" "$brief"
+unset FAKE_AGY_STALL_FIRST
+unset AGY_LAUNCH_STALL_SECONDS
+expect_status "33: stall then non-empty exits 0" 0
+expect_launches "33: stall then non-empty launches twice" 2
+expect_err "33: stall then non-empty mentions the stall" "no log growth"
+if printf '%s' "$err" | grep -q 'giving up\|automatic retry also failed'; then
+  bad "33: stall then non-empty does not give up" "stderr: $err"
+else
+  ok "33: stall then non-empty does not give up"
+fi
+stall_then_ok="$runs_root/run-stall-then-ok"
+expect_file "33: stall retry writes a retry brief" "$stall_then_ok/BRIEF.retry.md"
+if grep -q -F 'use simple commands one at a time' "$stall_then_ok/BRIEF.md"; then
+  bad "33: stall retry does not mutate the original brief" "BRIEF.md was appended to"
+else
+  ok "33: stall retry does not mutate the original brief"
+fi
+
+# Stall then stall: fail closed, two launches only.
+FAKE_AGY_STALL=1
+AGY_LAUNCH_STALL_SECONDS=2
+run_launcher_on_path both-stall "$darwin_bin" "$PATH" run-both-stall "$repo_dir" "$brief"
+unset FAKE_AGY_STALL
+unset AGY_LAUNCH_STALL_SECONDS
+expect_status "34: both stall exits 1" 1
+expect_launches "34: both stall launches twice" 2
+expect_err "34: both stall fails closed after retry" "automatic retry also failed"
+expect_err "34: both stall asks the operator" "ask the operator"
+
+# Dry-run stays immediate and never starts or retries agy, even when a
+# stall timeout is set.
+unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST FAKE_AGY_AUTODENY FAKE_AGY_AUTODENY_FIRST
+unset FAKE_AGY_STALL FAKE_AGY_STALL_FIRST
+AGY_LAUNCH_STALL_SECONDS=2
+run_launcher dry-no-side --dry-run run-dry-no-side "$repo_dir" "$brief"
+unset AGY_LAUNCH_STALL_SECONDS
+expect_status "35: dry-run with stall override exits 0" 0
+expect_launches "35: dry-run with stall override does not start agy" 0
+expect_no_file "35: dry-run does not write attempt logs" "$runs_root/run-dry-no-side/agy.log.attempt1"
+expect_no_file "35: dry-run does not write a retry brief" "$runs_root/run-dry-no-side/BRIEF.retry.md"
+if printf '%s' "$err" | grep -q 'retrying once\|auto-deny\|no log growth'; then
+  bad "35: dry-run does not retry" "stderr: $err"
+else
+  ok "35: dry-run does not retry"
+fi
 
 printf '== agents never touch global settings ==\n'
 
