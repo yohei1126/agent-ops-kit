@@ -15,6 +15,7 @@ to English Markdown.
    [`docs/launch-approvals-and-collection.md`](docs/launch-approvals-and-collection.md),
    [`docs/secrets-local-injection.md`](docs/secrets-local-injection.md),
    [`docs/youtube-publish-media.md`](docs/youtube-publish-media.md),
+   [`docs/knowledge-base-ingest.md`](docs/knowledge-base-ingest.md),
    [`docs/security-audit-lanes.md`](docs/security-audit-lanes.md), or
    [`docs/monthly-audit.md`](docs/monthly-audit.md).
 3. Keep the change generalized: useful to other operators and not tied to one
