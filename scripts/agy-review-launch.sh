@@ -13,7 +13,8 @@
 #   on every launch. It never reads or copies settings from another run folder.
 # - The template's only variable is @RUN_DIR@, replaced with the resolved
 #   physical run folder path.
-# - Runs scripts/lib/agy-settings-check.sh before launch and exits 1 when an
+# - Generates and checks settings through scripts/lib/agy-settings-check.sh
+#   (shared with scripts/agy-docs-launch.sh) before launch and exits 1 when an
 #   allow entry is empty, malformed, or resolves outside the run folder.
 # - Refuses a symlinked run folder, brief, settings file, settings temp file,
 #   or log/pid file, and refuses a run name that is not a plain token.
@@ -116,6 +117,9 @@ if [ ! -r "$settings_lib" ]; then
   printf 'agy-review-launch: missing library: %s\n' "$settings_lib" >&2
   exit 1
 fi
+# Library messages name this launcher.
+# shellcheck disable=SC2034
+agy_settings_tag="agy-review-launch"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/agy-settings-check.sh
 . "$settings_lib"
@@ -257,31 +261,9 @@ if [ "$brief_real" != "$run_real/BRIEF.md" ]; then
 fi
 
 # Generate settings.json from the template, substituting the physical run path.
-if [ ! -r "$settings_template" ]; then
-  printf 'agy-review-launch: missing settings template: %s\n' "$settings_template" >&2
+if ! agy_settings_generate "$settings_template" "$settings_file" "$run_real"; then
   exit 1
 fi
-escaped_run="$(printf '%s' "$run_real" | sed 's/[\\&|]/\\&/g')"
-if ! settings_tmp="$(mktemp "$run_real/.agy-review-settings.XXXXXX")"; then
-  printf 'agy-review-launch: failed to create a settings temp file in %s\n' "$run_real" >&2
-  exit 1
-fi
-if [ -L "$settings_tmp" ]; then
-  rm -f -- "$settings_tmp"
-  printf 'agy-review-launch: refusing symlinked settings temp file: %s\n' "$settings_tmp" >&2
-  exit 1
-fi
-if ! sed "s|@RUN_DIR@|$escaped_run|g" "$settings_template" >"$settings_tmp"; then
-  rm -f -- "$settings_tmp"
-  printf 'agy-review-launch: failed to generate %s\n' "$settings_file" >&2
-  exit 1
-fi
-if ! jq -e . "$settings_tmp" >/dev/null 2>&1; then
-  rm -f -- "$settings_tmp"
-  printf 'agy-review-launch: generated settings is not valid JSON: %s\n' "$settings_file" >&2
-  exit 1
-fi
-mv -f -- "$settings_tmp" "$settings_file"
 
 if ! agy_settings_check "$settings_file" "$run_real"; then
   printf 'agy-review-launch: settings check failed; not launching\n' >&2

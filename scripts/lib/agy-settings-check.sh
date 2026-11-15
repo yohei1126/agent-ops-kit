@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
-# Pre-launch settings check for scripts/agy-review-launch.sh.
-# Sourced by the launcher, never run on its own. Provides:
+# Per-run settings generation and pre-launch settings check shared by
+# scripts/agy-review-launch.sh and scripts/agy-docs-launch.sh. Sourced by a
+# launcher, never run on its own. Provides:
 #
+#   agy_settings_generate <template> <out-file> <run-dir>
 #   agy_settings_check <settings.json> <run-dir>
 #
-# Returns 0 when every path-bearing entry in .permissions.allow[] resolves
-# inside <run-dir>, 1 on any failure with a message on stderr, and 2 on a wrong
-# argument count.
+# agy_settings_generate writes <out-file> from <template>, replacing every
+# @RUN_DIR@ with <run-dir>. It never reads any other settings file.
+#
+# agy_settings_check returns 0 when every path-bearing entry in
+# .permissions.allow[] resolves inside <run-dir>, 1 on any failure with a
+# message on stderr, and 2 on a wrong argument count.
+#
+# Messages start with $agy_settings_tag (default agy-settings). A launcher sets
+# it before sourcing so messages name the launcher.
 #
 # Rules:
 # - .permissions.allow must hold at least one entry, and no entry may be empty.
@@ -26,6 +34,8 @@
 # Compatible with macOS bash 3.2 and Linux bash 5, and safe under set -u.
 
 set -u
+
+agy_settings_tag="${agy_settings_tag:-agy-settings}"
 
 # agy_physical_path <path> [base-dir]
 # Prints the physical absolute path for <path>. Relative paths resolve against
@@ -157,12 +167,12 @@ agy_settings_check_entry() {
   local entry_re='^[A-Za-z_][A-Za-z0-9_-]*[(][^()]*[)]$'
 
   if [ -z "$entry" ]; then
-    printf 'agy-review-launch: settings: allow entry "" is empty; name(argument) entries required\n' >&2
+    printf '%s: settings: allow entry "" is empty; name(argument) entries required\n' "$agy_settings_tag" >&2
     return 1
   fi
 
   if ! [[ "$entry" =~ $entry_re ]]; then
-    printf 'agy-review-launch: settings: allow entry %s is not a strict name(argument) entry\n' "$entry" >&2
+    printf '%s: settings: allow entry %s is not a strict name(argument) entry\n' "$agy_settings_tag" "$entry" >&2
     return 1
   fi
 
@@ -172,9 +182,9 @@ agy_settings_check_entry() {
 
   if [ -z "$arg" ]; then
     if [ "$tool" = "command" ]; then
-      printf 'agy-review-launch: settings: %s has an empty command argument\n' "$entry" >&2
+      printf '%s: settings: %s has an empty command argument\n' "$agy_settings_tag" "$entry" >&2
     else
-      printf 'agy-review-launch: settings: %s has no path argument\n' "$entry" >&2
+      printf '%s: settings: %s has no path argument\n' "$agy_settings_tag" "$entry" >&2
     fi
     return 1
   fi
@@ -186,19 +196,19 @@ agy_settings_check_entry() {
 
   case "$arg" in
     *'*'* | *'?'* | *'['*)
-      printf 'agy-review-launch: settings: %s uses a wildcard; allow exact paths only\n' "$entry" >&2
+      printf '%s: settings: %s uses a wildcard; allow exact paths only\n' "$agy_settings_tag" "$entry" >&2
       return 1
       ;;
   esac
 
   if ! resolved="$(agy_physical_path "$arg" "$run_real")"; then
-    printf 'agy-review-launch: settings: cannot resolve %s (%s)\n' "$entry" "$arg" >&2
+    printf '%s: settings: cannot resolve %s (%s)\n' "$agy_settings_tag" "$entry" "$arg" >&2
     return 1
   fi
   if agy_path_inside "$resolved" "$run_real"; then
     return 0
   fi
-  printf 'agy-review-launch: settings: %s resolves to %s outside run folder %s\n' \
+  printf '%s: settings: %s resolves to %s outside run folder %s\n' "$agy_settings_tag" \
     "$entry" "$resolved" "$run_real" >&2
   return 1
 }
@@ -210,48 +220,48 @@ agy_settings_check() {
   local run_real entry total lines bad
 
   if [ "$#" -ne 2 ] || [ -z "$settings" ] || [ -z "$run" ]; then
-    printf 'agy-review-launch: settings: usage: agy_settings_check <settings.json> <run-dir>\n' >&2
+    printf '%s: settings: usage: agy_settings_check <settings.json> <run-dir>\n' "$agy_settings_tag" >&2
     return 2
   fi
   if [ ! -f "$settings" ]; then
-    printf 'agy-review-launch: settings: settings file not found: %s\n' "$settings" >&2
+    printf '%s: settings: settings file not found: %s\n' "$agy_settings_tag" "$settings" >&2
     return 1
   fi
   if ! command -v jq >/dev/null 2>&1; then
-    printf 'agy-review-launch: settings: jq is required to read %s\n' "$settings" >&2
+    printf '%s: settings: jq is required to read %s\n' "$agy_settings_tag" "$settings" >&2
     return 1
   fi
   if ! jq -e . "$settings" >/dev/null 2>&1; then
-    printf 'agy-review-launch: settings: invalid JSON: %s\n' "$settings" >&2
+    printf '%s: settings: invalid JSON: %s\n' "$agy_settings_tag" "$settings" >&2
     return 1
   fi
   if ! jq -e '(((.permissions // null) | type) == "object") and (((.permissions.allow // null) | type) == "array")' \
     "$settings" >/dev/null 2>&1; then
-    printf 'agy-review-launch: settings: missing or non-array .permissions.allow: %s\n' "$settings" >&2
+    printf '%s: settings: missing or non-array .permissions.allow: %s\n' "$agy_settings_tag" "$settings" >&2
     return 1
   fi
   bad="$(jq -r '[.permissions.allow[] | select(type != "string") | tojson] | first // empty' \
     "$settings" 2>/dev/null || true)"
   if [ -n "$bad" ]; then
-    printf 'agy-review-launch: settings: allow entry %s is not a string\n' "$bad" >&2
+    printf '%s: settings: allow entry %s is not a string\n' "$agy_settings_tag" "$bad" >&2
     return 1
   fi
   total="$(jq -r '.permissions.allow | length' "$settings")"
   if [ "$total" -eq 0 ]; then
-    printf 'agy-review-launch: settings: allow list is empty ([]): %s\n' "$settings" >&2
+    printf '%s: settings: allow list is empty ([]): %s\n' "$agy_settings_tag" "$settings" >&2
     return 1
   fi
   lines="$(jq -r '.permissions.allow[]' "$settings" | wc -l | tr -d '[:space:]')"
   if [ "$total" != "$lines" ]; then
-    printf 'agy-review-launch: settings: an allow entry contains a newline: %s\n' "$settings" >&2
+    printf '%s: settings: an allow entry contains a newline: %s\n' "$agy_settings_tag" "$settings" >&2
     return 1
   fi
   if [ ! -d "$run" ]; then
-    printf 'agy-review-launch: settings: run folder not found: %s\n' "$run" >&2
+    printf '%s: settings: run folder not found: %s\n' "$agy_settings_tag" "$run" >&2
     return 1
   fi
   if ! run_real="$(agy_physical_path "$run")"; then
-    printf 'agy-review-launch: settings: cannot resolve run folder: %s\n' "$run" >&2
+    printf '%s: settings: cannot resolve run folder: %s\n' "$agy_settings_tag" "$run" >&2
     return 1
   fi
 
@@ -261,5 +271,67 @@ agy_settings_check() {
     fi
   done < <(jq -r '.permissions.allow[]' "$settings")
 
+  return 0
+}
+
+# agy_settings_generate <template> <out-file> <run-dir>
+# Writes <out-file> from <template>, replacing every @RUN_DIR@ with <run-dir>
+# (pass the resolved physical path). The output goes to a temp file beside
+# <out-file> first, is checked as JSON, and is then moved into place, so a
+# failure never leaves a partial file. Refuses a symlinked <out-file> or temp
+# file. Returns 0 on success, 1 on failure with a message on stderr, and 2 on a
+# wrong argument count. Run agy_settings_check on the result before launch.
+agy_settings_generate() {
+  local template="${1:-}"
+  local out="${2:-}"
+  local run_real="${3:-}"
+  local out_dir escaped tmp
+
+  if [ "$#" -ne 3 ] || [ -z "$template" ] || [ -z "$out" ] || [ -z "$run_real" ]; then
+    printf '%s: settings: usage: agy_settings_generate <template> <out-file> <run-dir>\n' \
+      "$agy_settings_tag" >&2
+    return 2
+  fi
+  if [ ! -r "$template" ]; then
+    printf '%s: missing settings template: %s\n' "$agy_settings_tag" "$template" >&2
+    return 1
+  fi
+  if [ -L "$out" ]; then
+    printf '%s: refusing symlinked settings file: %s\n' "$agy_settings_tag" "$out" >&2
+    return 1
+  fi
+  case "$out" in
+    */*) out_dir="${out%/*}" ;;
+    *) out_dir="." ;;
+  esac
+  if [ -z "$out_dir" ]; then
+    out_dir="/"
+  fi
+
+  escaped="$(printf '%s' "$run_real" | sed 's/[\\&|]/\\&/g')"
+  if ! tmp="$(mktemp "$out_dir/.agy-settings.XXXXXX")"; then
+    printf '%s: failed to create a settings temp file in %s\n' "$agy_settings_tag" "$out_dir" >&2
+    return 1
+  fi
+  if [ -L "$tmp" ]; then
+    rm -f -- "$tmp"
+    printf '%s: refusing symlinked settings temp file: %s\n' "$agy_settings_tag" "$tmp" >&2
+    return 1
+  fi
+  if ! sed "s|@RUN_DIR@|$escaped|g" "$template" >"$tmp"; then
+    rm -f -- "$tmp"
+    printf '%s: failed to generate %s\n' "$agy_settings_tag" "$out" >&2
+    return 1
+  fi
+  if ! jq -e . "$tmp" >/dev/null 2>&1; then
+    rm -f -- "$tmp"
+    printf '%s: generated settings is not valid JSON: %s\n' "$agy_settings_tag" "$out" >&2
+    return 1
+  fi
+  if ! mv -f -- "$tmp" "$out"; then
+    rm -f -- "$tmp"
+    printf '%s: failed to move generated settings into %s\n' "$agy_settings_tag" "$out" >&2
+    return 1
+  fi
   return 0
 }

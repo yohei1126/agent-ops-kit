@@ -22,9 +22,11 @@ Call one workstation `Shell` per phase after the brief exists under
    `$HOME/agy-work`, verifies that `<brief-path>` resolves inside
    `$HOME/agy-inbox/`, resolves the model (default `gemini-3.8-flash-medium`;
    overridden by the optional 4th argument, `AGY_DOCS_MODEL`, or `AGY_MODEL`),
-   starts `agy --project "$HOME/agy-work/<repo>" --model "$model" -p` in the
-   background via `nohup`, and writes `$HOME/agy-inbox/<stem>.pid`,
-   `<stem>-stdout.log`, and `<stem>-stderr.log`.
+   generates per-run settings (see
+   [Docs launches generate per-run settings](#docs-launches-generate-per-run-settings)),
+   starts `agy --project "$HOME/agy-work/<repo>" --model "$model" --settings
+   <settings> -p` in the background via `nohup`, and writes
+   `$HOME/agy-inbox/<stem>.pid`, `<stem>-stdout.log`, and `<stem>-stderr.log`.
 
    ```bash
    ~/agy-work/grok-bot-ops/scripts/agy-docs-launch.sh <repo> ~/agy-inbox/<brief>.txt [log-stem] [model]
@@ -89,6 +91,29 @@ The launch keeps the existing guarantees: no
 `--settings` stays session-only. The model defaults to `gemini-4-argon-medium`;
 the fourth argument or `AGY_REVIEW_MODEL` overrides it.
 
+## Docs launches generate per-run settings
+
+[`agy-docs-launch.sh`](agy-docs-launch.sh) uses the same generation and check
+as the review launcher, from [`lib/agy-settings-check.sh`](lib/agy-settings-check.sh).
+The write root is the resolved checkout `$HOME/agy-work/<repo>`:
+
+1. On every launch it writes `$HOME/agy-inbox/<stem>.settings.json` from
+   [`templates/agy-docs-settings.json`](templates/agy-docs-settings.json),
+   replacing `@RUN_DIR@` with the checkout path. It overwrites any existing
+   file, never reads settings from another run, and never writes into the
+   checkout, so `git status` stays clean.
+2. The check from step 4 above runs with the checkout as the run folder. An
+   entry that points at another checkout, or escapes through `..` or a
+   symlink, fails before launch with a message that names the entry and its
+   resolved path.
+3. The launcher refuses a symlinked settings file or settings temp file, then
+   passes the file as `--settings`, which stays session-only.
+
+The template allows `write_file` on the checkout plus the same read-only
+commands as the review template. It narrows what a docs worker may do and never
+widens an allow list; run `git` and `gh` steps outside the worker. The usage
+signature and printed lines stay the same, plus a new `SETTINGS=` line.
+
 ## Safety boundaries remain unchanged
 
 Keep every existing launch confirmation and permission boundary in place when
@@ -96,9 +121,10 @@ using the wrapper scripts:
 
 - **Choice cards still gate heavy launches**: the operator confirms on the chat
   choice card or widget before Grok Bot invokes `agy-docs-launch.sh`.
-- **No permission escalation**: neither script passes
-  `--dangerously-skip-permissions`, edits Antigravity `settings.json`, or widens
-  Grok Auto-review Allow rules.
+- **No permission escalation**: no launcher passes
+  `--dangerously-skip-permissions`, edits the global Antigravity
+  `settings.json`, or widens Grok Auto-review Allow rules. The per-run settings
+  only narrow the session.
 - **Headless soft-deny still stops the worker**: if the `agy -p` worker hits a
   `soft-deny`, `unknown_command`, or `unsupported_tool` error, it stops and
   reports the exact command and reason so the operator can review permissions

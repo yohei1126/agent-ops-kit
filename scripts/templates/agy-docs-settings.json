@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "write_file(@RUN_DIR@)",
+      "command(ls)",
+      "command(cat)",
+      "command(head)",
+      "command(rg)",
+      "command(find)",
+      "command(wc)",
+      "command(pwd)"
+    ]
+  }
+}
