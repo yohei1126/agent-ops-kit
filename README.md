@@ -62,6 +62,10 @@ Operators who:
   asset rules and an operator checklist for YouTube video publication,
   enforcing Content ID clearance and noting that stock-site licenses do not
   guarantee safe YouTube audio or visual tracks.
+- [`docs/knowledge-base-ingest.md`](docs/knowledge-base-ingest.md) describes
+  a platform-neutral workflow for turning shared links, inbox files,
+  meeting notes, and bookmarks into source summaries, then updating
+  insight notes on a schedule the operator sets.
 - [`docs/monthly-audit.md`](docs/monthly-audit.md) is the checklist for the
   monthly ops cycle: review usage across LLM subscriptions and GitHub Actions,
   routines, idle bots, rule drift, and cross-bot practice; open the
