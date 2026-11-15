@@ -1,0 +1,32 @@
+[
+  {
+    "number": 106,
+    "title": "Bump example-package from 1.0.0 to 1.0.1",
+    "url": "https://example.com/pulls/106",
+    "createdAt": "2026-01-09T00:00:00Z",
+    "headRefOid": "6666666666666666666666666666666666666666",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "name": "build",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE"
+      }
+    ]
+  },
+  {
+    "number": 107,
+    "title": "Bump example-package from 1.0.0 to 1.0.1",
+    "url": "https://example.com/pulls/107",
+    "createdAt": "2026-01-09T00:00:00Z",
+    "headRefOid": "7777777777777777777777777777777777777777",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "name": "build",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ]
+  }
+]

@@ -120,6 +120,12 @@ waits for a deployed asset to change. `pr-state` and `deploy-hash` are the
 networked paths. See
 [`../templates/dev-loop/GATES.md`](../templates/dev-loop/GATES.md#named-checks).
 
+[`dependabot-red-prs.sh`](dependabot-red-prs.sh) is the read-only weekly
+hygiene check for open Dependabot pull requests. It flags a pull request whose
+checks are red or that has stayed open longer than `--days` (default 3), and it
+never comments, closes, rebases, or merges. See
+[`../docs/security-audit-lanes.md`](../docs/security-audit-lanes.md#flag-red-dependabot-pull-requests-weekly).
+
 ## Check rate limiting on one URL
 
 [`rate-limit-check.sh`](rate-limit-check.sh) sends a sequential burst to one URL
