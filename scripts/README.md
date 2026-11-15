@@ -56,7 +56,7 @@ resolved physical run folder path, so a copied settings file cannot point at an
 older run.
 
 ```bash
-~/agy-work/grok-bot-ops/scripts/agy-review-launch.sh <run-name> <repo-checkout> <brief-path> [model]
+scripts/agy-review-launch.sh <run-name> <repo-checkout> <brief-path> [model]
 ```
 
 Flow:
@@ -78,13 +78,24 @@ Flow:
    a non-string entry, invalid JSON, or a symlinked settings file also fail.
 5. After the check passes, a launch refuses a symlinked `settings.json`,
    `BRIEF.md`, generated settings temp file, `agy.log`, `agy.stderr.log`, or
-   `agy.pid`, then starts `agy` in the background with cwd set to the run
-   folder and writes those three files.
+   `agy.pid`. It then starts `agy` with cwd set to the run folder and writes
+   those three files. On macOS (`uname -s` is `Darwin`), when `caffeinate` is
+   on `PATH`, the child is started as `caffeinate -i agy ...` so the host will
+   not idle-sleep during the review (Apple `caffeinate(8)`). On Linux, or when
+   `caffeinate` is missing, `agy` starts unwrapped; a missing binary is not an
+   error.
+6. The launcher waits for the run. If `<run>/agy.log` is empty (0 bytes or
+   missing), it rotates the first attempt's logs to `agy.log.attempt1` and
+   `agy.stderr.log.attempt1` and relaunches the same command exactly once. A
+   second empty log exits 1 (fail closed). A non-empty log does not retry,
+   even when that log has no `VERDICT` line. Whitespace-only counts as
+   non-empty. Operators who need a detached session can run the launcher
+   itself under a terminal multiplexer or `nohup`.
 
 Use `--dry-run` to create the run folder and settings, run the check, and print
-the command without starting `agy`. Use
-`--check-settings <settings.json> <run-dir>` to run only the check on an
-existing file.
+the command (including `caffeinate -i` when the wrapper would be used) without
+starting `agy`. Use `--check-settings <settings.json> <run-dir>` to run only
+the check on an existing file. Neither flag waits or retries.
 
 The launch keeps the existing guarantees: no
 `--dangerously-skip-permissions`, no edits to global Antigravity settings, and
