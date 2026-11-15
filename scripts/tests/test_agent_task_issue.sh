@@ -474,6 +474,16 @@ expect_no_out "7b: agy notice is not printed for opencode" \
 expect_argv_has "7b: opencode uses the agent label" "--label agent:opencode"
 expect_argv_has "7b: opencode still uses the task label" "--label agent-task"
 
+agent_name=agy
+has_task_label=1
+has_agent_label=1
+run_check --agent agy --repo example-org/example-repo --title "Review change" \
+  --file "$fixtures/multiline-comment-result.md"
+expect_status "7c: multi-line comment before the result path exits 0" 0
+expect_line "7c: multi-line comment keeps the real result path in the handoff line" \
+  "$expected_handoff"
+expect_no_out "7c: the handoff line never contains an HTML comment opener" "<!--"
+
 printf '== repository selection ==\n'
 
 has_task_label=1

@@ -412,6 +412,22 @@ validate_section() {
   fi
 }
 
+# The result section must also resolve to a path. A section left as only an
+# HTML comment reports the resolve error, which names the --result-path escape
+# hatch instead of the generic empty-section message.
+validate_result_section() {
+  local text="$1"
+
+  if ! section_has_content "$text"; then
+    printf '%s: could not resolve the result path; pass --result-path or fill the Where to write the result section\n' "$script" >&2
+    exit 1
+  fi
+  if has_placeholder "$text"; then
+    printf '%s: leftover placeholder in section: Where to write the result\n' "$script" >&2
+    exit 1
+  fi
+}
+
 # Parse a filled template into f_* variables by the exact ## headings.
 parse_sections() {
   local path="$1"
@@ -523,7 +539,7 @@ validate_section "Scope In-Out" "$scope"
 validate_section "Steps or review focus" "$steps"
 validate_section "Acceptance criteria and output format" "$acceptance"
 validate_section "Constraints" "$constraints"
-validate_section "Where to write the result" "$result"
+validate_result_section "$result"
 
 # The section that will be written into the body must name the same agent as
 # --agent. With --model the section is already rewritten to "$agent / $model".
@@ -559,7 +575,7 @@ fi
 # Resolve the result path before any gh call. The first non-empty, non-comment
 # line of the section is used unless --result-path overrides it.
 resolve_result_path() {
-  printf '%s\n' "$1" | sed -e 's/<!--[^>]*-->//g' | awk '
+  strip_html_comments "$1" | awk '
     {
       line = $0
       sub(/^[ \t]+/, "", line)
