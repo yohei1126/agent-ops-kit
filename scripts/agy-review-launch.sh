@@ -22,6 +22,14 @@
 #   run folder (except creating the runs root).
 # - Never reads, writes, or migrates global Antigravity/agy settings; --settings
 #   stays session-only.
+# - On Darwin, when caffeinate is on PATH, starts agy as `caffeinate -i agy ...`
+#   so the host will not idle-sleep during the review. On Linux, or when
+#   caffeinate is missing, starts agy unwrapped. Missing caffeinate is not an
+#   error.
+# - Waits for the run to finish. If agy.log is empty (0 bytes or missing),
+#   retries the same command exactly once. A second empty log exits 1 (fail
+#   closed). A non-empty log does not retry. --dry-run and --check-settings
+#   stay immediate and never start or retry agy.
 #
 # Exit codes: 0 ok, 1 check or launch failure, 2 usage.
 
@@ -285,8 +293,19 @@ if [ -f "$pid_file" ]; then
   esac
 fi
 
+# Optional idle-sleep assertion. Apple's caffeinate(8): `caffeinate -i <utility>`
+# prevents idle sleep for the utility's lifetime. -s is AC-power only; -d/-u
+# target the display and are not used. Missing caffeinate is not an error.
+use_caffeinate=0
+if [ "$(uname -s)" = Darwin ] && command -v caffeinate >/dev/null 2>&1; then
+  use_caffeinate=1
+fi
+
 print_command() {
   printf 'AGY_COMMAND='
+  if [ "$use_caffeinate" = 1 ]; then
+    printf '%q ' caffeinate -i
+  fi
   printf '%q ' agy \
     --project "$run_real" \
     --model "$model" \
@@ -296,6 +315,55 @@ print_command() {
     --mode accept-edits \
     --print "$(cat "$run_real/BRIEF.md")"
   printf '\n'
+}
+
+print_launch_metadata() {
+  printf 'AGY_PID=%s\n' "$(tr -d '[:space:]' <"$pid_file")"
+  printf 'RUN_DIR=%s\n' "$run_real"
+  printf 'SETTINGS=%s\n' "$settings_file"
+  printf 'MODEL=%s\n' "$model"
+  printf 'STDOUT_LOG=%s\n' "$stdout_log"
+  printf 'STDERR_LOG=%s\n' "$stderr_log"
+  printf 'PID_FILE=%s\n' "$pid_file"
+}
+
+# Start agy (optionally under caffeinate -i), record its PID, and wait. A
+# non-zero child status is ignored here; emptiness of agy.log decides retry.
+run_agy_and_wait() {
+  local saved="$PWD"
+  local child_pid
+
+  cd -- "$run_real" || return 1
+  if [ "$use_caffeinate" = 1 ]; then
+    caffeinate -i agy --project "$run_real" --model "$model" --settings "$settings_file" \
+      --add-dir "$run_real" --add-dir "$repo_real" --mode accept-edits \
+      --print "$(cat "$run_real/BRIEF.md")" >"$stdout_log" 2>"$stderr_log" </dev/null &
+  else
+    agy --project "$run_real" --model "$model" --settings "$settings_file" \
+      --add-dir "$run_real" --add-dir "$repo_real" --mode accept-edits \
+      --print "$(cat "$run_real/BRIEF.md")" >"$stdout_log" 2>"$stderr_log" </dev/null &
+  fi
+  child_pid=$!
+  printf '%s\n' "$child_pid" >"$pid_file"
+  cd -- "$saved" || return 1
+  if [ "${1:-}" = "print" ]; then
+    print_launch_metadata
+  fi
+  wait "$child_pid" || true
+}
+
+rotate_empty_attempt_logs() {
+  local attempt1_out="$run_real/agy.log.attempt1"
+  local attempt1_err="$run_real/agy.stderr.log.attempt1"
+
+  refuse_symlink_write_target "$attempt1_out"
+  refuse_symlink_write_target "$attempt1_err"
+  if [ -e "$stdout_log" ]; then
+    mv -f -- "$stdout_log" "$attempt1_out"
+  fi
+  if [ -e "$stderr_log" ]; then
+    mv -f -- "$stderr_log" "$attempt1_err"
+  fi
 }
 
 if [ "$dry_run" = 1 ]; then
@@ -314,23 +382,24 @@ if ! command -v agy >/dev/null 2>&1; then
   exit 1
 fi
 
-(
-  cd -- "$run_real" || exit 1
-  nohup agy --project "$run_real" --model "$model" --settings "$settings_file" \
-    --add-dir "$run_real" --add-dir "$repo_real" --mode accept-edits \
-    --print "$(cat "$run_real/BRIEF.md")" >"$stdout_log" 2>"$stderr_log" </dev/null &
-  printf '%s\n' "$!" >"$pid_file"
-) || {
+if ! run_agy_and_wait print; then
   printf 'agy-review-launch: failed to start agy in %s\n' "$run_real" >&2
   exit 1
-}
+fi
 
-agy_pid="$(tr -d '[:space:]' <"$pid_file")"
-
-printf 'AGY_PID=%s\n' "$agy_pid"
-printf 'RUN_DIR=%s\n' "$run_real"
-printf 'SETTINGS=%s\n' "$settings_file"
-printf 'MODEL=%s\n' "$model"
-printf 'STDOUT_LOG=%s\n' "$stdout_log"
-printf 'STDERR_LOG=%s\n' "$stderr_log"
-printf 'PID_FILE=%s\n' "$pid_file"
+# Empty means 0 bytes or missing. Whitespace-only counts as non-empty.
+if [ ! -s "$stdout_log" ]; then
+  printf 'agy-review-launch: empty stdout log (%s); retrying once\n' "$stdout_log" >&2
+  rotate_empty_attempt_logs
+  refuse_symlink_write_target "$stdout_log"
+  refuse_symlink_write_target "$stderr_log"
+  if ! run_agy_and_wait; then
+    printf 'agy-review-launch: failed to start agy in %s\n' "$run_real" >&2
+    exit 1
+  fi
+  if [ ! -s "$stdout_log" ]; then
+    printf 'agy-review-launch: empty stdout log after retry (%s); giving up\n' \
+      "$stdout_log" >&2
+    exit 1
+  fi
+fi

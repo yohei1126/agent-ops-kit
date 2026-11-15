@@ -41,6 +41,17 @@ mkdir -p "$fake_bin"
 cat > "$fake_bin/agy" <<'SH'
 #!/usr/bin/env bash
 set -u
+n=0
+if [ -n "${FAKE_AGY_LAUNCHES:-}" ]; then
+  if [ -f "$FAKE_AGY_LAUNCHES" ]; then
+    n="$(tr -d '[:space:]' <"$FAKE_AGY_LAUNCHES" || true)"
+    case "$n" in
+      '' | *[!0-9]*) n=0 ;;
+    esac
+  fi
+  n=$((n + 1))
+  printf '%s\n' "$n" >"$FAKE_AGY_LAUNCHES"
+fi
 {
   printf 'ARGV_START\n'
   for arg in "$@"; do
@@ -48,6 +59,23 @@ set -u
   done
   printf 'ARGV_END\n'
 } > "$FAKE_AGY_ARGV"
+if [ -n "${FAKE_AGY_ARGV_ALL:-}" ]; then
+  {
+    printf 'ARGV_START\n'
+    for arg in "$@"; do
+      printf '%s\n' "$arg"
+    done
+    printf 'ARGV_END\n'
+  } >> "$FAKE_AGY_ARGV_ALL"
+fi
+if [ "${FAKE_AGY_EMPTY:-}" = 1 ]; then
+  exit 0
+fi
+if [ "${FAKE_AGY_EMPTY_FIRST:-}" = 1 ] && [ "$n" -eq 1 ]; then
+  exit 0
+fi
+# Non-empty stdout so a successful first run is not retried.
+printf 'review output\n'
 SH
 chmod +x "$fake_bin/agy"
 
@@ -150,12 +178,139 @@ run_launcher() {
   local tag="$1"
   shift
   argv_file="$work_tmp/argv-$tag"
+  launch_file="$work_tmp/launches-$tag"
   : > "$argv_file"
+  : > "$launch_file"
   : > "$err_file"
   out="$(HOME="$test_home" PATH="$fake_bin:$PATH" FAKE_AGY_ARGV="$argv_file" \
+    FAKE_AGY_LAUNCHES="$launch_file" bash "$launcher" "$@" 2>"$err_file")"
+  status=$?
+  err="$(cat "$err_file")"
+}
+
+launch_count() {
+  local file="$1"
+  local n=0
+  if [ -f "$file" ]; then
+    n="$(tr -d '[:space:]' <"$file" || true)"
+    case "$n" in
+      '' | *[!0-9]*) n=0 ;;
+    esac
+  fi
+  printf '%s\n' "$n"
+}
+
+expect_launches() {
+  local got
+  got="$(launch_count "$launch_file")"
+  if [ "$got" = "$2" ]; then
+    ok "$1"
+  else
+    bad "$1" "expected $2 launches, got $got"
+  fi
+}
+
+# PATH for tests that must see or hide caffeinate regardless of the host OS.
+# $1 is the extra bin directory (uname / caffeinate stubs). $2 is the remainder
+# of PATH. An empty $2 means "only the extra bin and the stub agy".
+run_launcher_on_path() {
+  local tag="$1"
+  local extra_bin="$2"
+  local rest_path="$3"
+  shift 3
+  argv_file="$work_tmp/argv-$tag"
+  launch_file="$work_tmp/launches-$tag"
+  caffeinate_argv="$work_tmp/caffeinate-$tag"
+  : > "$argv_file"
+  : > "$launch_file"
+  : > "$err_file"
+  : > "$caffeinate_argv"
+  if [ -n "$rest_path" ]; then
+    launcher_path="$extra_bin:$fake_bin:$rest_path"
+  else
+    # Do not append a trailing colon: that would put "." on PATH.
+    launcher_path="$extra_bin:$fake_bin"
+  fi
+  out="$(HOME="$test_home" PATH="$launcher_path" \
+    FAKE_AGY_ARGV="$argv_file" FAKE_AGY_LAUNCHES="$launch_file" \
+    FAKE_CAFFEINATE_ARGV="$caffeinate_argv" \
+    FAKE_AGY_EMPTY="${FAKE_AGY_EMPTY:-}" \
+    FAKE_AGY_EMPTY_FIRST="${FAKE_AGY_EMPTY_FIRST:-}" \
     bash "$launcher" "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
+}
+
+# Symlink only the utilities the launcher needs into $1, never agy or
+# caffeinate. Used to hide those binaries on Darwin without dropping jq.
+build_path_hiding() {
+  local dest="$1"
+  local cmd path
+  mkdir -p "$dest"
+  for cmd in bash jq tr mkdir kill cp mv cat uname mktemp sed wc rm ln \
+    readlink realpath dirname basename chmod date head env nohup tee cut \
+    sort uniq touch; do
+    path="$(command -v "$cmd" 2>/dev/null)" || continue
+    case "$path" in
+      '' | */agy | */caffeinate) continue ;;
+    esac
+    rm -f "$dest/$cmd"
+    ln -s "$path" "$dest/$cmd"
+  done
+}
+
+write_uname_stub() {
+  local dest="$1"
+  local os="$2"
+  local real_uname
+  real_uname="$(command -v uname)"
+  rm -f "$dest/uname"
+  cat > "$dest/uname" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = "-s" ]; then
+  printf '%s\n' "$os"
+  exit 0
+fi
+exec $(printf '%q' "$real_uname") "\$@"
+SH
+  chmod +x "$dest/uname"
+}
+
+write_caffeinate_stub() {
+  local dest="$1"
+  rm -f "$dest/caffeinate"
+  cat > "$dest/caffeinate" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ -n "${FAKE_CAFFEINATE_ARGV:-}" ]; then
+  {
+    printf 'CAFFEINATE_START\n'
+    for arg in "$@"; do
+      printf '%s\n' "$arg"
+    done
+    printf 'CAFFEINATE_END\n'
+  } >> "$FAKE_CAFFEINATE_ARGV"
+fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -t | -w)
+      shift
+      [ "$#" -gt 0 ] && shift
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+if [ "$#" -eq 0 ]; then
+  exit 0
+fi
+exec "$@"
+SH
+  chmod +x "$dest/caffeinate"
 }
 
 printf '== fresh launch ==\n'
@@ -197,7 +352,11 @@ dry_run_dir="$runs_root/run-dry"
 dry_real="$(cd "$dry_run_dir" && pwd -P)"
 expect_file "3: dry run still generates settings.json" "$dry_run_dir/settings.json"
 expect_no_file "3: dry run writes no pid file" "$dry_run_dir/agy.pid"
-expect_out "3: dry run prints the command" "AGY_COMMAND=agy "
+expect_out "3: dry run prints the command" "AGY_COMMAND="
+case "$out" in
+  *'AGY_COMMAND='*'agy '*) ok "3: dry run command includes agy" ;;
+  *) bad "3: dry run command includes agy" "stdout: $out" ;;
+esac
 expect_out "3: dry run prints RUN_DIR" "RUN_DIR=$dry_real"
 expect_no_out "3: dry run prints no AGY_PID" "AGY_PID="
 if [ -s "$argv_file" ]; then
@@ -513,6 +672,114 @@ ln -s "$work_tmp/target-run" "$runs_root/linked-run"
 run_launcher linked-run linked-run "$repo_dir" "$brief"
 expect_status "12: run folder symlink is refused" 1
 expect_err "12: symlink refusal is explained" "refusing run folder symlink"
+
+printf '== caffeinate wrapper and empty-output retry ==\n'
+
+darwin_bin="$work_tmp/darwin-bin"
+mkdir -p "$darwin_bin"
+write_uname_stub "$darwin_bin" Darwin
+write_caffeinate_stub "$darwin_bin"
+
+hidden_bin="$work_tmp/hidden-bin"
+build_path_hiding "$hidden_bin" caffeinate
+write_uname_stub "$hidden_bin" Darwin
+
+# caffeinate present (uname stub reports Darwin): agy is started as
+# caffeinate -i agy ..., one launch, non-empty first log, exit 0.
+unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
+run_launcher_on_path cafe-present "$darwin_bin" "$PATH" run-cafe-present "$repo_dir" "$brief"
+expect_status "24: caffeinate present exits 0" 0
+expect_launches "24: caffeinate present launches once" 1
+if grep -qx -- '-i' "$caffeinate_argv" && grep -qx -- 'agy' "$caffeinate_argv"; then
+  ok "24: caffeinate is invoked as caffeinate -i agy"
+else
+  bad "24: caffeinate is invoked as caffeinate -i agy" "argv: $(tr '\n' ' ' <"$caffeinate_argv")"
+fi
+expect_out "24: caffeinate present prints AGY_PID" "AGY_PID="
+cafe_present="$runs_root/run-cafe-present"
+if [ -s "$cafe_present/agy.log" ]; then
+  ok "24: caffeinate present leaves a non-empty agy.log"
+else
+  bad "24: caffeinate present leaves a non-empty agy.log" "log missing or empty"
+fi
+
+# caffeinate absent on a Darwin uname: hide the real binary, do not wrap.
+# Put the stub agy ahead of the tool dir so a real agy on the host cannot run.
+unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
+run_launcher_on_path cafe-absent "$fake_bin" "$hidden_bin" run-cafe-absent "$repo_dir" "$brief"
+expect_status "25: caffeinate absent exits 0" 0
+expect_launches "25: caffeinate absent launches once" 1
+if [ -s "$caffeinate_argv" ]; then
+  bad "25: caffeinate absent does not invoke caffeinate" "argv: $(tr '\n' ' ' <"$caffeinate_argv")"
+else
+  ok "25: caffeinate absent does not invoke caffeinate"
+fi
+
+# First run empty, second non-empty: success, exactly two launches.
+FAKE_AGY_EMPTY_FIRST=1
+unset FAKE_AGY_EMPTY
+run_launcher_on_path empty-then-ok "$darwin_bin" "$PATH" run-empty-then-ok "$repo_dir" "$brief"
+unset FAKE_AGY_EMPTY_FIRST
+expect_status "26: empty then non-empty exits 0" 0
+expect_launches "26: empty then non-empty launches twice" 2
+expect_err "26: empty then non-empty mentions the retry" "empty stdout log"
+if printf '%s' "$err" | grep -q 'giving up'; then
+  bad "26: empty then non-empty does not give up" "stderr: $err"
+else
+  ok "26: empty then non-empty does not give up"
+fi
+empty_then_ok="$runs_root/run-empty-then-ok"
+expect_file "26: first empty log is preserved" "$empty_then_ok/agy.log.attempt1"
+if [ ! -s "$empty_then_ok/agy.log.attempt1" ] && [ -e "$empty_then_ok/agy.log.attempt1" ]; then
+  ok "26: preserved first log is empty"
+else
+  bad "26: preserved first log is empty" "attempt1 missing or non-empty"
+fi
+if [ -s "$empty_then_ok/agy.log" ]; then
+  ok "26: second log is non-empty"
+else
+  bad "26: second log is non-empty" "agy.log missing or empty"
+fi
+
+# Both runs empty: fail closed, exactly two launches.
+FAKE_AGY_EMPTY=1
+unset FAKE_AGY_EMPTY_FIRST
+run_launcher_on_path both-empty "$darwin_bin" "$PATH" run-both-empty "$repo_dir" "$brief"
+unset FAKE_AGY_EMPTY
+expect_status "27: both empty exits 1" 1
+expect_launches "27: both empty launches twice" 2
+expect_err "27: both empty mentions the retry" "retrying once"
+expect_err "27: both empty fails closed after retry" "giving up"
+both_empty="$runs_root/run-both-empty"
+expect_file "27: both empty preserves the first log" "$both_empty/agy.log.attempt1"
+if [ ! -s "$both_empty/agy.log" ]; then
+  ok "27: both empty leaves a final empty log"
+else
+  bad "27: both empty leaves a final empty log" "agy.log is non-empty"
+fi
+
+# Non-empty first run: one launch, exit 0, no retry message.
+unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
+run_launcher_on_path nonempty-first "$darwin_bin" "$PATH" run-nonempty-first "$repo_dir" "$brief"
+expect_status "28: non-empty first run exits 0" 0
+expect_launches "28: non-empty first run launches once" 1
+if [ -n "$err" ] && printf '%s' "$err" | grep -q 'retrying once'; then
+  bad "28: non-empty first run does not retry" "stderr: $err"
+else
+  ok "28: non-empty first run does not retry"
+fi
+if [ -s "$runs_root/run-nonempty-first/agy.log" ]; then
+  ok "28: non-empty first run leaves a non-empty log"
+else
+  bad "28: non-empty first run leaves a non-empty log" "agy.log missing or empty"
+fi
+
+# Default stub (no caffeinate stubs forced) still writes non-empty output and
+# does not retry, so earlier happy-path cases stay at one launch. Re-check
+# with a fresh run name through the ordinary run_launcher helper.
+run_launcher default-nonempty run-default-nonempty "$repo_dir" "$brief"
+expect_status "29: default stub launch exits 0" 0
+expect_launches "29: default stub launches once" 1
 
 printf '== agents never touch global settings ==\n'
 
