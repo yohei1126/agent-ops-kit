@@ -75,7 +75,7 @@ Flow:
    `name(argument)` entry with one parenthesis-free argument, or resolves
    outside the run folder, including escapes through `..` or a symlink. Every
    non-`command` argument is treated as a path; wildcards, an empty allow list,
-   a non-string entry, or invalid JSON also fail.
+   a non-string entry, invalid JSON, or a symlinked settings file also fail.
 5. After the check passes, a launch refuses a symlinked `settings.json`,
    `BRIEF.md`, generated settings temp file, `agy.log`, `agy.stderr.log`, or
    `agy.pid`, then starts `agy` in the background with cwd set to the run
@@ -106,8 +106,10 @@ The write root is the resolved checkout `$HOME/agy-work/<repo>`:
    entry that points at another checkout, or escapes through `..` or a
    symlink, fails before launch with a message that names the entry and its
    resolved path.
-3. The launcher refuses a symlinked settings file or settings temp file, then
-   passes the file as `--settings`, which stays session-only.
+3. The launcher refuses a symlinked checkout, settings file, settings temp
+   file, PID file, or log file, and a checkout path that holds a quote,
+   backslash, parenthesis, wildcard, or control character. It then passes the
+   file as `--settings`, which stays session-only.
 
 The template allows `write_file` on the checkout plus the same read-only
 commands as the review template. It narrows what a docs worker may do and never

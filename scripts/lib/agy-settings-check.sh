@@ -223,6 +223,10 @@ agy_settings_check() {
     printf '%s: settings: usage: agy_settings_check <settings.json> <run-dir>\n' "$agy_settings_tag" >&2
     return 2
   fi
+  if [ -L "$settings" ]; then
+    printf '%s: settings: refusing symlinked settings file: %s\n' "$agy_settings_tag" "$settings" >&2
+    return 1
+  fi
   if [ ! -f "$settings" ]; then
     printf '%s: settings: settings file not found: %s\n' "$agy_settings_tag" "$settings" >&2
     return 1
@@ -279,8 +283,10 @@ agy_settings_check() {
 # (pass the resolved physical path). The output goes to a temp file beside
 # <out-file> first, is checked as JSON, and is then moved into place, so a
 # failure never leaves a partial file. Refuses a symlinked <out-file> or temp
-# file. Returns 0 on success, 1 on failure with a message on stderr, and 2 on a
-# wrong argument count. Run agy_settings_check on the result before launch.
+# file, and a <run-dir> holding a quote, backslash, parenthesis, wildcard, or
+# control character. Returns 0 on success, 1 on failure with a message on
+# stderr, and 2 on a wrong argument count. Run agy_settings_check on the result
+# before launch.
 agy_settings_generate() {
   local template="${1:-}"
   local out="${2:-}"
@@ -300,6 +306,15 @@ agy_settings_generate() {
     printf '%s: refusing symlinked settings file: %s\n' "$agy_settings_tag" "$out" >&2
     return 1
   fi
+  # The path is spliced into JSON strings and name(arg) entries. Refuse any
+  # character that could end the string, add an entry, or act as a glob.
+  case "$run_real" in
+    *'"'* | *\\* | *'('* | *')'* | *'*'* | *'?'* | *'['* | *[[:cntrl:]]*)
+      printf '%s: settings: refusing run folder path with a quote, backslash, parenthesis, wildcard, or control character: %s\n' \
+        "$agy_settings_tag" "$run_real" >&2
+      return 1
+      ;;
+  esac
   case "$out" in
     */*) out_dir="${out%/*}" ;;
     *) out_dir="." ;;

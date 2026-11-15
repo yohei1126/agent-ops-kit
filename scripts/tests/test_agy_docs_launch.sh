@@ -199,6 +199,7 @@ printf '{"permissions": {"allow": ["write_file(%s)"]}}\n' "$other_real" >"$setti
 rm -f "$test_home/agy-inbox/brief.pid"
 run_launcher stale "$launcher" repo "$brief"
 expect_status "2: relaunch exits 0" 0
+wait_for_file "$argv_file"
 expect_jq "2: stale allow path is replaced" \
   "$settings" '.permissions.allow[0]' "write_file($checkout_real)"
 
@@ -267,6 +268,75 @@ else
   bad "9: symlink target is unchanged" "target content changed"
 fi
 expect_not_started "9: agy does not start"
+
+printf '== unusual checkout names ==\n'
+
+amp="$test_home/agy-work/a&b|c"
+mkdir -p "$amp"
+amp_real="$(cd "$amp" && pwd -P)"
+run_launcher amp "$launcher" 'a&b|c' "$brief" amp-case
+expect_status "12: checkout with & and | launches" 0
+expect_jq "12: & and | survive substitution" \
+  "$inbox_real/amp-case.settings.json" '.permissions.allow[0]' "write_file($amp_real)"
+wait_for_file "$argv_file"
+
+mkdir -p "$test_home/agy-work/q\"x"
+run_launcher quote "$launcher" 'q"x' "$brief" quote-case
+expect_status "13: checkout with a quote exits 1" 1
+expect_err "13: quote refusal is explained" "refusing run folder path with a quote"
+expect_not_started "13: agy does not start"
+expect_no_file "13: no settings file written" "$inbox_real/quote-case.settings.json"
+
+ln -s "$other" "$test_home/agy-work/linked-repo"
+run_launcher linkrepo "$launcher" linked-repo "$brief" linkrepo-case
+expect_status "14: symlinked checkout exits 1" 1
+expect_err "14: symlinked checkout is named" "refusing symlinked checkout"
+expect_not_started "14: agy does not start"
+
+printf '== symlinked PID and log files are refused ==\n'
+
+for suffix in .pid -stdout.log -stderr.log; do
+  slug="sym${suffix//./-}"
+  target="$work_tmp/target$slug"
+  printf 'outside target\n' >"$target"
+  ln -s "$target" "$test_home/agy-inbox/$slug$suffix"
+  run_launcher "$slug" "$launcher" repo "$brief" "$slug"
+  expect_status "15: symlinked $suffix exits 1" 1
+  expect_err "15: symlinked $suffix is named" "refusing symlinked $slug$suffix"
+  if [ "$(cat "$target")" = "outside target" ]; then
+    ok "15: symlinked $suffix target is unchanged"
+  else
+    bad "15: symlinked $suffix target is unchanged" "target content changed"
+  fi
+  expect_not_started "15: symlinked $suffix does not start agy"
+done
+
+printf '== a live run keeps its settings ==\n'
+
+printf '{"keep": true}\n' >"$inbox_real/live.settings.json"
+printf '%s\n' "$$" >"$test_home/agy-inbox/live.pid"
+run_launcher live "$launcher" repo "$brief" live
+expect_status "16: live PID exits 1" 1
+expect_err "16: live PID is named" "is still running"
+expect_jq "16: settings of the live run are untouched" \
+  "$inbox_real/live.settings.json" '.keep' "true"
+rm -f "$test_home/agy-inbox/live.pid"
+
+printf '== the shared check refuses a symlinked settings file ==\n'
+
+ln -s "$inbox_real/brief.settings.json" "$work_tmp/linked-check.json"
+check_err="$(bash -c '. "$1"; agy_settings_check "$2" "$3"' _ \
+  "$repo_root/scripts/lib/agy-settings-check.sh" "$work_tmp/linked-check.json" "$checkout" 2>&1)"
+check_status=$?
+if [ "$check_status" -eq 1 ]; then
+  ok "17: symlinked settings file fails the check"
+else
+  bad "17: symlinked settings file fails the check" "exit $check_status"
+fi
+case "$check_err" in
+  *"refusing symlinked settings file"*) ok "17: refusal is explained" ;;
+  *) bad "17: refusal is explained" "got: $check_err" ;;
+esac
 
 printf '== usage stays the same ==\n'
 

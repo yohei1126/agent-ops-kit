@@ -20,7 +20,8 @@
 # - Runs the shared check in scripts/lib/agy-settings-check.sh before launch
 #   and exits 1 when an allow entry is empty, malformed, a wildcard, or
 #   resolves outside the checkout (including .. and symlink escapes).
-# - Refuses a symlinked settings file or settings temp file.
+# - Refuses a symlinked checkout, settings file, settings temp file, PID file,
+#   or log file.
 # - Never passes --dangerously-skip-permissions, never reads or writes global
 #   Antigravity settings, and never widens an allow list.
 
@@ -43,17 +44,10 @@ Arguments:
 EOF
 }
 
+# Physical absolute path; every symlink component is resolved by the shared
+# library, so the result does not depend on realpath being installed.
 resolve_path() {
-  local target="$1"
-  if command -v realpath >/dev/null 2>&1; then
-    realpath "$target"
-  elif [[ -d "$target" ]]; then
-    (cd -P -- "$target" && pwd -P)
-  else
-    local dir
-    dir="$(cd -P -- "$(dirname -- "$target")" && pwd -P)"
-    printf '%s/%s\n' "$dir" "$(basename -- "$target")"
-  fi
+  agy_physical_path "$1"
 }
 
 validate_token() {
@@ -106,6 +100,10 @@ work_root_real="$(resolve_path "$work_root")"
 inbox_root_real="$(resolve_path "$inbox_root")"
 
 checkout_dir="$work_root/$repo"
+if [[ -L "$checkout_dir" ]]; then
+  printf 'Error: refusing symlinked checkout %s; use the real directory under %s.\n' "$checkout_dir" "$work_root" >&2
+  exit 1
+fi
 if [[ ! -d "$checkout_dir" ]]; then
   printf 'Error: checkout directory missing at %s. Clone the repository under %s first.\n' "$checkout_dir" "$checkout_dir" >&2
   exit 1
@@ -149,6 +147,14 @@ validate_token "log stem" "$stem"
 pid_file="$inbox_root/$stem.pid"
 stdout_log="$inbox_root/$stem-stdout.log"
 stderr_log="$inbox_root/$stem-stderr.log"
+
+# A symlinked log or PID file could redirect a write outside the inbox.
+for write_target in "$pid_file" "$stdout_log" "$stderr_log"; do
+  if [[ -L "$write_target" ]]; then
+    printf 'Error: refusing symlinked %s: %s\n' "${write_target##*/}" "$write_target" >&2
+    exit 1
+  fi
+done
 
 if [[ -f "$pid_file" ]]; then
   existing_pid="$(tr -d '[:space:]' <"$pid_file" || true)"
