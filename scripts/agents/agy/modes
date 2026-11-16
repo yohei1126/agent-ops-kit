@@ -1,0 +1,4 @@
+# Modes this adapter accepts for --mode, one per line. agent-launch.sh
+# refuses a lane entry whose mode is not listed here.
+docs
+review

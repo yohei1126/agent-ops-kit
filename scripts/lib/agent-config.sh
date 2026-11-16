@@ -25,7 +25,8 @@ agent_config_path() {
 # shellcheck disable=SC2016 # the jq program is intentionally single-quoted
 agent_config_validation_program='
 def nonempty: (type == "string") and (length > 0);
-def token: (type == "string") and (test("^[a-z0-9-]+$"));
+# \A and \z are absolute anchors; `$` would also accept a trailing newline.
+def token: (type == "string") and (test("\\A[a-z0-9-]+\\z"));
 def known_agent_fields: ["adapter", "display", "provider", "who_can_launch", "provisioned", "_comment"];
 def known_entry_fields: ["agent", "model", "model_name", "mode", "_comment"];
 . as $root |
@@ -124,11 +125,13 @@ agent_config_load() {
     printf 'agent-config: jq is required\n' >&2
     return 3
   fi
-  if ! jq -e . "$path" >/dev/null 2>&1; then
-    printf 'agent-config: config is not valid JSON: %s\n' "$path" >&2
+  # Slurp so a file holding several top-level JSON values is rejected: the
+  # config must be exactly one document, and that document is validated.
+  if ! jq -e -s 'length == 1' "$path" >/dev/null 2>&1; then
+    printf 'agent-config: config is not valid JSON (exactly one JSON document required): %s\n' "$path" >&2
     return 3
   fi
-  if ! errors="$(jq -r "$agent_config_validation_program" "$path" 2>/dev/null)"; then
+  if ! errors="$(jq -r -s ".[0] | $agent_config_validation_program" "$path" 2>/dev/null)"; then
     printf 'agent-config: could not validate config: %s\n' "$path" >&2
     return 3
   fi

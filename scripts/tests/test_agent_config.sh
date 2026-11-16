@@ -54,6 +54,7 @@ load() {
   err_file="$work_tmp/stderr"
   : >"$err_file"
   out=""
+  # shellcheck disable=SC2119 # the path comes from AGENT_OPS_KIT_CONFIG
   AGENT_OPS_KIT_CONFIG="$1" agent_config_load 2>"$err_file"
   status=$?
   err="$(cat "$err_file")"
@@ -93,9 +94,9 @@ out="$(agent_config_agent_field goat adapter)"
 expect_eq "3: agent field reads adapter" "$out" "goat"
 out="$(agent_config_agent_field agy-api-key provisioned)"
 expect_eq "3: agent field reads a false boolean" "$out" "false"
-out="$(agent_config_lane_entry_field coding 4 model_name)"
+out="$(agent_config_lane_entry_field coding 2 model_name)"
 expect_eq "3: lane entry field reads model_name" "$out" "Composer 2.5"
-out="$(agent_config_lane_entry_field coding 1 mode)"
+out="$(agent_config_lane_entry_field coding 0 mode)"
 expect_eq "3: an absent optional mode is empty" "$out" ""
 
 out="$(agent_config_label opencode-fireworks "DeepSeek V4.1 Flash")"
@@ -130,9 +131,9 @@ load "$example"
 expect_status "5: reload example for selection" 0
 
 out="$(agent_config_select coding maintainer)"
-expect_eq "5: coding maintainer selects the first entry" "$out" "agy-subscription"
+expect_eq "5: coding maintainer selects the first entry" "$out" "goat"
 out="$(agent_config_select coding bot)"
-expect_eq "5: coding bot skips the maintainer-only entry" "$out" "goat"
+expect_eq "5: coding bot selects the first bot entry" "$out" "goat"
 out="$(agent_config_select docs bot)"
 expect_eq "6: docs bot picks the bot entry" "$out" "goat"
 out="$(agent_config_select docs maintainer)"
@@ -218,6 +219,23 @@ load "$work_tmp/bad-json.json"
 expect_status "11: invalid JSON exits 3" 3
 expect_caller_exits_2 "11: invalid JSON reaches the caller as exit 2" \
   "$work_tmp/bad-json.json"
+
+# Several top-level JSON values are one invalid config, not several
+# configs validated one by one.
+printf '%s\n%s\n' "$base_config" "$base_config" >"$work_tmp/multi-doc.json"
+load "$work_tmp/multi-doc.json"
+expect_status "11: two concatenated JSON documents exit 3" 3
+expect_err "11: multi-document error names the rule" "exactly one JSON document"
+expect_caller_exits_2 "11: multi-document config reaches the caller as exit 2" \
+  "$work_tmp/multi-doc.json"
+: >"$work_tmp/empty.json"
+load "$work_tmp/empty.json"
+expect_status "11: an empty file exits 3" 3
+
+# A trailing newline must not slip past the token rule.
+invalid_shape adapter-trailing-newline '.agents.a.adapter = "stub\n"'
+invalid_shape mode-trailing-newline '.lanes.lane.entries[0].mode = "docs\n"'
+invalid_shape adapter-leading-newline '.agents.a.adapter = "\nstub"'
 
 invalid_shape schema-two '.schema_version = 2'
 invalid_shape schema-string '.schema_version = "1"'

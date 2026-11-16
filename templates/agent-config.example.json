@@ -53,13 +53,8 @@
   },
   "lanes": {
     "coding": {
-      "_comment": "The order is a sample to confirm with the maintainer.",
+      "_comment": "The order is a sample to confirm with the maintainer. Every entry's mode must be one the adapter lists in scripts/agents/<adapter>/modes; the agy adapter lists only docs and review, so agy entries stay out of this lane until it gains a coding mode.",
       "entries": [
-        {
-          "agent": "agy-subscription",
-          "model": "gemini-4-hydrogen",
-          "model_name": "Gemini 4 Hydrogen"
-        },
         {
           "agent": "goat",
           "model": "deepseek/deepseek-v4.1-flash",
@@ -69,11 +64,6 @@
           "agent": "opencode-fireworks",
           "model": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017",
           "model_name": "DeepSeek V4.1 Flash"
-        },
-        {
-          "agent": "agy-api-key",
-          "model": "gemini-4-hydrogen",
-          "model_name": "Gemini 4 Hydrogen"
         },
         {
           "agent": "cursor",

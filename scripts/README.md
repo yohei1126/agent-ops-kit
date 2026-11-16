@@ -18,7 +18,10 @@ and edit it. Each entry names an adapter under `scripts/agents/`, a display
 name, a provider, and whether a bot may launch it.
 
 Launches fail closed: a missing or invalid config, an unknown lane or agent, an
-unprovisioned entry, or a missing adapter exits 2 before anything starts.
+unprovisioned entry, a missing adapter, or an entry mode the adapter does not
+list in `scripts/agents/<adapter>/modes` exits 2 before anything starts. The
+modes file exists so a lane cannot point at an adapter that would only reject
+the launch later; `--validate` checks it for every installed adapter.
 `who_can_launch` replaces a blanket rule per agent, so a maintainer-only seat
 stays unavailable to bots while a bot-allowed seat can serve both callers. Run
 `scripts/agent-launch.sh --help` for flags and for the lane and agent names in

@@ -27,6 +27,24 @@ exit 99
 SH
 chmod +x "$fake_bin/agy"
 
+# Closed PATH: the stub directory plus a private directory of symlinks to the
+# utilities the entry point and adapters need, never agy or caffeinate. Every
+# entry-point invocation below uses exactly this PATH.
+tool_bin="$work_tmp/tool-bin"
+mkdir -p "$tool_bin"
+for cmd in bash jq tr mkdir kill cp mv cat uname mktemp sed wc rm ln \
+  readlink realpath dirname basename chmod date head env nohup tee cut \
+  sort uniq touch sleep grep find ls; do
+  cmd_path="$(command -v "$cmd" 2>/dev/null)" || continue
+  case "$cmd_path" in
+    '' | */agy | */caffeinate | "$fake_bin"/*) continue ;;
+    /*) ;;
+    *) continue ;;
+  esac
+  ln -s "$cmd_path" "$tool_bin/$cmd"
+done
+test_path="$fake_bin:$tool_bin"
+
 ok() {
   pass=$((pass + 1))
   printf 'PASS %s\n' "$1"
@@ -83,11 +101,21 @@ expect_record_empty() {
 }
 
 # The only agy on the test PATH must be the stub.
-resolved="$(PATH="$fake_bin:$PATH" command -v agy)"
+resolved="$(PATH="$test_path" command -v agy)"
 if [ "$resolved" = "$fake_bin/agy" ]; then
   ok "0: command -v agy resolves to the stub"
 else
   bad "0: command -v agy resolves to the stub" "got: $resolved"
+fi
+
+case "$(PATH="$test_path" command -v jq)" in
+  "$tool_bin"/*) ok "0: the closed PATH resolves tools from the controlled directory" ;;
+  *) bad "0: the closed PATH resolves tools from the controlled directory" "jq not in $tool_bin" ;;
+esac
+if PATH="$test_path" command -v caffeinate >/dev/null 2>&1; then
+  bad "0: caffeinate is not on the closed PATH" "found"
+else
+  ok "0: caffeinate is not on the closed PATH"
 fi
 
 # Copied scripts tree with stub adapters.
@@ -114,6 +142,12 @@ exit "${STUB_ADAPTER_EXIT:-0}"
 SH
 chmod +x "$kit/scripts/agents/stub/run"
 
+# stubmode: the same stub, but it declares the modes it accepts.
+mkdir -p "$kit/scripts/agents/stubmode"
+cp "$kit/scripts/agents/stub/run" "$kit/scripts/agents/stubmode/run"
+chmod +x "$kit/scripts/agents/stubmode/run"
+printf '# test modes\ndocs\nreview\n' >"$kit/scripts/agents/stubmode/modes"
+
 # broken: directory without run. noexec: run without the executable bit.
 printf '#!/usr/bin/env bash\nexit 0\n' >"$kit/scripts/agents/noexec/run"
 chmod -x "$kit/scripts/agents/noexec/run"
@@ -131,7 +165,7 @@ cat >"$valid_config" <<'JSON'
       "provisioned": true
     },
     "human-agent": {
-      "adapter": "stub",
+      "adapter": "stubmode",
       "display": "Human",
       "provider": "Provider X",
       "who_can_launch": "maintainer",
@@ -239,9 +273,9 @@ run_launch() {
   record="$work_tmp/record-$tag"
   : >"$record"
   out="$(AGENT_OPS_KIT_CONFIG="$TEST_CONFIG" HOME="$test_home" \
-    PATH="$fake_bin:$PATH" STUB_ADAPTER_RECORD="$record" \
+    PATH="$test_path" STUB_ADAPTER_RECORD="$record" \
     STUB_ADAPTER_EXIT="${STUB_ADAPTER_EXIT:-0}" \
-    bash "$kit/scripts/agent-launch.sh" "$@" 2>"$err_file")"
+    /bin/bash "$kit/scripts/agent-launch.sh" "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
 }
@@ -273,6 +307,12 @@ expect_out "2: --validate prints VALID=1" "VALID=1"
 
 run_launch validate-bad --config "$bad_json" --validate
 expect_status "2: --validate rejects invalid JSON" 2
+
+multi_doc="$work_tmp/multi-doc.json"
+cat "$valid_config" "$valid_config" >"$multi_doc"
+run_launch validate-multi --config "$multi_doc" --validate
+expect_status "2: --validate rejects two concatenated JSON documents" 2
+expect_no_out "2: a multi-document config never prints VALID=1" "VALID=1"
 
 run_launch validate-schema --config "$schema_two" --validate
 expect_status "2: --validate rejects an unknown schema version" 2
@@ -451,6 +491,40 @@ run_launch noexec-adapter --lane noexec --as bot --dry-run --
 expect_status "14: a non-executable run exits 2" 2
 expect_err "14: non-executable run is named" "has no executable run"
 
+printf '== entry modes must match the adapter ==\n'
+
+# Each case is a config the library accepts, but the selected adapter would
+# refuse; agent-launch must refuse it with exit 2 before the adapter starts.
+mode_cases="$work_tmp/mode-cases"
+mkdir -p "$mode_cases"
+jq '.lanes.humanonly.entries[0].mode = "coding"' "$valid_config" >"$mode_cases/unlisted.json"
+jq 'del(.lanes.humanonly.entries[0].mode)' "$valid_config" >"$mode_cases/missing.json"
+jq '.lanes.botonly.entries[0].mode = "docs"' "$valid_config" >"$mode_cases/unexpected.json"
+
+TEST_CONFIG="$mode_cases/unlisted.json"
+run_launch mode-unlisted --lane humanonly --as maintainer -- repo brief
+expect_status "17: a mode the adapter does not list exits 2" 2
+expect_err "17: unlisted mode refusal names the supported modes" "supports only: docs review"
+expect_record_empty "17: unlisted mode never starts the adapter"
+run_launch mode-unlisted-validate --validate
+expect_status "17: --validate rejects an unlisted mode" 2
+
+TEST_CONFIG="$mode_cases/missing.json"
+run_launch mode-missing --lane humanonly --as maintainer -- repo brief
+expect_status "17: a missing mode for a moded adapter exits 2" 2
+expect_err "17: missing mode refusal says one is needed" "needs one of: docs review"
+expect_record_empty "17: missing mode never starts the adapter"
+run_launch mode-missing-validate --validate
+expect_status "17: --validate rejects a missing mode" 2
+
+TEST_CONFIG="$mode_cases/unexpected.json"
+run_launch mode-unexpected --lane botonly --as bot --dry-run -- repo brief
+expect_status "17: a mode for an adapter without modes exits 2" 2
+expect_err "17: unexpected mode refusal says the adapter takes none" "takes no mode"
+run_launch mode-unexpected-validate --validate
+expect_status "17: --validate rejects a mode for an adapter without modes" 2
+TEST_CONFIG="$valid_config"
+
 printf '== source hygiene ==\n'
 
 clean_pattern='agy|opencode|goat|codex|cursor|gemini|deepseek|kimi|fireworks|argon|hydrogen'
@@ -482,8 +556,8 @@ printf '== the shipped example validates through the real entry point ==\n'
 
 err_file="$work_tmp/err-example"
 out="$(AGENT_OPS_KIT_CONFIG="$repo_root/templates/agent-config.example.json" \
-  HOME="$test_home" PATH="$fake_bin:$PATH" \
-  bash "$launcher" --validate 2>"$err_file")"
+  HOME="$test_home" PATH="$test_path" \
+  /bin/bash "$launcher" --validate 2>"$err_file")"
 status=$?
 err="$(cat "$err_file")"
 expect_status "16: example config validates through agent-launch" 0

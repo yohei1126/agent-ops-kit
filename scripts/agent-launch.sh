@@ -30,7 +30,7 @@ as <bot|maintainer>|Caller identity used for who_can_launch (required for launch
 agent <name>|Pick the first eligible lane entry for this configured agent
 config <path>|Config file (overrides AGENT_OPS_KIT_CONFIG)
 dry-run|Print the selection and the exact command instead of launching
-validate|Validate the config and exit
+validate|Validate the config, including entry modes against installed adapters, and exit
 list|List lane and agent names from the config
 help|Print this help
 EOF
@@ -78,6 +78,69 @@ usage_error() {
   printf 'agent-launch: %s\n' "$1" >&2
   usage >&2
   exit 2
+}
+
+# adapter_mode_check <adapter> <mode> <where>
+# An adapter that takes --mode lists its modes, one per line, in
+# scripts/agents/<adapter>/modes. Such an adapter needs an entry mode from that
+# list; an adapter without the file takes no mode. Call only for an installed
+# adapter. Prints the refusal and returns 1 on a mismatch.
+adapter_mode_check() {
+  local adapter="$1"
+  local mode="$2"
+  local where="$3"
+  local modes_file="$adapters_root/$adapter/modes"
+  local line listed=""
+
+  if [ ! -f "$modes_file" ]; then
+    if [ -n "$mode" ]; then
+      printf 'agent-launch: %s sets mode %s, but adapter %s takes no mode (no %s)\n' \
+        "$where" "$mode" "$adapter" "$modes_file" >&2
+      return 1
+    fi
+    return 0
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '' | '#'*) continue ;;
+    esac
+    listed="$listed $line"
+    if [ -n "$mode" ] && [ "$line" = "$mode" ]; then
+      return 0
+    fi
+  done <"$modes_file"
+  if [ -z "$mode" ]; then
+    printf 'agent-launch: %s has no mode, but adapter %s needs one of:%s\n' \
+      "$where" "$adapter" "$listed" >&2
+  else
+    printf 'agent-launch: %s sets mode %s, but adapter %s supports only:%s\n' \
+      "$where" "$mode" "$adapter" "$listed" >&2
+  fi
+  return 1
+}
+
+# validate_entry_modes: check every lane entry whose adapter is installed.
+# An adapter that is not installed yet is refused at launch time instead.
+validate_entry_modes() {
+  local lane index adapter mode entries status=0
+  local tab
+  tab="$(printf '\t')"
+  entries="$(jq -r '. as $root | .lanes | to_entries[] | .key as $lane |
+    .value.entries | to_entries[] |
+    [$lane, ((.key + 1) | tostring), $root.agents[.value.agent].adapter, (.value.mode // "-")] | join("\t")' \
+    "$(agent_config_loaded_path)")" || return 1
+  while IFS="$tab" read -r lane index adapter mode; do
+    [ -n "$lane" ] || continue
+    [ "$mode" != "-" ] || mode=""
+    if [ -d "$adapters_root/$adapter" ]; then
+      if ! adapter_mode_check "$adapter" "$mode" "lane $lane entry $index"; then
+        status=1
+      fi
+    fi
+  done <<LIST
+$entries
+LIST
+  return "$status"
 }
 
 if [ ! -r "$config_lib" ]; then
@@ -166,6 +229,9 @@ if [ "$do_validate" = 1 ]; then
   if ! agent_config_load "$config_path"; then
     exit 2
   fi
+  if ! validate_entry_modes; then
+    exit 2
+  fi
   printf 'CONFIG=%s\n' "$(agent_config_loaded_path)"
   printf 'VALID=1\n'
   exit 0
@@ -235,6 +301,10 @@ fi
 if [ ! -f "$adapter_run" ] || [ ! -x "$adapter_run" ]; then
   printf 'agent-launch: adapter %s has no executable run at %s\n' \
     "$adapter" "$adapter_run" >&2
+  exit 2
+fi
+
+if ! adapter_mode_check "$adapter" "$mode" "lane $lane entry $((entry_index + 1)) ($selected_agent)"; then
   exit 2
 fi
 

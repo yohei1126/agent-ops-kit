@@ -1,0 +1,12 @@
+EXIT=1
+ARGV
+END_ARGV
+CWD
+END_CWD
+ENV
+END_ENV
+STDOUT
+END_STDOUT
+STDERR
+agy-review-launch: refusing run folder symlink: @RUN@/run-review-refuse-symlink
+END_STDERR

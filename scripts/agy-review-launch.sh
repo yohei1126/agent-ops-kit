@@ -145,6 +145,21 @@ if [ "$npos" -lt 3 ] || [ "$npos" -gt 4 ]; then
   exit 2
 fi
 
+# The former launcher validated the run name before the model, so an argv
+# invalid in both reports the run name. Keep that order here.
+case "$pos1" in
+  '' | . | ..)
+    printf 'agy-review-launch: invalid run name: %s\n' "$pos1" >&2
+    usage
+    exit 2
+    ;;
+  -* | *[!A-Za-z0-9._-]*)
+    printf 'agy-review-launch: invalid run name %s (use [A-Za-z0-9._-]+, not starting with -)\n' \
+      "$pos1" >&2
+    exit 2
+    ;;
+esac
+
 # Model: 4th argv > AGY_REVIEW_MODEL > gemini-4-argon-medium.
 if [ -n "$pos4" ]; then
   model="$pos4"

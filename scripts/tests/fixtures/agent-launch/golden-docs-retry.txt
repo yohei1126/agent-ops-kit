@@ -24,12 +24,32 @@ CWD
 @HOME@
 END_CWD
 ENV
+--- ATTEMPT 1 ---
 AGY_LAUNCH_CHILD_MODE=1
 AGY_LAUNCH_STALL_SECONDS=0
 AGY_LAUNCH_USE_CAFFEINE=0
+FAKE_AGY_ARGV=@CAP@/docs-retry.argv
+FAKE_AGY_COUNT=@CAP@/docs-retry.count
+FAKE_AGY_CWD=@CAP@/docs-retry.cwd
+FAKE_AGY_EMPTY_FIRST=1
+FAKE_AGY_ENV=@CAP@/docs-retry.env
+HOME=@HOME@
+PATH=@TMP@/fake-bin:@TMP@/tool-bin
+PWD=@HOME@
+TMPDIR=@HOME@/tmp
+--- ATTEMPT 2 ---
 AGY_LAUNCH_CHILD_MODE=1
 AGY_LAUNCH_STALL_SECONDS=0
 AGY_LAUNCH_USE_CAFFEINE=0
+FAKE_AGY_ARGV=@CAP@/docs-retry.argv
+FAKE_AGY_COUNT=@CAP@/docs-retry.count
+FAKE_AGY_CWD=@CAP@/docs-retry.cwd
+FAKE_AGY_EMPTY_FIRST=1
+FAKE_AGY_ENV=@CAP@/docs-retry.env
+HOME=@HOME@
+PATH=@TMP@/fake-bin:@TMP@/tool-bin
+PWD=@HOME@
+TMPDIR=@HOME@/tmp
 END_ENV
 STDOUT
 AGY_PID=@PID@
@@ -39,3 +59,6 @@ SETTINGS=@INBOX@/brief.settings.json
 STDOUT_LOG=@INBOX@/brief-stdout.log
 STDERR_LOG=@INBOX@/brief-stderr.log
 END_STDOUT
+STDERR
+agy-docs-launch: empty stdout log (@INBOX@/brief-stdout.log); retrying once
+END_STDERR

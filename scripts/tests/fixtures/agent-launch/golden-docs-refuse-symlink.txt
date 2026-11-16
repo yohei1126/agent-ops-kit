@@ -1,0 +1,12 @@
+EXIT=1
+ARGV
+END_ARGV
+CWD
+END_CWD
+ENV
+END_ENV
+STDOUT
+END_STDOUT
+STDERR
+Error: refusing symlinked checkout @HOME@/agy-work/repo-link; use the real directory under @HOME@/agy-work.
+END_STDERR

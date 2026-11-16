@@ -30,9 +30,23 @@ Arguments:
 EOF
 }
 
+# The former script had no help flag: -h and --help were invalid repository
+# names (exit 2). Validate here so the adapter's own --help never answers
+# through this wrapper.
+validate_token() {
+  local label="$1"
+  local value="$2"
+  if [[ -z "$value" || "$value" == "." || "$value" == ".." || "$value" == *"/"* || "$value" == *".."* || "$value" == -* || "$value" != "$(basename -- "$value")" ]]; then
+    printf 'Error: invalid %s %q (must be a plain basename without slashes or "..").\n' "$label" "$value" >&2
+    exit 2
+  fi
+}
+
 if [[ $# -lt 1 || $# -gt 2 ]]; then
   usage
   exit 2
 fi
+
+validate_token "repository name" "$1"
 
 exec "$adapter" "$@"

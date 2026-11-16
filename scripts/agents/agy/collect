@@ -47,7 +47,7 @@ validate_token() {
   fi
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
   usage 2>&1
   exit 0
 fi

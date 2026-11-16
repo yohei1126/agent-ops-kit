@@ -14,9 +14,18 @@ CWD
 @HOME@
 END_CWD
 ENV
+--- ATTEMPT 1 ---
 AGY_LAUNCH_CHILD_MODE=1
 AGY_LAUNCH_STALL_SECONDS=0
 AGY_LAUNCH_USE_CAFFEINE=0
+FAKE_AGY_ARGV=@CAP@/docs-default.argv
+FAKE_AGY_COUNT=@CAP@/docs-default.count
+FAKE_AGY_CWD=@CAP@/docs-default.cwd
+FAKE_AGY_ENV=@CAP@/docs-default.env
+HOME=@HOME@
+PATH=@TMP@/fake-bin:@TMP@/tool-bin
+PWD=@HOME@
+TMPDIR=@HOME@/tmp
 END_ENV
 STDOUT
 AGY_PID=@PID@
@@ -26,3 +35,5 @@ SETTINGS=@INBOX@/brief.settings.json
 STDOUT_LOG=@INBOX@/brief-stdout.log
 STDERR_LOG=@INBOX@/brief-stderr.log
 END_STDOUT
+STDERR
+END_STDERR
