@@ -94,7 +94,7 @@ out="$(agent_config_agent_field goat adapter)"
 expect_eq "3: agent field reads adapter" "$out" "goat"
 out="$(agent_config_agent_field agy-api-key provisioned)"
 expect_eq "3: agent field reads a false boolean" "$out" "false"
-out="$(agent_config_lane_entry_field coding 2 model_name)"
+out="$(agent_config_lane_entry_field coding 3 model_name)"
 expect_eq "3: lane entry field reads model_name" "$out" "Composer 2.5"
 out="$(agent_config_lane_entry_field coding 0 mode)"
 expect_eq "3: an absent optional mode is empty" "$out" ""
@@ -134,6 +134,22 @@ out="$(agent_config_select coding maintainer)"
 expect_eq "5: coding maintainer selects the first entry" "$out" "goat"
 out="$(agent_config_select coding bot)"
 expect_eq "5: coding bot selects the first bot entry" "$out" "goat"
+# Coding order: fixed-quota agents first, then prepaid credits, Cursor last.
+out="$(jq -r '[.lanes.coding.entries[].agent] | join(" ")' "$example")"
+expect_eq "5: coding lane order puts fixed-quota agents first" "$out" \
+  "goat codex opencode-fireworks cursor"
+: >"$work_tmp/stderr"
+out="$(agent_config_select coding bot codex 2>"$work_tmp/stderr")"
+status=$?
+err="$(cat "$work_tmp/stderr")"
+expect_status "5: codex refuses a bot caller" 4
+expect_err "5: codex bot refusal names who_can_launch" "who_can_launch=maintainer"
+: >"$work_tmp/stderr"
+out="$(agent_config_select coding maintainer codex 2>"$work_tmp/stderr")"
+status=$?
+err="$(cat "$work_tmp/stderr")"
+expect_status "5: codex without an adapter is not provisioned" 4
+expect_err "5: codex maintainer refusal says not provisioned" "not provisioned"
 out="$(agent_config_select docs bot)"
 expect_eq "6: docs bot picks the bot entry" "$out" "goat"
 out="$(agent_config_select docs maintainer)"
@@ -169,7 +185,7 @@ expect_err "9: refusal lists who_can_launch" "who_can_launch=maintainer"
 
 select_test "10: unknown lane" nope bot "" 3
 select_test "10: unknown agent" coding bot nope 3
-select_test "10: agent not in lane" coding bot codex 3
+select_test "10: agent not in lane" docs bot codex 3
 
 # An empty lane loads but selects nothing.
 empty_lane="$(make_config empty-lane '.lanes.lane.entries=[]')"
@@ -257,6 +273,25 @@ invalid_shape mode-invalid '.lanes.lane.entries[0].mode = "Docs Mode"'
 invalid_shape entry-unknown-field '.lanes.lane.entries[0].extra = 1'
 invalid_shape top-level-unknown '.extra = 1'
 invalid_shape lane-comment-number '.lanes.lane._comment = 1'
+
+# Lane and agent names are tokens: a tab or newline in a name could shift
+# the delimited rows agent-launch --validate reads.
+invalid_shape lane-name-tab '.lanes = {"la\tne": .lanes.lane}'
+invalid_shape lane-name-newline '.lanes = {"la\nne": .lanes.lane}'
+invalid_shape lane-name-trailing-newline '.lanes = {"lane\n": .lanes.lane}'
+invalid_shape lane-name-uppercase '.lanes = {"Lane": .lanes.lane}'
+invalid_shape agent-name-tab '.agents = {"a\tb": .agents.a} | .lanes.lane.entries[0].agent = "a\tb"'
+invalid_shape agent-name-newline '.agents = {"a\nb": .agents.a} | .lanes.lane.entries[0].agent = "a\nb"'
+
+printf '== explicit empty path ==\n'
+
+err_file="$work_tmp/stderr"
+: >"$err_file"
+AGENT_OPS_KIT_CONFIG="$example" agent_config_load "" 2>"$err_file"
+status=$?
+err="$(cat "$err_file")"
+expect_status "13: an explicit empty path exits 3 even with the env var set" 3
+expect_err "13: explicit empty path error is explicit" "config path is empty"
 
 printf '== validation error output ==\n'
 

@@ -24,7 +24,7 @@
       "provider": "Command Code",
       "who_can_launch": "bot",
       "provisioned": true,
-      "_comment": "Adapter not shipped yet."
+      "_comment": "Fixed-quota plan; adapter not shipped yet."
     },
     "opencode-fireworks": {
       "adapter": "opencode",
@@ -32,15 +32,15 @@
       "provider": "Fireworks",
       "who_can_launch": "bot",
       "provisioned": true,
-      "_comment": "Adapter not shipped yet."
+      "_comment": "Prepaid Fireworks credits with rollover; used after the fixed-quota agents run out. Adapter not shipped yet."
     },
     "codex": {
       "adapter": "codex",
       "display": "Codex CLI",
       "provider": "OpenAI",
       "who_can_launch": "maintainer",
-      "provisioned": true,
-      "_comment": "Adapter not shipped yet; bot launch is not confirmed under the plan terms."
+      "provisioned": false,
+      "_comment": "Consumer ChatGPT plan seat (fixed quota): maintainer-only under the plan terms. No codex adapter ships yet, so provisioned stays false and agent-launch refuses this entry until an adapter exists."
     },
     "cursor": {
       "adapter": "cursor",
@@ -53,12 +53,17 @@
   },
   "lanes": {
     "coding": {
-      "_comment": "The order is a sample to confirm with the maintainer. Every entry's mode must be one the adapter lists in scripts/agents/<adapter>/modes; the agy adapter lists only docs and review, so agy entries stay out of this lane until it gains a coding mode.",
+      "_comment": "Order: fixed-quota agents first (GOAT, then agy, then Codex), then OpenCode with prepaid Fireworks credits when those run out, and Cursor last because it shares quota with chat. Every entry's mode must be one the adapter lists in scripts/agents/<adapter>/modes. The agy adapter lists only docs and review, so the agy entry stays out of this lane until the adapter gains a coding mode; it would go between GOAT and Codex.",
       "entries": [
         {
           "agent": "goat",
           "model": "deepseek/deepseek-v4.1-flash",
           "model_name": "DeepSeek V4.1 Flash"
+        },
+        {
+          "agent": "codex",
+          "model": "gpt-6-luna",
+          "model_name": "GPT-6 Luna"
         },
         {
           "agent": "opencode-fireworks",

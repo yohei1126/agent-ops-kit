@@ -196,7 +196,7 @@ run_launcher() {
   : > "$err_file"
   argv_all="$work_tmp/argv-all-$tag"
   : > "$argv_all"
-  out="$(HOME="$test_home" PATH="$fake_bin:$PATH" FAKE_AGY_ARGV="$argv_file" \
+  out="$(HOME="$test_home" PATH="$fake_bin:$sys_bin" FAKE_AGY_ARGV="$argv_file" \
     FAKE_AGY_ARGV_ALL="$argv_all" FAKE_AGY_LAUNCHES="$launch_file" \
     FAKE_AGY_EMPTY="${FAKE_AGY_EMPTY:-}" \
     FAKE_AGY_EMPTY_FIRST="${FAKE_AGY_EMPTY_FIRST:-}" \
@@ -288,6 +288,22 @@ build_path_hiding() {
     ln -s "$path" "$dest/$cmd"
   done
 }
+
+# Closed PATH: every launcher invocation sees the stub agy plus symlinks to
+# the system tools above, never the caller's PATH (no real agy, no
+# caffeinate unless a case adds its stub directory).
+sys_bin="$work_tmp/sys-bin"
+build_path_hiding "$sys_bin"
+if [ "$(PATH="$fake_bin:$sys_bin" command -v agy)" = "$fake_bin/agy" ]; then
+  ok "0: command -v agy resolves to the stub on the closed PATH"
+else
+  bad "0: command -v agy resolves to the stub on the closed PATH" "got: $(PATH="$fake_bin:$sys_bin" command -v agy)"
+fi
+if PATH="$sys_bin" command -v caffeinate >/dev/null 2>&1; then
+  bad "0: the closed tool directory has no caffeinate" "found"
+else
+  ok "0: the closed tool directory has no caffeinate"
+fi
 
 write_uname_stub() {
   local dest="$1"
@@ -734,7 +750,7 @@ write_uname_stub "$hidden_bin" Darwin
 # caffeinate present (uname stub reports Darwin): agy is started as
 # caffeinate -i agy ..., one launch, non-empty first log, exit 0.
 unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
-run_launcher_on_path cafe-present "$darwin_bin" "$PATH" run-cafe-present "$repo_dir" "$brief"
+run_launcher_on_path cafe-present "$darwin_bin" "$sys_bin" run-cafe-present "$repo_dir" "$brief"
 expect_status "24: caffeinate present exits 0" 0
 expect_launches "24: caffeinate present launches once" 1
 if grep -q -F 'holding idle-sleep assertion with caffeinate -i' "$runs_root/run-cafe-present/agy.stderr.log"; then
@@ -770,7 +786,7 @@ fi
 # First run empty, second non-empty: success, exactly two launches.
 FAKE_AGY_EMPTY_FIRST=1
 unset FAKE_AGY_EMPTY
-run_launcher_on_path empty-then-ok "$darwin_bin" "$PATH" run-empty-then-ok "$repo_dir" "$brief"
+run_launcher_on_path empty-then-ok "$darwin_bin" "$sys_bin" run-empty-then-ok "$repo_dir" "$brief"
 unset FAKE_AGY_EMPTY_FIRST
 expect_status "26: empty then non-empty exits 0" 0
 expect_launches "26: empty then non-empty launches twice" 2
@@ -796,7 +812,7 @@ fi
 # Both runs empty: fail closed, exactly two launches.
 FAKE_AGY_EMPTY=1
 unset FAKE_AGY_EMPTY_FIRST
-run_launcher_on_path both-empty "$darwin_bin" "$PATH" run-both-empty "$repo_dir" "$brief"
+run_launcher_on_path both-empty "$darwin_bin" "$sys_bin" run-both-empty "$repo_dir" "$brief"
 unset FAKE_AGY_EMPTY
 expect_status "27: both empty exits 1" 1
 expect_launches "27: both empty launches twice" 2
@@ -813,7 +829,7 @@ fi
 
 # Non-empty first run: one launch, exit 0, no retry message.
 unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
-run_launcher_on_path nonempty-first "$darwin_bin" "$PATH" run-nonempty-first "$repo_dir" "$brief"
+run_launcher_on_path nonempty-first "$darwin_bin" "$sys_bin" run-nonempty-first "$repo_dir" "$brief"
 expect_status "28: non-empty first run exits 0" 0
 expect_launches "28: non-empty first run launches once" 1
 if [ -n "$err" ] && printf '%s' "$err" | grep -q 'retrying once'; then
@@ -841,7 +857,7 @@ printf '== auto-deny, stall fallback, and shared retry budget ==\n'
 # original BRIEF.md is unchanged.
 FAKE_AGY_AUTODENY_FIRST=1
 unset FAKE_AGY_AUTODENY FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST FAKE_AGY_STALL FAKE_AGY_STALL_FIRST
-run_launcher_on_path deny-then-ok "$darwin_bin" "$PATH" run-deny-then-ok "$repo_dir" "$brief"
+run_launcher_on_path deny-then-ok "$darwin_bin" "$sys_bin" run-deny-then-ok "$repo_dir" "$brief"
 unset FAKE_AGY_AUTODENY_FIRST
 expect_status "30: auto-deny then non-empty exits 0" 0
 expect_launches "30: auto-deny then non-empty launches twice" 2
@@ -878,7 +894,7 @@ fi
 # Both auto-denies: fail closed, exactly two launches, ask the operator.
 FAKE_AGY_AUTODENY=1
 unset FAKE_AGY_AUTODENY_FIRST
-run_launcher_on_path both-deny "$darwin_bin" "$PATH" run-both-deny "$repo_dir" "$brief"
+run_launcher_on_path both-deny "$darwin_bin" "$sys_bin" run-both-deny "$repo_dir" "$brief"
 unset FAKE_AGY_AUTODENY
 expect_status "31: both auto-deny exits 1" 1
 expect_launches "31: both auto-deny launches twice" 2
@@ -890,7 +906,7 @@ expect_err "31: both auto-deny does not suggest widening allow" "Do not add allo
 FAKE_AGY_EMPTY_FIRST=1
 FAKE_AGY_AUTODENY=1
 unset FAKE_AGY_EMPTY FAKE_AGY_AUTODENY_FIRST
-run_launcher_on_path empty-then-deny "$darwin_bin" "$PATH" run-empty-then-deny "$repo_dir" "$brief"
+run_launcher_on_path empty-then-deny "$darwin_bin" "$sys_bin" run-empty-then-deny "$repo_dir" "$brief"
 unset FAKE_AGY_EMPTY_FIRST FAKE_AGY_AUTODENY
 expect_status "32: empty then auto-deny exits 1" 1
 expect_launches "32: empty then auto-deny launches twice" 2
@@ -908,7 +924,7 @@ fi
 FAKE_AGY_STALL_FIRST=1
 unset FAKE_AGY_STALL FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST FAKE_AGY_AUTODENY FAKE_AGY_AUTODENY_FIRST
 AGY_LAUNCH_STALL_SECONDS=2
-run_launcher_on_path stall-then-ok "$darwin_bin" "$PATH" run-stall-then-ok "$repo_dir" "$brief"
+run_launcher_on_path stall-then-ok "$darwin_bin" "$sys_bin" run-stall-then-ok "$repo_dir" "$brief"
 unset FAKE_AGY_STALL_FIRST
 unset AGY_LAUNCH_STALL_SECONDS
 expect_status "33: stall then non-empty exits 0" 0
@@ -930,7 +946,7 @@ fi
 # Stall then stall: fail closed, two launches only.
 FAKE_AGY_STALL=1
 AGY_LAUNCH_STALL_SECONDS=2
-run_launcher_on_path both-stall "$darwin_bin" "$PATH" run-both-stall "$repo_dir" "$brief"
+run_launcher_on_path both-stall "$darwin_bin" "$sys_bin" run-both-stall "$repo_dir" "$brief"
 unset FAKE_AGY_STALL
 unset AGY_LAUNCH_STALL_SECONDS
 expect_status "34: both stall exits 1" 1

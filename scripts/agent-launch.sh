@@ -28,7 +28,7 @@ flag_specs() {
 lane <lane>|Lane to select an entry from (required for launch)
 as <bot|maintainer>|Caller identity used for who_can_launch (required for launch)
 agent <name>|Pick the first eligible lane entry for this configured agent
-config <path>|Config file (overrides AGENT_OPS_KIT_CONFIG)
+config <path>|Config file, non-empty (overrides AGENT_OPS_KIT_CONFIG)
 dry-run|Print the selection and the exact command instead of launching
 validate|Validate the config, including entry modes against installed adapters, and exit
 list|List lane and agent names from the config
@@ -121,16 +121,30 @@ adapter_mode_check() {
 
 # validate_entry_modes: check every lane entry whose adapter is installed.
 # An adapter that is not installed yet is refused at launch time instead.
+# agent_config_load has already restricted lane names, adapters, and modes to
+# [a-z0-9-]+, so no field can hold the tab or newline used as delimiters here.
+# The row count is still checked against the entry count so a malformed row
+# fails closed instead of being skipped.
 validate_entry_modes() {
-  local lane index adapter mode entries status=0
+  local lane index adapter mode entries expected seen=0 status=0
   local tab
   tab="$(printf '\t')"
+  expected="$(jq -r '[.lanes[].entries | length] | add // 0' \
+    "$(agent_config_loaded_path)")" || return 1
   entries="$(jq -r '. as $root | .lanes | to_entries[] | .key as $lane |
     .value.entries | to_entries[] |
     [$lane, ((.key + 1) | tostring), $root.agents[.value.agent].adapter, (.value.mode // "-")] | join("\t")' \
     "$(agent_config_loaded_path)")" || return 1
   while IFS="$tab" read -r lane index adapter mode; do
     [ -n "$lane" ] || continue
+    seen=$((seen + 1))
+    case "$lane:$index:$adapter:$mode" in
+      *[!a-z0-9:-]*)
+        printf 'agent-launch: malformed lane entry row: %s\n' "$lane" >&2
+        status=1
+        continue
+        ;;
+    esac
     [ "$mode" != "-" ] || mode=""
     if [ -d "$adapters_root/$adapter" ]; then
       if ! adapter_mode_check "$adapter" "$mode" "lane $lane entry $index"; then
@@ -140,6 +154,10 @@ validate_entry_modes() {
   done <<LIST
 $entries
 LIST
+  if [ "$seen" != "$expected" ]; then
+    printf 'agent-launch: checked %s lane entries, expected %s\n' "$seen" "$expected" >&2
+    status=1
+  fi
   return "$status"
 }
 
@@ -155,6 +173,7 @@ lane=""
 as_caller=""
 requested_agent=""
 config_path=""
+config_set=0
 dry_run=0
 do_validate=0
 do_list=0
@@ -193,7 +212,13 @@ while [ "$#" -gt 0 ]; do
         lane) lane="$value" ;;
         as) as_caller="$value" ;;
         agent) requested_agent="$value" ;;
-        config) config_path="$value" ;;
+        config)
+          if [ -z "$value" ]; then
+            usage_error "--config needs a non-empty path"
+          fi
+          config_path="$value"
+          config_set=1
+          ;;
         dry-run) dry_run=1 ;;
         validate) do_validate=1 ;;
         list) do_list=1 ;;
@@ -210,9 +235,26 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# load_config: an explicit --config path, otherwise the library default.
+load_config() {
+  if [ "$config_set" = 1 ]; then
+    agent_config_load "$config_path"
+  else
+    agent_config_load
+  fi
+}
+
+# Only a launch passes arguments after `--` to an adapter.
+reject_adapter_args() {
+  if [ "${#adapter_args[@]}" -gt 0 ]; then
+    usage_error "$1 takes no arguments after --"
+  fi
+}
+
 if [ "$do_help" = 1 ]; then
+  reject_adapter_args "--help"
   usage
-  if agent_config_load "$config_path" >/dev/null 2>&1; then
+  if load_config >/dev/null 2>&1; then
     printf '\nLanes from %s:\n' "$(agent_config_loaded_path)"
     agent_config_lanes
     printf '\nAgents from %s:\n' "$(agent_config_loaded_path)"
@@ -226,7 +268,8 @@ if [ "$do_validate" = 1 ]; then
     [ -n "$requested_agent" ] || [ "$dry_run" = 1 ]; then
     usage_error "--validate cannot be combined with launch or --list flags"
   fi
-  if ! agent_config_load "$config_path"; then
+  reject_adapter_args "--validate"
+  if ! load_config; then
     exit 2
   fi
   if ! validate_entry_modes; then
@@ -242,7 +285,8 @@ if [ "$do_list" = 1 ]; then
     [ "$dry_run" = 1 ]; then
     usage_error "--list cannot be combined with launch flags"
   fi
-  if ! agent_config_load "$config_path"; then
+  reject_adapter_args "--list"
+  if ! load_config; then
     exit 2
   fi
   printf 'LANES\n'
@@ -263,7 +307,7 @@ case "$as_caller" in
   *) usage_error "invalid --as value: $as_caller (use bot or maintainer)" ;;
 esac
 
-if ! agent_config_load "$config_path"; then
+if ! load_config; then
   exit 2
 fi
 

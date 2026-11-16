@@ -42,7 +42,7 @@ else
        "config has an unknown top-level field" else empty end),
     (if ($root.agents | type) == "object" then
        $root.agents | to_entries[] | .key as $name | .value as $a |
-       (if ($name | nonempty | not) then "agents: empty agent name" else empty end),
+       (if ($name | token | not) then "agents: agent name \($name | @json) must match [a-z0-9-]+" else empty end),
        (if ($a | type) != "object" then
           "agents.\($name) must be an object"
         else
@@ -60,6 +60,7 @@ else
      else empty end),
     (if ($root.lanes | type) == "object" then
        $root.lanes | to_entries[] | .key as $lane | .value as $l |
+       (if ($lane | token | not) then "lanes: lane name \($lane | @json) must match [a-z0-9-]+" else empty end),
        (if ($l | type) != "object" then
           "lanes.\($lane) must be an object"
         else
@@ -98,13 +99,17 @@ end
 '
 
 # agent_config_load [path]
-# Validates the whole config and records the path for later queries.
+# Validates the whole config and records the path for later queries. With no
+# argument the path comes from agent_config_path; an explicit empty argument
+# is an error, never a fallback to the environment or the default file.
 agent_config_load() {
-  local path="${1:-}"
+  local path
   local errors
   local line
 
-  if [ -z "$path" ]; then
+  if [ "$#" -ge 1 ]; then
+    path="$1"
+  else
     path="$(agent_config_path)"
   fi
   case "$path" in

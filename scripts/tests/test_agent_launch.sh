@@ -525,14 +525,77 @@ run_launch mode-unexpected-validate --validate
 expect_status "17: --validate rejects a mode for an adapter without modes" 2
 TEST_CONFIG="$valid_config"
 
+printf '== lane names cannot shift --validate rows ==\n'
+
+# A lane name holding a tab or newline once shifted the delimited rows, so an
+# invalid mode for an installed adapter was skipped and VALID=1 printed.
+shift_cases="$work_tmp/shift-cases"
+mkdir -p "$shift_cases"
+jq '.lanes = {"x\thumanonly": {"entries": [{"agent": "human-agent", "model": "m", "model_name": "M", "mode": "coding"}]}}' \
+  "$valid_config" >"$shift_cases/tab.json"
+jq '.lanes = {"x\nhumanonly": {"entries": [{"agent": "human-agent", "model": "m", "model_name": "M", "mode": "coding"}]}}' \
+  "$valid_config" >"$shift_cases/newline.json"
+for case_name in tab newline; do
+  TEST_CONFIG="$shift_cases/$case_name.json"
+  run_launch "shift-$case_name" --validate
+  expect_status "18: a lane name with a $case_name fails --validate" 2
+  expect_no_out "18: a lane name with a $case_name never prints VALID=1" "VALID=1"
+  expect_err "18: the $case_name lane name refusal names the rule" "must match [a-z0-9-]+"
+done
+TEST_CONFIG="$valid_config"
+
+printf '== explicit empty --config and extra arguments ==\n'
+
+# AGENT_OPS_KIT_CONFIG points at a valid config, so a fallback would succeed.
+TEST_CONFIG="$valid_config"
+run_launch config-empty-validate --config "" --validate
+expect_status "19: --config \"\" --validate exits 2" 2
+expect_no_out "19: --config \"\" never validates the env config" "VALID=1"
+expect_err "19: --config \"\" refusal is explicit" "non-empty path"
+run_launch config-empty-list --config "" --list
+expect_status "19: --config \"\" --list exits 2" 2
+run_launch config-empty-help --config "" --help
+expect_status "19: --config \"\" --help exits 2" 2
+run_launch config-empty-launch --config "" --lane botonly --as bot -- repo brief
+expect_status "19: --config \"\" launch exits 2" 2
+expect_record_empty "19: --config \"\" launch never starts the adapter"
+
+run_launch validate-extra --validate -- extra
+expect_status "20: --validate rejects arguments after --" 2
+expect_no_out "20: --validate with extra arguments never prints VALID=1" "VALID=1"
+expect_err "20: --validate extra-argument refusal is explicit" "takes no arguments after --"
+run_launch list-extra --list -- extra
+expect_status "20: --list rejects arguments after --" 2
+expect_no_out "20: --list with extra arguments prints no listing" "LANES"
+run_launch help-extra --help -- extra
+expect_status "20: --help rejects arguments after --" 2
+run_launch validate-bare-sep --validate --
+expect_status "20: --validate with a bare -- still exits 0" 0
+
 printf '== source hygiene ==\n'
 
-clean_pattern='agy|opencode|goat|codex|cursor|gemini|deepseek|kimi|fireworks|argon|hydrogen'
-for file in "$repo_root/scripts/agent-launch.sh" \
-  "$repo_root/scripts/lib/agent-config.sh" \
-  "$repo_root/scripts/lib/launch-run.sh"; do
-  hits="$(grep -inE -- "$clean_pattern" "$file" || true)"
-  leaked=0
+# The denylist is the static agent and model words plus every agent name,
+# adapter, model id, and model name in the shipped example config, so a newly
+# configured id cannot leak into shared code unnoticed.
+example_config="$repo_root/templates/agent-config.example.json"
+deny_file="$work_tmp/denylist"
+{
+  printf '%s\n' agy opencode goat codex cursor gemini deepseek kimi fireworks \
+    argon hydrogen composer
+  jq -r '(.agents | keys[]), (.agents[].adapter), (.lanes[].entries[] | .model, .model_name)' \
+    "$example_config"
+} | sort -u >"$deny_file"
+if grep -qxF -- 'composer-2.5' "$deny_file" && grep -qxF -- 'gpt-6-luna' "$deny_file"; then
+  ok "15: the denylist includes model ids from the example config"
+else
+  bad "15: the denylist includes model ids from the example config" "$(tr '\n' ' ' <"$deny_file")"
+fi
+
+# hygiene_leaks <file>: prints the number of lines naming a denied word.
+hygiene_leaks() {
+  local file="$1"
+  local hits hit line trimmed leaked=0
+  hits="$(grep -inF -f "$deny_file" -- "$file" || true)"
   while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     line="${hit#*:}"
@@ -541,10 +604,25 @@ for file in "$repo_root/scripts/agent-launch.sh" \
       *'.config/agent-ops-kit/agents.json') continue ;;
     esac
     leaked=$((leaked + 1))
-    printf 'LEAK %s:%s\n' "${file#"$repo_root"/}" "$hit"
-  done <<EOF
+    printf 'LEAK %s:%s\n' "${file#"$repo_root"/}" "$hit" >&2
+  done <<HITS
 $hits
-EOF
+HITS
+  printf '%s\n' "$leaked"
+}
+
+leak_fixture="$work_tmp/leaked-source.sh"
+printf '#!/usr/bin/env bash\nmodel="composer-2.5"\n' >"$leak_fixture"
+if [ "$(hygiene_leaks "$leak_fixture" 2>/dev/null)" -gt 0 ]; then
+  ok "15: the hygiene check catches a leaked example model id"
+else
+  bad "15: the hygiene check catches a leaked example model id" "composer-2.5 not detected"
+fi
+
+for file in "$repo_root/scripts/agent-launch.sh" \
+  "$repo_root/scripts/lib/agent-config.sh" \
+  "$repo_root/scripts/lib/launch-run.sh"; do
+  leaked="$(hygiene_leaks "$file")"
   if [ "$leaked" -eq 0 ]; then
     ok "15: ${file#"$repo_root"/} names no agent or model"
   else
