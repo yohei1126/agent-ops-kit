@@ -1,0 +1,133 @@
+{
+  "issues": [
+    {
+      "number": 303,
+      "title": "Unstarted example work",
+      "body": "Tracked work.",
+      "author": "reporter-example",
+      "assignees": [],
+      "created_at": "2026-01-08T04:00:00Z",
+      "updated_at": "2026-01-08T04:00:00Z",
+      "url": "https://example.com/issues/303",
+      "comment_authors": [],
+      "timeline_closing_prs": []
+    }
+  ],
+  "prs": [
+    {
+      "number": 301,
+      "title": "Failing after nine hours",
+      "body": "Work in progress.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "clean",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [
+        {
+          "status": "COMPLETED",
+          "conclusion": "FAILURE",
+          "completed_at": "2026-01-09T15:00:00Z",
+          "started_at": "2026-01-09T14:00:00Z"
+        }
+      ],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-09T13:00:00Z",
+      "updated_at": "2026-01-09T15:00:00Z",
+      "url": "https://example.com/pulls/301"
+    },
+    {
+      "number": 302,
+      "title": "Pending after ten hours",
+      "body": "Work in progress.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "clean",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [
+        {
+          "status": "IN_PROGRESS",
+          "conclusion": "",
+          "completed_at": null,
+          "started_at": "2026-01-09T14:00:00Z"
+        }
+      ],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-09T13:00:00Z",
+      "updated_at": "2026-01-09T14:00:00Z",
+      "url": "https://example.com/pulls/302"
+    },
+    {
+      "number": 304,
+      "title": "Draft after thirty hours",
+      "body": "Work in progress.",
+      "is_draft": true,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "draft",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-08T18:00:00Z",
+      "updated_at": "2026-01-08T18:00:00Z",
+      "url": "https://example.com/pulls/304"
+    },
+    {
+      "number": 305,
+      "title": "Approved after one hour",
+      "body": "Ready.",
+      "is_draft": false,
+      "author": "author-one",
+      "assignees": ["assignee-one"],
+      "review_decision": "APPROVED",
+      "mergeable_state": "clean",
+      "reviews": [
+        {
+          "author": "reviewer-early",
+          "state": "COMMENTED",
+          "submitted_at": "2026-01-09T18:00:00Z"
+        },
+        {
+          "author": "reviewer-late",
+          "state": "APPROVED",
+          "submitted_at": "2026-01-09T19:00:00Z"
+        },
+        {
+          "author": "author-one",
+          "state": "COMMENTED",
+          "submitted_at": "2026-01-09T17:00:00Z"
+        }
+      ],
+      "review_requests": ["reviewer-late", "reviewer-early"],
+      "review_request_times": ["2026-01-09T15:00:00Z", "2026-01-09T16:00:00Z"],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": "2026-01-09T16:00:00Z",
+      "comment_authors": ["commenter-old", "commenter-new", "assignee-one"],
+      "created_at": "2026-01-09T15:00:00Z",
+      "updated_at": "2026-01-09T23:00:00Z",
+      "url": "https://example.com/pulls/305"
+    }
+  ],
+  "related_prs": []
+}
