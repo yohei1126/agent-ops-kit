@@ -142,29 +142,6 @@ as a duplicate. The maintainer closes the original.
 `scripts/tests/test_dependabot_red_prs.sh` enforces the classification and the
 read-only rule.
 
-## Keep the AWS Serverless MCP pinned and read-only
-
-The AWS Serverless MCP server has a known advisory
-([GHSA-r6mm-377j-qg8m](https://github.com/advisories/GHSA-r6mm-377j-qg8m),
-CVE-2026-116635). Run version `0.2.1` or later with write access off.
-
-- **Pin the version**: launch `awslabs.aws-serverless-mcp-server@0.2.1`. Do
-  not use `@latest`.
-- **Keep write access off**: do not pass `--allow-write` (or `--enable-write`)
-  unless a task needs it and the operator approves.
-- **Marketplace refresh can undo the pin**: a plugin marketplace refresh may
-  rewrite the plugin's cached `.mcp.json` and restore an unpinned version with
-  write access. Editing that cached file is not durable.
-- **Prefer a local override**: define the server in a local MCP configuration
-  that the plugin refresh does not own, with the pinned version and no write
-  flag. If you cannot, re-pin after every plugin refresh.
-- **Verify after a refresh or cold reconnect**: check the active MCP
-  configuration and the running server's arguments for the pinned version and
-  the absence of the write flag. Do this before closing any issue that tracks
-  the advisory.
-- **Prune old wheels**: remove the vulnerable `0.2.0` wheel from the package
-  cache on any host that still holds it, so cached resolution cannot load it.
-
 ## Keep security gates thrifty
 
 - **Dependabot**: act only on alerts that have a fixed version, and only on
