@@ -126,7 +126,9 @@ config_file="$work_tmp/agents.json"
     "review-dry-run|gemini-4-argon-medium|review" \
     "review-retry|gemini-4-argon-medium|review" \
     "review-stall|gemini-4-argon-medium|review" \
-    "review-refuse-symlink|gemini-4-argon-medium|review"; do
+    "review-refuse-symlink|gemini-4-argon-medium|review" \
+    "review-literal-dry-run|gemini-4-argon-medium|review" \
+    "review-literal-check-settings|gemini-4-argon-medium|review"; do
     lane="${spec%%|*}"
     rest="${spec#*|}"
     model="${rest%%|*}"
@@ -140,7 +142,7 @@ config_file="$work_tmp/agents.json"
 } >"$config_file"
 
 # Scenarios run through both the wrapper and agent-launch.sh.
-launch_scenarios="docs-default docs-model-arg docs-model-env docs-retry docs-stall docs-refuse-symlink review-default review-model-arg review-dry-run review-retry review-stall review-refuse-symlink"
+launch_scenarios="docs-default docs-model-arg docs-model-env docs-retry docs-stall docs-refuse-symlink review-default review-model-arg review-dry-run review-retry review-stall review-refuse-symlink review-literal-dry-run review-literal-check-settings"
 # Scenarios that exercise the former CLI only (usage and validation output).
 wrapper_scenarios="docs-usage review-usage review-bad-model review-bad-run-and-model collect-help collect-help-extra"
 
@@ -203,6 +205,11 @@ make_home() {
     docs-refuse-symlink)
       ln -s "$home/elsewhere" "$home/agy-work/repo-link"
       ;;
+    review-literal-dry-run | review-literal-check-settings)
+      # A readable brief whose name looks like a review flag, in the working
+      # directory. The former launcher took it literally after `--`.
+      printf 'Review the flag-like brief.\n' >"$home/--${scenario#review-literal-}"
+      ;;
     review-refuse-symlink)
       mkdir -p "$home/agy-work/runs"
       ln -s "$home/elsewhere" "$home/agy-work/runs/run-$scenario"
@@ -245,6 +252,9 @@ wrapper_args() {
       ;;
     review-dry-run)
       printf '%s\n' --dry-run "run-$scenario" "$home/agy-work/repo" "$home/agy-inbox/brief.txt"
+      ;;
+    review-literal-dry-run | review-literal-check-settings)
+      printf '%s\n' -- "run-$scenario" "$home/agy-work/repo" "--${scenario#review-literal-}"
       ;;
     review-bad-run-and-model)
       printf '%s\n' "bad+run" "$home/agy-work/repo" "$home/agy-inbox/brief.txt"
@@ -459,6 +469,8 @@ printf '== the shipped example config launches through agent-launch ==\n'
 
 example="$repo_root/templates/agent-config.example.json"
 
+example_agent=""
+
 # run_example <tag> <lane> [args...]: sets example_status, example_out, example_err.
 run_example() {
   local tag="$1"
@@ -475,7 +487,7 @@ run_example() {
       "AGY_LAUNCH_STALL_SECONDS=0" "FAKE_AGY_ARGV=$dest.argv" \
       "FAKE_AGY_COUNT=$dest.count" \
       /bin/bash "$repo_root/scripts/agent-launch.sh" --config "$example" \
-      --lane "$lane" --as maintainer -- "$@"
+      --lane "$lane" --as maintainer ${example_agent:+--agent "$example_agent"} -- "$@"
   ) >"$dest.stdout" 2>"$dest.stderr"
   example_status=$?
   example_out="$(cat "$dest.stdout")"
@@ -483,17 +495,21 @@ run_example() {
   example_argv="$(cat "$dest.argv")"
 }
 
+# GOAT leads the docs lane but has no adapter yet, so pick the agy seat.
 ex_home="$work_tmp/home-example-docs"
+example_agent=agy-subscription
 run_example docs docs repo "$ex_home/agy-inbox/brief.txt"
+example_agent=""
 if [ "$example_status" -eq 0 ]; then
   ok "example docs lane launches the agy adapter for the maintainer"
 else
   bad "example docs lane launches the agy adapter for the maintainer" "exit $example_status: $example_err"
 fi
-case "$example_argv" in
-  *"gemini-3.8-flash-medium"*) ok "example docs lane passes its configured model to agy" ;;
-  *) bad "example docs lane passes its configured model to agy" "argv: $example_argv" ;;
-esac
+if printf '%s\n' "$example_argv" | grep -qx -- 'gemini-3.8-flash'; then
+  ok "example docs lane passes its configured model to agy"
+else
+  bad "example docs lane passes its configured model to agy" "argv: $example_argv"
+fi
 
 ex_home="$work_tmp/home-example-review"
 run_example review review --dry-run run-example "$ex_home/agy-work/repo" "$ex_home/agy-inbox/brief.txt"

@@ -3,16 +3,23 @@
 # launch helper, and exposes the collect and quota commands.
 #
 # Interface:
-#   run --mode docs|review --model <id> [--dry-run]
+#   run --mode docs|review|issue --model <id> [--dry-run]
 #       [--check-settings <settings.json> <run-dir>] -- <launcher args>
 #   run --help
 #
 # docs launcher args:   <repo> <brief-path> [log-stem]
 # review launcher args: <run-name> <repo-checkout> <brief-path>
 #
-# Review flags (--dry-run and --check-settings) are also accepted after `--`
-# so a caller can forward a wrapper-style argv without reordering it. In docs
-# mode every argument after `--` is a literal positional.
+#   run --mode issue ...   always exits 2: issue mode is a hand-off that
+#                          scripts/agent-launch.sh handles itself, so this
+#                          adapter never starts agy for it.
+#
+# Positionals after `--` are literal, as in the former launchers: a brief or
+# run value named --dry-run or --check-settings is a value, never a flag. In
+# review mode only a leading block of review flags right after `--` is read as
+# flags (so `agent-launch.sh ... -- --dry-run <run> <repo> <brief>` works); the
+# first positional or a second `--` ends that block. The review wrapper always
+# forwards `-- -- <positionals>`, so nothing it forwards is read as a flag.
 #
 # There is no default model at this layer. A missing --model exits 2.
 # Settings templates stay in scripts/templates/. The model defaults and the
@@ -51,7 +58,15 @@ Usage: scripts/agents/agy/run --mode docs|review --model <id> [options] -- <args
 
 Modes:
   docs     <repo> <brief-path> [log-stem]
-  review   <run-name> <repo-checkout> <brief-path>
+  review   [--dry-run | --check-settings <settings.json> <run-dir>] [--]
+           <run-name> <repo-checkout> <brief-path>
+  issue    Hand-off only. scripts/agent-launch.sh turns an issue-mode lane
+           entry into a scripts/agent-task-issue.sh command; this adapter
+           refuses the mode and never starts agy for it.
+
+Arguments after -- are literal positionals. In review mode a leading block
+of review flags right after -- is read as flags; the first positional or a
+second -- ends it.
 
 Options:
   --mode <docs|review>   Launcher mode (required)
@@ -129,6 +144,10 @@ done
 
 case "$mode" in
   docs | review) ;;
+  issue)
+    printf 'agy-run: issue mode is a hand-off: scripts/agent-launch.sh prepares a scripts/agent-task-issue.sh command and the maintainer runs agy. This adapter never starts agy for it.\n' >&2
+    exit 2
+    ;;
   '') die_usage "missing --mode" ;;
   *)
     die_usage "unknown mode: $mode"
@@ -138,20 +157,23 @@ if [ -z "$model" ]; then
   die_usage "missing --model"
 fi
 
-# Arguments after `--`. Docs mode takes every one literally, as the former
-# docs launcher did, so a repo, brief, or stem that looks like a flag reaches
-# the same validation as before. Review mode also accepts its own flags here
-# so a caller can forward a wrapper-style argv without reordering it.
+# Arguments after `--` are literal positionals, as the former launchers took
+# them. Review mode reads only a leading block of its own flags here, so an
+# agent-launch caller can ask for a dry run; the first positional or a second
+# `--` ends the block, and everything after it stays literal.
 sep_count="${#after_separator[@]}"
 sep_index=0
-while [ "$sep_index" -lt "$sep_count" ]; do
-  arg="${after_separator[$sep_index]}"
-  if [ "$mode" = review ]; then
+if [ "$mode" = review ]; then
+  while [ "$sep_index" -lt "$sep_count" ]; do
+    arg="${after_separator[$sep_index]}"
     case "$arg" in
+      --)
+        sep_index=$((sep_index + 1))
+        break
+        ;;
       --dry-run)
         dry_run=1
         sep_index=$((sep_index + 1))
-        continue
         ;;
       --check-settings)
         [ $((sep_count - sep_index)) -ge 3 ] || die_usage "missing values for --check-settings"
@@ -159,11 +181,15 @@ while [ "$sep_index" -lt "$sep_count" ]; do
         check_settings="${after_separator[$((sep_index + 1))]}"
         check_run="${after_separator[$((sep_index + 2))]}"
         sep_index=$((sep_index + 3))
-        continue
+        ;;
+      *)
+        break
         ;;
     esac
-  fi
-  positionals[${#positionals[@]}]="$arg"
+  done
+fi
+while [ "$sep_index" -lt "$sep_count" ]; do
+  positionals[${#positionals[@]}]="${after_separator[$sep_index]}"
   sep_index=$((sep_index + 1))
 done
 if [ "$mode" = docs ] && { [ "$dry_run" = 1 ] || [ "$check_mode" = 1 ]; }; then

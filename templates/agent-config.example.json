@@ -1,30 +1,42 @@
 {
   "schema_version": 1,
-  "_comment": "Agent and model selection for agent-ops-kit. Copy to $HOME/.config/agent-ops-kit/agents.json and edit the entries and lanes for your environment. The adapter field names a directory under scripts/agents/.",
+  "_comment": "Agent and model selection for agent-ops-kit. Copy to $HOME/.config/agent-ops-kit/agents.json and edit the entries and lanes for your environment. The adapter field names a directory under scripts/agents/. Lane order was set by the ops lane on behalf of the maintainer. A null model id is unverified: TODO confirm it locally; agent-launch exits 2 for that entry until it is set. overages is never for every agent: paid overages are not allowed.",
   "agents": {
+    "goat": {
+      "adapter": "goat",
+      "display": "GOAT",
+      "provider": "Command Code",
+      "who_can_launch": "bot",
+      "provisioned": true,
+      "overages": "never",
+      "_comment": "Fixed-quota plan. Adapter not shipped yet, so agent-launch refuses this entry until it is."
+    },
     "agy-subscription": {
       "adapter": "agy",
       "display": "agy",
-      "provider": "Google",
+      "provider": "Google AI Pro",
       "who_can_launch": "maintainer",
       "provisioned": true,
-      "_comment": "Consumer subscription seat. The terms allow interactive use by the maintainer only, so bots never launch this entry."
+      "overages": "never",
+      "_comment": "Consumer subscription seat. The terms allow interactive use by the maintainer only, so bots never launch this entry. Coding uses the issue hand-off mode: the bot prepares an agent-task Issue and the maintainer runs agy remotely from it."
     },
     "agy-api-key": {
       "adapter": "agy",
       "display": "agy",
-      "provider": "Google (Gemini API)",
+      "provider": "Gemini API",
       "who_can_launch": "bot",
       "provisioned": false,
-      "_comment": "Gemini API-key mode (pay as you go). Bots may launch it once an API key and a budget cap are provisioned. Neither exists yet, so agent-launch refuses this entry until provisioned is true."
+      "overages": "never",
+      "_comment": "Gemini API-key mode (pay as you go). Disabled: no API key and no budget cap yet, so provisioned stays false and selection skips it."
     },
-    "goat": {
-      "adapter": "goat",
-      "display": "Command Code",
-      "provider": "Command Code",
-      "who_can_launch": "bot",
-      "provisioned": true,
-      "_comment": "Fixed-quota plan; adapter not shipped yet."
+    "codex": {
+      "adapter": "codex",
+      "display": "Codex CLI",
+      "provider": "ChatGPT Go",
+      "who_can_launch": "maintainer",
+      "provisioned": false,
+      "overages": "never",
+      "_comment": "Consumer plan seat (fixed quota): maintainer-only under the plan terms. No codex adapter ships yet, so provisioned stays false."
     },
     "opencode-fireworks": {
       "adapter": "opencode",
@@ -32,28 +44,22 @@
       "provider": "Fireworks",
       "who_can_launch": "bot",
       "provisioned": true,
+      "overages": "never",
       "_comment": "Prepaid Fireworks credits with rollover; used after the fixed-quota agents run out. Adapter not shipped yet."
-    },
-    "codex": {
-      "adapter": "codex",
-      "display": "Codex CLI",
-      "provider": "OpenAI",
-      "who_can_launch": "maintainer",
-      "provisioned": false,
-      "_comment": "Consumer ChatGPT plan seat (fixed quota): maintainer-only under the plan terms. No codex adapter ships yet, so provisioned stays false and agent-launch refuses this entry until an adapter exists."
     },
     "cursor": {
       "adapter": "cursor",
       "display": "Cursor",
       "provider": "Cursor",
-      "who_can_launch": "maintainer",
+      "who_can_launch": "bot",
       "provisioned": true,
-      "_comment": "Shares quota with chat; keep last."
+      "overages": "never",
+      "_comment": "Shares quota with chat: small tasks only, and keep 20% of the weekly quota for chat. Adapter not shipped yet."
     }
   },
   "lanes": {
     "coding": {
-      "_comment": "Order: fixed-quota agents first (GOAT, then agy, then Codex), then OpenCode with prepaid Fireworks credits when those run out, and Cursor last because it shares quota with chat. Every entry's mode must be one the adapter lists in scripts/agents/<adapter>/modes. The agy adapter lists only docs and review, so the agy entry stays out of this lane until the adapter gains a coding mode; it would go between GOAT and Codex.",
+      "_comment": "Fixed-quota agents first (GOAT, agy, Codex), then OpenCode with prepaid Fireworks credits, and Cursor last because it shares quota with chat. The agy entry is an issue hand-off for remote maintainer runs.",
       "entries": [
         {
           "agent": "goat",
@@ -61,9 +67,17 @@
           "model_name": "DeepSeek V4.1 Flash"
         },
         {
+          "agent": "agy-subscription",
+          "model": "gemini-4-hydrogen",
+          "model_name": "Gemini 4 Hydrogen",
+          "mode": "issue",
+          "_comment": "Hand-off: agent-launch --dry-run prints the agent-task-issue.sh command; the maintainer runs agy from the Issue."
+        },
+        {
           "agent": "codex",
-          "model": "gpt-6-luna",
-          "model_name": "GPT-6 Luna"
+          "model": null,
+          "model_name": "GPT-6 Luna",
+          "_comment": "TODO: model id unverified; the maintainer confirms it locally."
         },
         {
           "agent": "opencode-fireworks",
@@ -72,23 +86,25 @@
         },
         {
           "agent": "cursor",
-          "model": "composer-2.5",
-          "model_name": "Composer 2.5"
+          "model": null,
+          "model_name": "Composer 2.5",
+          "_comment": "TODO: model id unverified; the maintainer confirms it locally. Small tasks only."
         }
       ]
     },
     "docs": {
+      "_comment": "No Cursor.",
       "entries": [
-        {
-          "agent": "agy-subscription",
-          "model": "gemini-3.8-flash-medium",
-          "model_name": "Gemini 3.8 Flash",
-          "mode": "docs"
-        },
         {
           "agent": "goat",
           "model": "deepseek/deepseek-v4.1-flash",
           "model_name": "DeepSeek V4.1 Flash"
+        },
+        {
+          "agent": "agy-subscription",
+          "model": "gemini-3.8-flash",
+          "model_name": "Gemini 3.8 Flash",
+          "mode": "docs"
         },
         {
           "agent": "opencode-fireworks",
@@ -98,6 +114,7 @@
       ]
     },
     "review": {
+      "_comment": "Non-security review. No Codex, no Cursor.",
       "entries": [
         {
           "agent": "agy-subscription",
@@ -124,18 +141,31 @@
       ]
     },
     "security-review": {
+      "_comment": "No DeepSeek Flash, no Cursor.",
       "entries": [
         {
           "agent": "agy-subscription",
-          "model": "gemini-4-argon-medium",
+          "model": "gemini-4-argon",
           "model_name": "Gemini 4 Argon",
           "mode": "review"
+        },
+        {
+          "agent": "agy-subscription",
+          "model": null,
+          "model_name": "Claude Opus 5.5 High",
+          "mode": "review",
+          "_comment": "TODO: model id unverified; the maintainer confirms it locally."
         },
         {
           "agent": "agy-api-key",
           "model": "gemini-4-argon",
           "model_name": "Gemini 4 Argon",
           "mode": "review"
+        },
+        {
+          "agent": "goat",
+          "model": "moonshotai/Kimi-K3.1-Pro",
+          "model_name": "Kimi K3.1 Pro"
         },
         {
           "agent": "opencode-fireworks",

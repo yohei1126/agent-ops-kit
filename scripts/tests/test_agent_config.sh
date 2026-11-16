@@ -88,13 +88,13 @@ expect_status "2: example config loads" 0
 out="$(agent_config_lanes | tr '\n' ' ')"
 expect_eq "2: example lanes keep their order" "$out" "coding docs review security-review "
 out="$(agent_config_agents | tr '\n' ' ')"
-expect_eq "2: example agents are listed" "$out" "agy-subscription agy-api-key goat opencode-fireworks codex cursor "
+expect_eq "2: example agents are listed" "$out" "goat agy-subscription agy-api-key codex opencode-fireworks cursor "
 
 out="$(agent_config_agent_field goat adapter)"
 expect_eq "3: agent field reads adapter" "$out" "goat"
 out="$(agent_config_agent_field agy-api-key provisioned)"
 expect_eq "3: agent field reads a false boolean" "$out" "false"
-out="$(agent_config_lane_entry_field coding 3 model_name)"
+out="$(agent_config_lane_entry_field coding 4 model_name)"
 expect_eq "3: lane entry field reads model_name" "$out" "Composer 2.5"
 out="$(agent_config_lane_entry_field coding 0 mode)"
 expect_eq "3: an absent optional mode is empty" "$out" ""
@@ -134,10 +134,28 @@ out="$(agent_config_select coding maintainer)"
 expect_eq "5: coding maintainer selects the first entry" "$out" "goat"
 out="$(agent_config_select coding bot)"
 expect_eq "5: coding bot selects the first bot entry" "$out" "goat"
-# Coding order: fixed-quota agents first, then prepaid credits, Cursor last.
+# Lane orders as set by the ops lane on behalf of the maintainer: fixed-quota
+# agents first, then prepaid credits, Cursor last (coding only).
 out="$(jq -r '[.lanes.coding.entries[].agent] | join(" ")' "$example")"
 expect_eq "5: coding lane order puts fixed-quota agents first" "$out" \
-  "goat codex opencode-fireworks cursor"
+  "goat agy-subscription codex opencode-fireworks cursor"
+out="$(jq -r '[.lanes.docs.entries[].agent] | join(" ")' "$example")"
+expect_eq "5: docs lane order" "$out" "goat agy-subscription opencode-fireworks"
+out="$(jq -r '[.lanes.review.entries[].agent] | join(" ")' "$example")"
+expect_eq "5: review lane order" "$out" "agy-subscription goat agy-api-key opencode-fireworks"
+out="$(jq -r '[.lanes["security-review"].entries[] | .agent + "/" + .model_name] | join(",")' "$example")"
+expect_eq "5: security-review lane order" "$out" \
+  "agy-subscription/Gemini 4 Argon,agy-subscription/Claude Opus 5.5 High,agy-api-key/Gemini 4 Argon,goat/Kimi K3.1 Pro,opencode-fireworks/Kimi K3.1 Pro"
+out="$(jq -r '.lanes.coding.entries[1].mode' "$example")"
+expect_eq "5: the coding agy entry is an issue hand-off" "$out" "issue"
+out="$(jq -r '[.lanes[].entries[] | select(.model == null) | .model_name] | join(",")' "$example")"
+expect_eq "5: only the unverified ids are null" "$out" "GPT-6 Luna,Composer 2.5,Claude Opus 5.5 High"
+out="$(jq -r '[.agents[] | .overages] | unique | join(",")' "$example")"
+expect_eq "5: every example agent sets overages never" "$out" "never"
+out="$(jq -r '[.. | strings | select(test("gpt-oss"; "i"))] | length' "$example")"
+expect_eq "5: the example names no GPT-OSS model" "$out" "0"
+out="$(jq -r '[.lanes.docs.entries[], .lanes.review.entries[], .lanes["security-review"].entries[] | .agent | select(. == "cursor" or . == "codex")] | length' "$example")"
+expect_eq "5: docs and review lanes have no Cursor or Codex" "$out" "0"
 : >"$work_tmp/stderr"
 out="$(agent_config_select coding bot codex 2>"$work_tmp/stderr")"
 status=$?
@@ -153,11 +171,11 @@ expect_err "5: codex maintainer refusal says not provisioned" "not provisioned"
 out="$(agent_config_select docs bot)"
 expect_eq "6: docs bot picks the bot entry" "$out" "goat"
 out="$(agent_config_select docs maintainer)"
-expect_eq "6: docs maintainer picks the first entry" "$out" "agy-subscription"
+expect_eq "6: docs maintainer picks the first entry" "$out" "goat"
 out="$(agent_config_select review bot)"
 expect_eq "6: review bot skips maintainer-only" "$out" "goat"
 out="$(agent_config_select security-review bot)"
-expect_eq "7: security-review bot skips unprovisioned and maintainer entries" "$out" "opencode-fireworks"
+expect_eq "7: security-review bot skips unprovisioned and maintainer entries" "$out" "goat"
 out="$(agent_config_select security-review maintainer)"
 expect_eq "7: security-review maintainer picks the first entry" "$out" "agy-subscription"
 
@@ -177,11 +195,58 @@ expect_status "8: requested agent picks its first eligible entry" 0
 expect_eq "8: requested cursor is selected" "$out" "cursor"
 
 : >"$err_file"
-out="$(agent_config_select coding bot cursor 2>"$err_file")"
+out="$(agent_config_select review bot agy-subscription 2>"$err_file")"
 status=$?
 err="$(cat "$err_file")"
 expect_status "9: requested maintainer-only agent refuses a bot" 4
 expect_err "9: refusal lists who_can_launch" "who_can_launch=maintainer"
+
+# A maintainer-only entry in issue (hand-off) mode launches nothing, so a bot
+# may select it to prepare the task Issue. The same agent in a launching mode
+# stays refused (above).
+: >"$err_file"
+out="$(agent_config_select coding bot agy-subscription 2>"$err_file")"
+status=$?
+err="$(cat "$err_file")"
+expect_status "9: a bot may select a maintainer-only hand-off entry" 0
+expect_eq "9: the hand-off entry is the agy seat" "$out" "agy-subscription"
+handoff_off="$(make_config handoff-off '.agents.a.who_can_launch="maintainer" | .agents.a.provisioned=false | .lanes.lane.entries[0].mode="issue"')"
+load "$handoff_off"
+: >"$err_file"
+out="$(agent_config_select lane bot 2>"$err_file")"
+status=$?
+err="$(cat "$err_file")"
+expect_status "9: an unprovisioned hand-off entry is still skipped" 4
+expect_err "9: the hand-off skip says not provisioned" "not provisioned"
+load "$example"
+
+printf '== null model ids, overages ==\n'
+
+null_model="$(make_config null-model '.lanes.lane.entries[0].model=null')"
+load "$null_model"
+expect_status "21: a null model id (unverified) loads" 0
+out="$(agent_config_lane_entry_field lane 0 model)"
+expect_eq "21: a null model id reads as empty" "$out" ""
+missing_model="$(make_config missing-model 'del(.lanes.lane.entries[0].model)')"
+load "$missing_model"
+expect_status "21: a missing model key is refused" 3
+expect_err "21: the missing-model refusal names the field" "model must be a non-empty string, or null"
+empty_model="$(make_config empty-model '.lanes.lane.entries[0].model=""')"
+load "$empty_model"
+expect_status "21: an empty model id is refused" 3
+number_model="$(make_config number-model '.lanes.lane.entries[0].model=5')"
+load "$number_model"
+expect_status "21: a non-string model id is refused" 3
+overages_never="$(make_config overages-never '.agents.a.overages="never"')"
+load "$overages_never"
+expect_status "21: overages never loads" 0
+for bad_value in '"allowed"' '"always"' 'true' 'null'; do
+  overages_bad="$(make_config overages-bad '.agents.a.overages='"$bad_value")"
+  load "$overages_bad"
+  expect_status "21: overages $bad_value is refused" 3
+  expect_err "21: overages $bad_value refusal names the rule" "overages must be never"
+done
+load "$example"
 
 select_test "10: unknown lane" nope bot "" 3
 select_test "10: unknown agent" coding bot nope 3

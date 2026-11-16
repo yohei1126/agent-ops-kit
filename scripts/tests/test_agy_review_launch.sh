@@ -981,6 +981,45 @@ for name in .gemini .antigravity .agy .config; do
   fi
 done
 
+printf '== review values that look like flags stay literal ==\n'
+
+# The former launcher took every value after `--` literally. A readable brief
+# named --dry-run or --check-settings launches, through the wrapper and through
+# the adapter; only a leading adapter flag block right after `--` is a flag.
+# The golden equivalence cases live in test_agent_launch_equivalence.sh.
+saved_launcher="$launcher"
+flag_dir="$work_tmp/flag-briefs"
+mkdir -p "$flag_dir"
+for flag_name in --dry-run --check-settings; do
+  printf 'Flag-like review brief.\n' >"$flag_dir/$flag_name"
+done
+cd "$flag_dir" || exit 1
+for flag_name in --dry-run --check-settings; do
+  tag="literal${flag_name#-}"
+  launcher="$saved_launcher"
+  run_launcher "wrap$tag" -- "run-wrap$tag" "$repo_dir" "$flag_name"
+  expect_status "38: wrapper launches a brief named $flag_name after --" 0
+  expect_launches "38: wrapper starts agy once for a brief named $flag_name" 1
+  launcher="$repo_root/scripts/agents/agy/run"
+  run_launcher "adapter$tag" --mode review --model review-model -- "run-adapter$tag" "$repo_dir" "$flag_name"
+  expect_status "38: adapter launches a brief named $flag_name after a positional" 0
+  expect_launches "38: adapter starts agy once for a brief named $flag_name" 1
+  run_launcher "adapter2$tag" --mode review --model review-model -- -- "run-adapter2$tag" "$repo_dir" "$flag_name"
+  expect_status "38: adapter launches a brief named $flag_name after -- --" 0
+  expect_launches "38: adapter -- -- starts agy once for $flag_name" 1
+done
+launcher="$repo_root/scripts/agents/agy/run"
+run_launcher adapter-lead-dry --mode review --model review-model -- --dry-run run-adapter-lead "$repo_dir" "$brief"
+expect_status "38: a leading --dry-run after -- is still the adapter flag" 0
+expect_launches "38: a leading --dry-run after -- starts nothing" 0
+expect_out "38: a leading --dry-run after -- prints the command" "AGY_COMMAND="
+run_launcher adapter-issue --mode issue --model review-model -- anything
+expect_status "39: the adapter refuses issue mode" 2
+expect_launches "39: issue mode never starts agy" 0
+expect_err "39: the issue-mode refusal names the hand-off" "issue mode is a hand-off"
+launcher="$saved_launcher"
+cd "$repo_root" || exit 1
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
   exit 1

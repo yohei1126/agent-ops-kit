@@ -23,9 +23,13 @@ list in `scripts/agents/<adapter>/modes` exits 2 before anything starts. The
 modes file exists so a lane cannot point at an adapter that would only reject
 the launch later; `--validate` checks it for every installed adapter.
 `who_can_launch` replaces a blanket rule per agent, so a maintainer-only seat
-stays unavailable to bots while a bot-allowed seat can serve both callers. Run
-`scripts/agent-launch.sh --help` for flags and for the lane and agent names in
-the loaded config.
+stays unavailable to bots while a bot-allowed seat can serve both callers. The
+`issue` entry mode exists so a maintainer-only seat can still take coding work:
+the bot only prepares the agent-task Issue and the maintainer runs the agent
+remotely from it, so nothing a bot runs can start that seat. A `null` model id
+marks an id nobody has confirmed yet, so a guessed id never reaches a launch.
+Run `scripts/agent-launch.sh --help` for flags, the hand-off and null-id rules,
+and the lane and agent names in the loaded config.
 
 ## Run launch and collection in two workstation shell calls
 

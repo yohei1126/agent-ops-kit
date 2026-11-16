@@ -15,6 +15,12 @@
 # There is no default lane and no default model. Policy refusals, usage
 # errors, and config errors exit 2 before any adapter starts.
 #
+# A lane entry with mode `issue` is a hand-off: it never starts the agent or
+# its adapter. --dry-run prints the scripts/agent-task-issue.sh command for
+# the task Issue (arguments after `--` go to that script; --agent and --model
+# come from the config). Without --dry-run a bot is refused (exit 2) and the
+# maintainer runs the command. A null model id (unverified) exits 2.
+#
 # Exit codes: 0 ok, 1 adapter failure, 2 usage, config, or policy refusal.
 set -euo pipefail
 
@@ -29,7 +35,7 @@ lane <lane>|Lane to select an entry from (required for launch)
 as <bot|maintainer>|Caller identity used for who_can_launch (required for launch)
 agent <name>|Pick the first eligible lane entry for this configured agent
 config <path>|Config file, non-empty (overrides AGENT_OPS_KIT_CONFIG)
-dry-run|Print the selection and the exact command instead of launching
+dry-run|Print the selection and the exact command instead of launching; for an issue hand-off entry, the agent-task-issue.sh command
 validate|Validate the config, including entry modes against installed adapters, and exit
 list|List lane and agent names from the config
 help|Print this help
@@ -71,6 +77,17 @@ EOF
     printf '  --%s\n        %s\n' "$spec" "$desc"
   done <<EOF
 $(flag_specs)
+EOF
+  cat <<EOF
+
+Entry mode $agent_config_handoff_mode (hand-off):
+  Never starts the agent or its adapter. With --dry-run, prints the
+  scripts/agent-task-issue.sh command for the task Issue; arguments after --
+  go to that script, and --agent and --model come from the config. Without
+  --dry-run, a bot is refused (exit 2); the maintainer runs the command and
+  then runs the agent from the Issue.
+
+A lane entry whose model id is null (unverified) exits 2 when selected.
 EOF
 }
 
@@ -330,8 +347,13 @@ model="$(agent_config_lane_entry_field "$lane" "$entry_index" model)"
 model_name="$(agent_config_lane_entry_field "$lane" "$entry_index" model_name)"
 mode="$(agent_config_lane_entry_field "$lane" "$entry_index" mode)"
 
-if [ -z "$model" ] || [ -z "$model_name" ]; then
-  printf 'agent-launch: lane %s entry for %s has no model\n' \
+if [ -z "$model" ]; then
+  printf 'agent-launch: lane %s entry for %s has a null model id (unverified); the maintainer must confirm the id locally and set it in the config before this entry can run\n' \
+    "$lane" "$selected_agent" >&2
+  exit 2
+fi
+if [ -z "$model_name" ]; then
+  printf 'agent-launch: lane %s entry for %s has no model name\n' \
     "$lane" "$selected_agent" >&2
   exit 2
 fi
@@ -353,6 +375,49 @@ if ! adapter_mode_check "$adapter" "$mode" "lane $lane entry $((entry_index + 1)
 fi
 
 label="$(agent_config_label "$selected_agent" "$model_name")"
+
+# A hand-off entry never starts the agent or its adapter. It turns into an
+# agent-task Issue command; the maintainer runs the agent from that Issue.
+if [ "$mode" = "$agent_config_handoff_mode" ]; then
+  task_issue="$script_dir/agent-task-issue.sh"
+  if [ "${#adapter_args[@]}" -gt 0 ]; then
+    for arg in "${adapter_args[@]}"; do
+      case "$arg" in
+        --agent | --agent=* | --model | --model=*)
+          usage_error "$arg comes from the config for a hand-off entry; do not pass it after --"
+          ;;
+      esac
+    done
+  fi
+  command_args=("$task_issue" --agent "$adapter" --model "$model_name ($model)")
+  if [ "${#adapter_args[@]}" -gt 0 ]; then
+    for arg in "${adapter_args[@]}"; do
+      command_args[${#command_args[@]}]="$arg"
+    done
+  fi
+  if [ "$dry_run" = 1 ]; then
+    printf 'AGENT=%s\n' "$selected_agent"
+    printf 'ADAPTER=%s\n' "$adapter"
+    printf 'MODEL=%s\n' "$model"
+    printf 'LABEL=%s\n' "$label"
+    printf 'MODE=%s\n' "$mode"
+    printf 'HANDOFF=issue\n'
+    printf 'COMMAND='
+    printf '%q ' "${command_args[@]}"
+    printf '\n'
+    exit 0
+  fi
+  if [ "$as_caller" != maintainer ]; then
+    printf 'agent-launch: lane %s entry %s (%s) is an issue hand-off: a bot never runs it. Re-run with --dry-run to print the agent-task-issue.sh command, create the Issue with it, and the maintainer runs the agent from the Issue.\n' \
+      "$lane" "$((entry_index + 1))" "$selected_agent" >&2
+    exit 2
+  fi
+  if [ ! -f "$task_issue" ] || [ ! -x "$task_issue" ]; then
+    printf 'agent-launch: missing executable %s\n' "$task_issue" >&2
+    exit 1
+  fi
+  exec "${command_args[@]}"
+fi
 
 command_args=("$adapter_run")
 if [ -n "$mode" ]; then

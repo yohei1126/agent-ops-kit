@@ -27,7 +27,7 @@ agent_config_validation_program='
 def nonempty: (type == "string") and (length > 0);
 # \A and \z are absolute anchors; `$` would also accept a trailing newline.
 def token: (type == "string") and (test("\\A[a-z0-9-]+\\z"));
-def known_agent_fields: ["adapter", "display", "provider", "who_can_launch", "provisioned", "_comment"];
+def known_agent_fields: ["adapter", "display", "provider", "who_can_launch", "provisioned", "overages", "_comment"];
 def known_entry_fields: ["agent", "model", "model_name", "mode", "_comment"];
 . as $root |
 if (type != "object") then
@@ -52,6 +52,8 @@ else
           (if ($a.who_can_launch != "maintainer" and $a.who_can_launch != "bot") then
              "agents.\($name).who_can_launch must be maintainer or bot" else empty end),
           (if ($a.provisioned | type) != "boolean" then "agents.\($name).provisioned must be a boolean" else empty end),
+          (if ($a | has("overages")) and ($a.overages != "never") then
+             "agents.\($name).overages must be never (paid overages are not allowed)" else empty end),
           (if ($a | has("_comment")) and (($a._comment | type) != "string") then
              "agents.\($name)._comment must be a string" else empty end),
           (if ([$a | keys[] | select(. as $k | known_agent_fields | index($k) | not)] | length) > 0 then
@@ -80,8 +82,8 @@ else
                  elif ($root.agents[$e.agent] == null) then
                    "lanes.\($lane)[\($i)].agent is not a defined agent"
                  else empty end),
-                (if ($e.model | nonempty | not) then
-                   "lanes.\($lane)[\($i)].model must be a non-empty string" else empty end),
+                (if ($e | has("model") | not) or (($e.model != null) and ($e.model | nonempty | not)) then
+                   "lanes.\($lane)[\($i)].model must be a non-empty string, or null while the id is unverified" else empty end),
                 (if ($e.model_name | nonempty | not) then
                    "lanes.\($lane)[\($i)].model_name must be a non-empty string" else empty end),
                 (if ($e | has("mode")) and (($e.mode | token) | not) then
@@ -216,16 +218,23 @@ agent_config_label() {
   printf '%s (%s / %s)\n' "$model_name" "$provider" "$display"
 }
 
+# A lane entry with this mode is a hand-off: the caller prepares a task Issue
+# and the maintainer runs the agent from it. Nothing is launched for it.
+agent_config_handoff_mode="issue"
+
 # agent_config_select <lane> <caller> [agent]
 # Walks lane entries in order and prints the first eligible agent name.
 # The caller is `bot` or `maintainer`. An entry is eligible when the caller
 # may launch it (`bot` allows both; `maintainer` allows only the maintainer)
-# and the entry is provisioned. Skip reasons go to stderr.
+# and the entry is provisioned. A hand-off entry launches nothing, so a bot
+# may select a maintainer-only hand-off entry to prepare its Issue; the
+# launcher still refuses to run the hand-off for a bot without --dry-run.
+# Skip reasons go to stderr.
 agent_config_select() {
   local lane="$1"
   local caller="$2"
   local requested="${3:-}"
-  local count index name who provisioned reason skipped
+  local count index name who provisioned mode reason skipped
 
   if ! agent_config_lane_exists "$lane"; then
     printf 'agent-config: unknown lane: %s\n' "$lane" >&2
@@ -258,9 +267,11 @@ agent_config_select() {
     fi
     who="$(agent_config_agent_field "$name" who_can_launch)"
     provisioned="$(agent_config_agent_field "$name" provisioned)"
+    mode="$(agent_config_lane_entry_field "$lane" "$((index - 1))" mode)"
 
     reason=""
-    if [ "$who" = "maintainer" ] && [ "$caller" != "maintainer" ]; then
+    if [ "$who" = "maintainer" ] && [ "$caller" != "maintainer" ] &&
+      [ "$mode" != "$agent_config_handoff_mode" ]; then
       reason="who_can_launch=maintainer refuses caller $caller"
     elif [ "$provisioned" != "true" ]; then
       reason="not provisioned"

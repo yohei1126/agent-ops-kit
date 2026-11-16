@@ -182,7 +182,7 @@ fi
 
 if [ -n "$adapter_flags" ]; then
   exec "$adapter" --mode review --model "$model" "$adapter_flags" \
-    -- "$pos1" "$pos2" "$pos3" "$pos4"
+    -- -- "$pos1" "$pos2" "$pos3" "$pos4"
 fi
 exec "$adapter" --mode review --model "$model" \
-  -- "$pos1" "$pos2" "$pos3" "$pos4"
+  -- -- "$pos1" "$pos2" "$pos3" "$pos4"

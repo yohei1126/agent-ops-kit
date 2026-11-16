@@ -22,7 +22,10 @@ fake_bin="$work_tmp/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/agy" <<'SH'
 #!/bin/sh
-# The stub agent must never run in this test.
+# The stub agent must never run in this test; it records any start.
+if [ -n "${FAKE_AGY_RECORD:-}" ]; then
+  printf 'agy started\n' >>"$FAKE_AGY_RECORD"
+fi
 exit 99
 SH
 chmod +x "$fake_bin/agy"
@@ -272,9 +275,11 @@ run_launch() {
   err_file="$work_tmp/err-$tag"
   record="$work_tmp/record-$tag"
   : >"$record"
+  rm -f "$record.task"
   out="$(AGENT_OPS_KIT_CONFIG="$TEST_CONFIG" HOME="$test_home" \
     PATH="$test_path" STUB_ADAPTER_RECORD="$record" \
-    STUB_ADAPTER_EXIT="${STUB_ADAPTER_EXIT:-0}" \
+    STUB_ADAPTER_EXIT="${STUB_ADAPTER_EXIT:-0}" FAKE_AGY_RECORD="$record" \
+    STUB_TASK_RECORD="$record.task" \
     /bin/bash "$kit/scripts/agent-launch.sh" "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
@@ -572,6 +577,118 @@ expect_status "20: --help rejects arguments after --" 2
 run_launch validate-bare-sep --validate --
 expect_status "20: --validate with a bare -- still exits 0" 0
 
+printf '== issue hand-off entries ==\n'
+
+# An issue-mode entry never runs its adapter or the agent. It becomes an
+# agent-task-issue.sh command; the stub below records what would be created.
+mkdir -p "$kit/scripts/agents/stubissue"
+cp "$kit/scripts/agents/stub/run" "$kit/scripts/agents/stubissue/run"
+chmod +x "$kit/scripts/agents/stubissue/run"
+printf '# test modes\nreview\nissue\n' >"$kit/scripts/agents/stubissue/modes"
+cat >"$kit/scripts/agent-task-issue.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+{
+  printf 'TASK_START\n'
+  for arg in "$@"; do
+    printf '%s\n' "$arg"
+  done
+  printf 'TASK_END\n'
+} >>"${STUB_TASK_RECORD:-/dev/null}"
+printf 'TASK_STDOUT\n'
+SH
+chmod +x "$kit/scripts/agent-task-issue.sh"
+handoff_config="$work_tmp/handoff.json"
+jq '.agents["handoff-agent"] = {"adapter": "stubissue", "display": "Handoff", "provider": "Provider X", "who_can_launch": "maintainer", "provisioned": true, "overages": "never"}
+  | .agents["handoff-off"] = {"adapter": "stubissue", "display": "Handoff", "provider": "Provider X", "who_can_launch": "maintainer", "provisioned": false}
+  | .lanes.handoff = {"entries": [
+      {"agent": "handoff-agent", "model": "handoff-model", "model_name": "Handoff One", "mode": "issue"},
+      {"agent": "bot-agent", "model": "bot-model", "model_name": "Bot One"}]}
+  | .lanes.handoffreview = {"entries": [
+      {"agent": "handoff-agent", "model": "handoff-model", "model_name": "Handoff One", "mode": "review"}]}
+  | .lanes.handoffoff = {"entries": [
+      {"agent": "handoff-off", "model": "handoff-model", "model_name": "Handoff One", "mode": "issue"}]}
+  | .lanes.nullmodel = {"entries": [
+      {"agent": "bot-agent", "model": null, "model_name": "Unverified One"},
+      {"agent": "unready-agent", "model": "unready-model", "model_name": "Unready One"}]}' \
+  "$valid_config" >"$handoff_config"
+TEST_CONFIG="$handoff_config"
+
+expect_task_empty() {
+  if [ -s "$record.task" ]; then
+    bad "$1" "agent-task-issue.sh was run"
+  else
+    ok "$1"
+  fi
+}
+
+run_launch handoff-validate --validate
+expect_status "22: a config with an issue hand-off entry validates" 0
+expect_out "22: hand-off validation reports VALID=1" "VALID=1"
+
+run_launch handoff-bot-dry --lane handoff --as bot --dry-run -- --title "Task" --file brief.md
+expect_status "22: bot --dry-run on a hand-off entry exits 0" 0
+expect_out "22: hand-off dry-run selects the maintainer-only hand-off entry" "AGENT=handoff-agent"
+expect_out "22: hand-off dry-run reports issue mode" "HANDOFF=issue"
+expect_out "22: hand-off dry-run prints the agent-task-issue.sh command" 'agent-task-issue.sh --agent stubissue --model Handoff\ One\ \(handoff-model\) --title Task --file brief.md'
+expect_record_empty "22: hand-off dry-run never runs the adapter or the agent"
+expect_task_empty "22: hand-off dry-run does not run agent-task-issue.sh"
+
+run_launch handoff-bot-run --lane handoff --as bot -- --title "Task" --file brief.md
+expect_status "22: a bot without --dry-run is refused on a hand-off entry" 2
+expect_err "22: the bot refusal names the hand-off" "is an issue hand-off: a bot never runs it"
+expect_err "22: the bot refusal points at --dry-run" "Re-run with --dry-run"
+expect_record_empty "22: the bot refusal never runs the adapter or the agent"
+expect_task_empty "22: the bot refusal does not run agent-task-issue.sh"
+
+run_launch handoff-maint-run --lane handoff --as maintainer -- --title "Task" --file brief.md
+expect_status "22: the maintainer runs the hand-off command" 0
+expect_out "22: the maintainer run reaches agent-task-issue.sh" "TASK_STDOUT"
+expect_record_empty "22: the maintainer run never runs the adapter or the agent"
+for want in --agent stubissue --model "Handoff One (handoff-model)" --title Task --file brief.md; do
+  if grep -qxF -- "$want" "$record.task" 2>/dev/null; then
+    ok "22: agent-task-issue.sh receives $want"
+  else
+    bad "22: agent-task-issue.sh receives $want" "$(cat "$record.task" 2>/dev/null)"
+  fi
+done
+
+for config_flag in --agent --agent=x --model --model=x; do
+  run_launch "handoff-flag$config_flag" --lane handoff --as bot --dry-run -- "$config_flag" other
+  expect_status "22: $config_flag after -- is refused for a hand-off entry" 2
+  expect_err "22: the $config_flag refusal says it comes from the config" "comes from the config"
+done
+
+run_launch handoff-review --lane handoffreview --as bot --dry-run -- run repo brief
+expect_status "22: the same maintainer-only agent in review mode refuses a bot" 2
+expect_err "22: the review-mode refusal names who_can_launch" "who_can_launch=maintainer"
+expect_record_empty "22: the review-mode refusal runs nothing"
+
+run_launch handoff-off --lane handoffoff --as bot --dry-run -- --title Task
+expect_status "22: an unprovisioned hand-off entry is skipped" 2
+expect_err "22: the unprovisioned hand-off skip says not provisioned" "not provisioned"
+
+printf '%s\n' '{"schema_version":1,"agents":{"a":{"adapter":"stub","display":"A","provider":"P","who_can_launch":"maintainer","provisioned":true}},"lanes":{"l":{"entries":[{"agent":"a","model":"m","model_name":"M","mode":"issue"}]}}}' \
+  >"$work_tmp/handoff-nomodes.json"
+TEST_CONFIG="$work_tmp/handoff-nomodes.json"
+run_launch handoff-nomodes --validate
+expect_status "22: issue mode on an adapter that does not list it fails --validate" 2
+expect_err "22: the unlisted issue mode is named" "takes no mode"
+TEST_CONFIG="$handoff_config"
+
+printf '== null model ids fail closed ==\n'
+
+run_launch nullmodel-validate --validate
+expect_status "23: --validate accepts a null model id" 0
+run_launch nullmodel-dry --lane nullmodel --as bot --dry-run -- repo brief
+expect_status "23: selecting a null model id exits 2" 2
+expect_err "23: the null-model refusal says the id is unverified" "null model id (unverified)"
+expect_no_out "23: a null model id prints no command" "COMMAND="
+run_launch nullmodel-run --lane nullmodel --as bot -- repo brief
+expect_status "23: launching a null model id exits 2" 2
+expect_record_empty "23: a null model id never runs the adapter"
+TEST_CONFIG="$valid_config"
+
 printf '== source hygiene ==\n'
 
 # The denylist is the static agent and model words plus every agent name,
@@ -582,27 +699,37 @@ deny_file="$work_tmp/denylist"
 {
   printf '%s\n' agy opencode goat codex cursor gemini deepseek kimi fireworks \
     argon hydrogen composer
-  jq -r '(.agents | keys[]), (.agents[].adapter), (.lanes[].entries[] | .model, .model_name)' \
+  # A null model id is unverified and has no text to deny.
+  jq -r '(.agents | keys[]), (.agents[].adapter), (.lanes[].entries[] | (.model // empty), .model_name)' \
     "$example_config"
 } | sort -u >"$deny_file"
-if grep -qxF -- 'composer-2.5' "$deny_file" && grep -qxF -- 'gpt-6-luna' "$deny_file"; then
-  ok "15: the denylist includes model ids from the example config"
+if grep -qxF -- 'deepseek/deepseek-v4.1-flash' "$deny_file" && grep -qxF -- 'GPT-6 Luna' "$deny_file" &&
+  grep -qxF -- 'gemini-4-argon' "$deny_file"; then
+  ok "15: the denylist includes model ids and names from the example config"
 else
-  bad "15: the denylist includes model ids from the example config" "$(tr '\n' ' ' <"$deny_file")"
+  bad "15: the denylist includes model ids and names from the example config" "$(tr '\n' ' ' <"$deny_file")"
+fi
+if grep -qxiF -- 'null' "$deny_file"; then
+  bad "15: a null model id adds no denylist word" "null is in the denylist"
+else
+  ok "15: a null model id adds no denylist word"
 fi
 
 # hygiene_leaks <file>: prints the number of lines naming a denied word.
+# Only the allowed config-path text is removed before matching, so a line that
+# holds the path and a model id still counts as a leak.
+allowed_path_text='.config/agent-ops-kit/agents.json'
 hygiene_leaks() {
   local file="$1"
-  local hits hit line trimmed leaked=0
+  local hits hit line stripped leaked=0
   hits="$(grep -inF -f "$deny_file" -- "$file" || true)"
   while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     line="${hit#*:}"
-    trimmed="${line#"${line%%[![:space:]]*}"}"
-    case "$trimmed" in
-      *'.config/agent-ops-kit/agents.json') continue ;;
-    esac
+    stripped="${line//"$allowed_path_text"/}"
+    if ! printf '%s\n' "$stripped" | grep -qiF -f "$deny_file"; then
+      continue
+    fi
     leaked=$((leaked + 1))
     printf 'LEAK %s:%s\n' "${file#"$repo_root"/}" "$hit" >&2
   done <<HITS
@@ -612,11 +739,67 @@ HITS
 }
 
 leak_fixture="$work_tmp/leaked-source.sh"
-printf '#!/usr/bin/env bash\nmodel="composer-2.5"\n' >"$leak_fixture"
+printf '#!/usr/bin/env bash\nmodel="deepseek/deepseek-v4.1-flash"\n' >"$leak_fixture"
 if [ "$(hygiene_leaks "$leak_fixture" 2>/dev/null)" -gt 0 ]; then
   ok "15: the hygiene check catches a leaked example model id"
 else
-  bad "15: the hygiene check catches a leaked example model id" "composer-2.5 not detected"
+  bad "15: the hygiene check catches a leaked example model id" "model id not detected"
+fi
+
+# A line holding both the allowed config path and a model id is a leak.
+combined_fixture="$work_tmp/leaked-path-and-model.sh"
+printf '#!/usr/bin/env bash\nmodel="gemini-4-hydrogen" # ~/.config/agent-ops-kit/agents.json\n' >"$combined_fixture"
+if [ "$(hygiene_leaks "$combined_fixture" 2>/dev/null)" -gt 0 ]; then
+  ok "15: the hygiene check catches a model id on a config-path line"
+else
+  bad "15: the hygiene check catches a model id on a config-path line" "path exception hid the model id"
+fi
+# The config path alone is allowed.
+path_fixture="$work_tmp/path-only.sh"
+printf '#!/usr/bin/env bash\n# default: ~/.config/agent-ops-kit/agents.json\n' >"$path_fixture"
+if [ "$(hygiene_leaks "$path_fixture" 2>/dev/null)" -eq 0 ]; then
+  ok "15: the config path alone is not a leak"
+else
+  bad "15: the config path alone is not a leak" "path-only line reported"
+fi
+
+# The example config's hand-off entry, through the real kit tree: --dry-run
+# prints the agent-task-issue.sh command and nothing starts.
+example_record="$work_tmp/record-example-handoff"
+: >"$example_record"
+out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path" \
+  FAKE_AGY_RECORD="$example_record" \
+  /bin/bash "$launcher" --lane coding --as bot --agent agy-subscription --dry-run -- \
+  --title "Example task" --file brief.md 2>"$work_tmp/err-example-handoff")"
+status=$?
+err="$(cat "$work_tmp/err-example-handoff")"
+expect_status "24: the example agy coding entry dry-runs as a hand-off for a bot" 0
+expect_out "24: the example hand-off reports issue mode" "HANDOFF=issue"
+expect_out "24: the example hand-off prints agent-task-issue.sh for agy" "scripts/agent-task-issue.sh --agent agy --model"
+out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path" \
+  FAKE_AGY_RECORD="$example_record" \
+  /bin/bash "$launcher" --lane coding --as bot --agent agy-subscription -- \
+  --title "Example task" --file brief.md 2>"$work_tmp/err-example-handoff")"
+status=$?
+err="$(cat "$work_tmp/err-example-handoff")"
+expect_status "24: the example hand-off without --dry-run refuses a bot" 2
+expect_err "24: the example bot refusal names the hand-off" "issue hand-off"
+out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path" \
+  /bin/bash "$launcher" --lane coding --as bot --agent cursor --dry-run -- x 2>"$work_tmp/err-example-null")"
+status=$?
+err="$(cat "$work_tmp/err-example-null")"
+expect_status "24: the example Cursor coding entry (null id) cannot run" 2
+expect_err "24: the example Cursor refusal says the id is unverified" "null model id (unverified)"
+out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path" \
+  /bin/bash "$launcher" --lane review --as bot --agent agy-api-key --dry-run -- x 2>"$work_tmp/err-example-off")"
+status=$?
+err="$(cat "$work_tmp/err-example-off")"
+expect_status "24: the disabled API-key agy entry is skipped" 2
+expect_err "24: the disabled API-key agy skip says not provisioned" "not provisioned"
+if [ -s "$example_record" ]; then
+  bad "24: no example run starts agy" "agy was started"
+else
+  ok "24: no example run starts agy"
 fi
 
 for file in "$repo_root/scripts/agent-launch.sh" \
