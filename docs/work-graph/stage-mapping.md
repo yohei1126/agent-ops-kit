@@ -1,7 +1,9 @@
 # Stage mapping to the development loop
 
-The inferred stages reuse the step names that already exist in the development
-loop. Do not add a parallel process vocabulary.
+The inferred stages map to the step names that already exist in the
+development loop. The table below is the vocabulary bridge between the stage
+names in this module and those steps. Do not add a parallel process
+vocabulary.
 
 ## Map
 
@@ -17,7 +19,7 @@ loop. Do not add a parallel process vocabulary.
 
 ## Stage notes
 
-- `planning`: the work is an open issue with no open linked pull request. The
+- `planning`: the work is an open issue with no open closing link. The
   matching steps are "Before start" and "Planning and briefs".
 - `implementation`: the pull request is a draft. The matching steps are
   "During the run" and the draft default in "Open the pull request".

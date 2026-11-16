@@ -4,10 +4,14 @@ These limits are part of the draft. Do not "fix" them by inventing facts.
 
 ## A draft pull request can look like a maintainer wait
 
-GitHub records draft state, not intent. A draft that is still being worked on
-may be inferred as waiting on the maintainer, especially when the author has
-not pushed or commented recently. The view can show a wait that the author is
-still working through.
+GitHub records draft state, not intent. B4 in
+[`inference-rules.md`](inference-rules.md) always waits on the pull request
+author, so the block itself never names the maintainer. A maintainer wait can
+still appear for a draft in two ways: when the maintainer is also the pull
+request author, or when the actors column shows the maintainer. A draft that is
+still being worked on may then read as waiting on the maintainer, especially
+when the author has not pushed or commented recently. The view can show a wait
+that the author is still working through.
 
 ## Bot role names are often absent
 

@@ -5,7 +5,9 @@ from GitHub facts. No view writes to GitHub.
 
 ## View 1: what is stuck
 
-One row per open artifact with an inferred block.
+One row per rendered artifact: an open issue with no open linked pull request,
+or an open pull request. An open issue with an open closing link is covered by
+the pull request row.
 
 | Column | GitHub fact | Deterministic rule |
 | --- | --- | --- |
@@ -36,8 +38,8 @@ invented.
 
 | Block | `wait_started_at` source |
 | --- | --- |
-| `retro_pending` | `merged_at` of the linked pull request. |
-| `rework_needed` | `closed_at` of the latest closed unmerged linked pull request. |
+| `retro_pending` | `merged_at` of the merged closing link. |
+| `rework_needed` | `closed_at` of the latest closed unmerged closing link. |
 | `no_pr_yet` | `created_at` of the issue. |
 | `draft_in_progress` | `created_at` of the pull request, or the draft conversion time when the timeline holds it. |
 | `merge_conflict` | `updated_at` of the pull request. |

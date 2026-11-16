@@ -20,7 +20,7 @@ small inference over those facts. None of them is a new system of record.
 | --- | --- | --- | --- |
 | Agent | acts on | Artifact | Authorship, assignment, review, or comment. |
 | Artifact | at | Process | One current stage per artifact, from the first matching rule. |
-| Artifact | linked to | Artifact | An issue and its linked pull request. |
+| Artifact | linked to | Artifact | A closing link between an issue and a pull request. |
 | Block | blocks | Artifact | One primary block per view row. |
 | Block | waits on | Agent | The actor expected to move the artifact next. |
 | Block | clears at | Process | The stage transition that removes the block. |
@@ -38,8 +38,9 @@ small inference over those facts. None of them is a new system of record.
   the decision is empty. Do not guess one.
 - An agent is a GitHub identity. Role names such as "reviewer" or "builder"
   are often absent, so the actor may be a login only.
-- Process names are the existing development-process steps, not a new
-  vocabulary. See [`stage-mapping.md`](stage-mapping.md).
+- Process names map to the existing development-process steps through the
+  table in [`stage-mapping.md`](stage-mapping.md). They are not a new
+  vocabulary and do not rename those steps.
 
 ## Type name status
 
