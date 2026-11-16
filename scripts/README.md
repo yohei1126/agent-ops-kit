@@ -200,6 +200,27 @@ checks are red or that has stayed open longer than `--days` (default 3), and it
 never comments, closes, rebases, or merges. See
 [`../docs/security-audit-lanes.md`](../docs/security-audit-lanes.md#flag-red-dependabot-pull-requests-weekly).
 
+## Prepare a coding-agent task issue
+
+Use [`agent-task-issue.sh`](agent-task-issue.sh) when a bot must write a
+coding, review, or docs task as a GitHub Issue before any coding agent
+works on it. The issue is the single task spec. For `agy`, the maintainer
+hands the issue over and runs it by hand; bots never launch `agy`.
+
+```bash
+scripts/agent-task-issue.sh --agent opencode --repo OWNER/REPO \
+  --title "..." --file path/to/filled.md
+```
+
+Copy [`../templates/agent-task-issue.md`](../templates/agent-task-issue.md),
+fill every placeholder, and pass the filled copy with `--file`, or pass the
+section flags instead. `--agent` is required and must be one of the allowed
+agent names. `--dry-run` prints the rendered body and calls no `gh` command.
+The target repository comes from `--repo`, `AGENT_TASK_REPO`, or the local
+`agent-ops-kit/agent-task-repo` config file. Creating a missing `agent-task` or
+`agent:<name>` label requires `--create-label`; without that flag the script
+fails and creates nothing.
+
 ## Check rate limiting on one URL
 
 [`rate-limit-check.sh`](rate-limit-check.sh) sends a sequential burst to one URL

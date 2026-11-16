@@ -20,10 +20,10 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Check shell syntax
-        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/agy-docs-launch.sh scripts/lib/agy-settings-check.sh scripts/lib/agy-launch-run.sh scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/dependabot-red-prs.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_pr_state.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh scripts/tests/test_dependabot_red_prs.sh
+        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/agy-docs-launch.sh scripts/lib/agy-settings-check.sh scripts/lib/agy-launch-run.sh scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/dependabot-red-prs.sh scripts/agent-task-issue.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_pr_state.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh scripts/tests/test_dependabot_red_prs.sh scripts/tests/test_agent_task_issue.sh
 
       - name: Run shellcheck
-        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/agy-docs-launch.sh scripts/lib/agy-settings-check.sh scripts/lib/agy-launch-run.sh scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/dependabot-red-prs.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_pr_state.sh scripts/tests/test_docs_sweep.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh scripts/tests/test_dependabot_red_prs.sh
+        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/agy-docs-launch.sh scripts/lib/agy-settings-check.sh scripts/lib/agy-launch-run.sh scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/dependabot-red-prs.sh scripts/agent-task-issue.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_pr_state.sh scripts/tests/test_docs_sweep.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh scripts/tests/test_dependabot_red_prs.sh scripts/tests/test_agent_task_issue.sh
 
       - name: Run gate tests
         run: |
@@ -35,6 +35,7 @@ jobs:
           bash scripts/tests/test_rate_limit_check.sh
           bash scripts/tests/test_worker_deploy.sh
           bash scripts/tests/test_dependabot_red_prs.sh
+          bash scripts/tests/test_agent_task_issue.sh
 
       - name: Run quota dump tests
         run: python3 -m unittest scripts/quota/test_quota_dump.py
@@ -47,3 +48,26 @@ jobs:
 
       - name: Check docs sweep
         run: scripts/dev-loop-gate.sh --strict --check docs-sweep
+
+  macos:
+    name: dev-loop-gate-macos
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax with bash 3.2
+        run: /bin/bash -n scripts/agent-task-issue.sh scripts/tests/test_agent_task_issue.sh
+
+      - name: Install shellcheck
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            brew install shellcheck
+          fi
+
+      - name: Run shellcheck
+        run: shellcheck -x scripts/agent-task-issue.sh scripts/tests/test_agent_task_issue.sh
+
+      - name: Run agent task issue tests
+        run: /bin/bash scripts/tests/test_agent_task_issue.sh
