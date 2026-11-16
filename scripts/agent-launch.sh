@@ -19,7 +19,8 @@
 # its adapter. --dry-run prints the scripts/agent-task-issue.sh command for
 # the task Issue (arguments after `--` go to that script; --agent and --model
 # come from the config). Without --dry-run a bot is refused (exit 2) and the
-# maintainer runs the command. A null model id (unverified) exits 2.
+# maintainer runs the command. A null model id (unverified) exits 2, except
+# for a hand-off entry, which passes the model name marked "id unverified".
 #
 # Exit codes: 0 ok, 1 adapter failure, 2 usage, config, or policy refusal.
 set -euo pipefail
@@ -87,7 +88,9 @@ Entry mode $agent_config_handoff_mode (hand-off):
   --dry-run, a bot is refused (exit 2); the maintainer runs the command and
   then runs the agent from the Issue.
 
-A lane entry whose model id is null (unverified) exits 2 when selected.
+A lane entry whose model id is null (unverified) exits 2 when selected,
+except in hand-off mode, which executes no model: there the Issue gets the
+model name marked "id unverified".
 EOF
 }
 
@@ -347,7 +350,9 @@ model="$(agent_config_lane_entry_field "$lane" "$entry_index" model)"
 model_name="$(agent_config_lane_entry_field "$lane" "$entry_index" model_name)"
 mode="$(agent_config_lane_entry_field "$lane" "$entry_index" mode)"
 
-if [ -z "$model" ]; then
+# A null model id is unverified. Only a hand-off entry may carry one, because
+# it executes no model; the Issue then says the id is unverified.
+if [ -z "$model" ] && [ "$mode" != "$agent_config_handoff_mode" ]; then
   printf 'agent-launch: lane %s entry for %s has a null model id (unverified); the maintainer must confirm the id locally and set it in the config before this entry can run\n' \
     "$lane" "$selected_agent" >&2
   exit 2
@@ -389,7 +394,12 @@ if [ "$mode" = "$agent_config_handoff_mode" ]; then
       esac
     done
   fi
-  command_args=("$task_issue" --agent "$adapter" --model "$model_name ($model)")
+  if [ -n "$model" ]; then
+    model_text="$model_name ($model)"
+  else
+    model_text="$model_name (id unverified)"
+  fi
+  command_args=("$task_issue" --agent "$adapter" --model "$model_text")
   if [ "${#adapter_args[@]}" -gt 0 ]; then
     for arg in "${adapter_args[@]}"; do
       command_args[${#command_args[@]}]="$arg"
@@ -398,7 +408,7 @@ if [ "$mode" = "$agent_config_handoff_mode" ]; then
   if [ "$dry_run" = 1 ]; then
     printf 'AGENT=%s\n' "$selected_agent"
     printf 'ADAPTER=%s\n' "$adapter"
-    printf 'MODEL=%s\n' "$model"
+    printf 'MODEL=%s\n' "${model:-null}"
     printf 'LABEL=%s\n' "$label"
     printf 'MODE=%s\n' "$mode"
     printf 'HANDOFF=issue\n'

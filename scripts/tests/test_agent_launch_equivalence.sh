@@ -505,23 +505,43 @@ if [ "$example_status" -eq 0 ]; then
 else
   bad "example docs lane launches the agy adapter for the maintainer" "exit $example_status: $example_err"
 fi
-if printf '%s\n' "$example_argv" | grep -qx -- 'gemini-3.8-flash'; then
+if printf '%s\n' "$example_argv" | grep -qx -- 'gemini-3.8-flash-medium'; then
   ok "example docs lane passes its configured model to agy"
 else
   bad "example docs lane passes its configured model to agy" "argv: $example_argv"
 fi
 
-ex_home="$work_tmp/home-example-review"
-run_example review review --dry-run run-example "$ex_home/agy-work/repo" "$ex_home/agy-inbox/brief.txt"
+# The security-review lane leads with an agy entry whose id has a run record.
+ex_home="$work_tmp/home-example-security"
+run_example security security-review --dry-run run-example "$ex_home/agy-work/repo" "$ex_home/agy-inbox/brief.txt"
 if [ "$example_status" -eq 0 ]; then
-  ok "example review lane reaches the agy adapter for the maintainer"
+  ok "example security-review lane reaches the agy adapter for the maintainer"
 else
-  bad "example review lane reaches the agy adapter for the maintainer" "exit $example_status: $example_err"
+  bad "example security-review lane reaches the agy adapter for the maintainer" "exit $example_status: $example_err"
 fi
 case "$example_out" in
-  *"MODEL=gemini-4-hydrogen"*) ok "example review lane uses its configured model" ;;
-  *) bad "example review lane uses its configured model" "stdout: $example_out" ;;
+  *"MODEL=gemini-4-argon-medium"*) ok "example security-review lane uses its configured model" ;;
+  *) bad "example security-review lane uses its configured model" "stdout: $example_out" ;;
 esac
+
+# The review lane leads with an agy entry whose id is null (no run record), so
+# it fails closed before the adapter starts.
+ex_home="$work_tmp/home-example-review"
+run_example review review --dry-run run-example "$ex_home/agy-work/repo" "$ex_home/agy-inbox/brief.txt"
+if [ "$example_status" -eq 2 ]; then
+  ok "example review lane with a null agy id exits 2"
+else
+  bad "example review lane with a null agy id exits 2" "exit $example_status: $example_out"
+fi
+case "$example_err" in
+  *"null model id (unverified)"*) ok "example review lane refusal says the id is unverified" ;;
+  *) bad "example review lane refusal says the id is unverified" "stderr: $example_err" ;;
+esac
+if [ -s "$work_tmp/example-review.argv" ]; then
+  bad "example review lane does not start agy" "agy was started"
+else
+  ok "example review lane does not start agy"
+fi
 
 ex_home="$work_tmp/home-example-coding"
 run_example coding coding repo "$ex_home/agy-inbox/brief.txt"

@@ -608,6 +608,10 @@ jq '.agents["handoff-agent"] = {"adapter": "stubissue", "display": "Handoff", "p
       {"agent": "handoff-agent", "model": "handoff-model", "model_name": "Handoff One", "mode": "review"}]}
   | .lanes.handoffoff = {"entries": [
       {"agent": "handoff-off", "model": "handoff-model", "model_name": "Handoff One", "mode": "issue"}]}
+  | .lanes.handoffnull = {"entries": [
+      {"agent": "handoff-agent", "model": null, "model_name": "Handoff One", "mode": "issue"}]}
+  | .lanes.reviewnull = {"entries": [
+      {"agent": "handoff-agent", "model": null, "model_name": "Handoff One", "mode": "review"}]}
   | .lanes.nullmodel = {"entries": [
       {"agent": "bot-agent", "model": null, "model_name": "Unverified One"},
       {"agent": "unready-agent", "model": "unready-model", "model_name": "Unready One"}]}' \
@@ -678,6 +682,30 @@ TEST_CONFIG="$handoff_config"
 
 printf '== null model ids fail closed ==\n'
 
+# A hand-off entry executes no model, so a null id is allowed there and the
+# Issue gets the model name marked "id unverified".
+run_launch handoffnull-dry --lane handoffnull --as bot --dry-run -- --title Task
+expect_status "23: a null-id hand-off entry dry-runs" 0
+expect_out "23: the null-id hand-off reports MODEL=null" "MODEL=null"
+expect_out "23: the null-id hand-off marks the id unverified" 'agent-task-issue.sh --agent stubissue --model Handoff\ One\ \(id\ unverified\) --title Task'
+expect_record_empty "23: the null-id hand-off dry-run runs nothing"
+run_launch handoffnull-run --lane handoffnull --as maintainer -- --title Task
+expect_status "23: the maintainer runs a null-id hand-off" 0
+if grep -qxF -- "Handoff One (id unverified)" "$record.task" 2>/dev/null; then
+  ok "23: agent-task-issue.sh receives the id-unverified model text"
+else
+  bad "23: agent-task-issue.sh receives the id-unverified model text" "$(cat "$record.task" 2>/dev/null)"
+fi
+expect_record_empty "23: the null-id hand-off never runs the adapter or the agent"
+run_launch handoffnull-bot --lane handoffnull --as bot -- --title Task
+expect_status "23: a bot without --dry-run is still refused on a null-id hand-off" 2
+expect_err "23: the null-id bot refusal names the hand-off" "issue hand-off"
+# Any other mode still fails closed on a null id.
+run_launch reviewnull-dry --lane reviewnull --as maintainer --dry-run -- run repo brief
+expect_status "23: a null id in review mode exits 2" 2
+expect_err "23: the review-mode null refusal says unverified" "null model id (unverified)"
+expect_record_empty "23: the review-mode null id runs nothing"
+
 run_launch nullmodel-validate --validate
 expect_status "23: --validate accepts a null model id" 0
 run_launch nullmodel-dry --lane nullmodel --as bot --dry-run -- repo brief
@@ -704,7 +732,9 @@ deny_file="$work_tmp/denylist"
     "$example_config"
 } | sort -u >"$deny_file"
 if grep -qxF -- 'deepseek/deepseek-v4.1-flash' "$deny_file" && grep -qxF -- 'GPT-6 Luna' "$deny_file" &&
-  grep -qxF -- 'gemini-4-argon' "$deny_file"; then
+  grep -qxF -- 'gemini-4-argon-medium' "$deny_file" && grep -qxF -- 'gemini-3.8-flash-medium' "$deny_file" &&
+  grep -qxF -- 'fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro' "$deny_file" &&
+  grep -qxF -- 'Gemini 4 Hydrogen' "$deny_file"; then
   ok "15: the denylist includes model ids and names from the example config"
 else
   bad "15: the denylist includes model ids and names from the example config" "$(tr '\n' ' ' <"$deny_file")"
@@ -748,7 +778,7 @@ fi
 
 # A line holding both the allowed config path and a model id is a leak.
 combined_fixture="$work_tmp/leaked-path-and-model.sh"
-printf '#!/usr/bin/env bash\nmodel="gemini-4-hydrogen" # ~/.config/agent-ops-kit/agents.json\n' >"$combined_fixture"
+printf '#!/usr/bin/env bash\nmodel="gemini-4-argon-medium" # ~/.config/agent-ops-kit/agents.json\n' >"$combined_fixture"
 if [ "$(hygiene_leaks "$combined_fixture" 2>/dev/null)" -gt 0 ]; then
   ok "15: the hygiene check catches a model id on a config-path line"
 else
@@ -775,7 +805,7 @@ status=$?
 err="$(cat "$work_tmp/err-example-handoff")"
 expect_status "24: the example agy coding entry dry-runs as a hand-off for a bot" 0
 expect_out "24: the example hand-off reports issue mode" "HANDOFF=issue"
-expect_out "24: the example hand-off prints agent-task-issue.sh for agy" "scripts/agent-task-issue.sh --agent agy --model"
+expect_out "24: the example hand-off prints agent-task-issue.sh for agy" 'scripts/agent-task-issue.sh --agent agy --model Gemini\ 4\ Hydrogen\ \(id\ unverified\)'
 out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path" \
   FAKE_AGY_RECORD="$example_record" \
   /bin/bash "$launcher" --lane coding --as bot --agent agy-subscription -- \
@@ -789,6 +819,13 @@ out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path
 status=$?
 err="$(cat "$work_tmp/err-example-null")"
 expect_status "24: the example Cursor coding entry (null id) cannot run" 2
+expect_err "24: the example Cursor refusal says unverified" "null model id (unverified)"
+out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path" \
+  FAKE_AGY_RECORD="$example_record" \
+  /bin/bash "$launcher" --lane review --as maintainer --dry-run -- run repo brief 2>"$work_tmp/err-example-null")"
+status=$?
+err="$(cat "$work_tmp/err-example-null")"
+expect_status "24: the example review lane (null Hydrogen id) exits 2" 2
 expect_err "24: the example Cursor refusal says the id is unverified" "null model id (unverified)"
 out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path" \
   /bin/bash "$launcher" --lane review --as bot --agent agy-api-key --dry-run -- x 2>"$work_tmp/err-example-off")"
