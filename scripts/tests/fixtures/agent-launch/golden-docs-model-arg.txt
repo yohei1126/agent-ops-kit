@@ -1,0 +1,28 @@
+EXIT=0
+ARGV
+--- ATTEMPT 1 ---
+--project
+@HOME@/agy-work/repo
+--model
+test-model-docs-arg
+--settings
+@INBOX@/docs-model-arg.settings.json
+-p
+Update the docs.
+END_ARGV
+CWD
+@HOME@
+END_CWD
+ENV
+AGY_LAUNCH_CHILD_MODE=1
+AGY_LAUNCH_STALL_SECONDS=0
+AGY_LAUNCH_USE_CAFFEINE=0
+END_ENV
+STDOUT
+AGY_PID=@PID@
+PID_FILE=@INBOX@/docs-model-arg.pid
+MODEL=test-model-docs-arg
+SETTINGS=@INBOX@/docs-model-arg.settings.json
+STDOUT_LOG=@INBOX@/docs-model-arg-stdout.log
+STDERR_LOG=@INBOX@/docs-model-arg-stderr.log
+END_STDOUT

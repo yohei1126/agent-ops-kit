@@ -1,0 +1,35 @@
+EXIT=0
+ARGV
+--- ATTEMPT 1 ---
+--project
+@RUN@/run-review-default
+--model
+gemini-4-argon-medium
+--settings
+@RUN@/run-review-default/settings.json
+--add-dir
+@RUN@/run-review-default
+--add-dir
+@HOME@/agy-work/repo
+--mode
+accept-edits
+--print
+Update the docs.
+END_ARGV
+CWD
+@RUN@/run-review-default
+END_CWD
+ENV
+AGY_LAUNCH_CHILD_MODE=1
+AGY_LAUNCH_STALL_SECONDS=0
+AGY_LAUNCH_USE_CAFFEINE=0
+END_ENV
+STDOUT
+AGY_PID=@PID@
+RUN_DIR=@RUN@/run-review-default
+SETTINGS=@RUN@/run-review-default/settings.json
+MODEL=gemini-4-argon-medium
+STDOUT_LOG=@RUN@/run-review-default/agy.log
+STDERR_LOG=@RUN@/run-review-default/agy.stderr.log
+PID_FILE=@RUN@/run-review-default/agy.pid
+END_STDOUT

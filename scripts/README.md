@@ -9,6 +9,21 @@ without widening Auto-review Allow lists or Antigravity permissions.
 See [`../docs/workstation-handoffs.md`](../docs/workstation-handoffs.md) for the
 full workstation handoff rules.
 
+## Choose agents and models from config
+
+Agent and model names live in `~/.config/agent-ops-kit/agents.json` (override
+with `AGENT_OPS_KIT_CONFIG`), not in shared scripts. Copy
+[`../templates/agent-config.example.json`](../templates/agent-config.example.json)
+and edit it. Each entry names an adapter under `scripts/agents/`, a display
+name, a provider, and whether a bot may launch it.
+
+Launches fail closed: a missing or invalid config, an unknown lane or agent, an
+unprovisioned entry, or a missing adapter exits 2 before anything starts.
+`who_can_launch` replaces a blanket rule per agent, so a maintainer-only seat
+stays unavailable to bots while a bot-allowed seat can serve both callers. Run
+`scripts/agent-launch.sh --help` for flags and for the lane and agent names in
+the loaded config.
+
 ## Run launch and collection in two workstation shell calls
 
 Write long briefs on the Grok box and `CopyFromBox` them into `$HOME/agy-inbox/`
@@ -129,10 +144,11 @@ signature and printed lines stay the same, plus a new `SETTINGS=` line.
 ## Shared launch retry
 
 [`agy-review-launch.sh`](agy-review-launch.sh) and
-[`agy-docs-launch.sh`](agy-docs-launch.sh) both source
-[`lib/agy-launch-run.sh`](lib/agy-launch-run.sh). The helper owns idle-sleep
-wrapping and the single automatic relaunch budget; that logic must not live
-in only one of the two launchers.
+[`agy-docs-launch.sh`](agy-docs-launch.sh) delegate to the agy adapter, which
+sources [`lib/launch-run.sh`](lib/launch-run.sh). The former
+[`lib/agy-launch-run.sh`](lib/agy-launch-run.sh) remains as a deprecated shim
+for one cycle. The helper owns idle-sleep wrapping and the single automatic
+relaunch budget; that logic must not live in an adapter.
 
 - On macOS (`uname -s` is `Darwin`), when `caffeinate` is on `PATH`, the
   helper holds an idle-sleep assertion with `caffeinate -i` for the lifetime

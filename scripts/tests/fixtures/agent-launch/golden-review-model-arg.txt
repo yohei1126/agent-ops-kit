@@ -1,0 +1,35 @@
+EXIT=0
+ARGV
+--- ATTEMPT 1 ---
+--project
+@RUN@/run-review-model-arg
+--model
+test-model-review-arg
+--settings
+@RUN@/run-review-model-arg/settings.json
+--add-dir
+@RUN@/run-review-model-arg
+--add-dir
+@HOME@/agy-work/repo
+--mode
+accept-edits
+--print
+Update the docs.
+END_ARGV
+CWD
+@RUN@/run-review-model-arg
+END_CWD
+ENV
+AGY_LAUNCH_CHILD_MODE=1
+AGY_LAUNCH_STALL_SECONDS=0
+AGY_LAUNCH_USE_CAFFEINE=0
+END_ENV
+STDOUT
+AGY_PID=@PID@
+RUN_DIR=@RUN@/run-review-model-arg
+SETTINGS=@RUN@/run-review-model-arg/settings.json
+MODEL=test-model-review-arg
+STDOUT_LOG=@RUN@/run-review-model-arg/agy.log
+STDERR_LOG=@RUN@/run-review-model-arg/agy.stderr.log
+PID_FILE=@RUN@/run-review-model-arg/agy.pid
+END_STDOUT

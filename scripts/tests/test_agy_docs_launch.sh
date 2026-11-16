@@ -41,9 +41,12 @@ printf 'Update the docs.\n' >"$brief"
 
 # Copy of the scripts tree; each failure fixture rewrites its template.
 copy_root="$work_tmp/kit"
-mkdir -p "$copy_root/scripts/lib" "$copy_root/scripts/templates"
+mkdir -p "$copy_root/scripts/lib" "$copy_root/scripts/templates" \
+  "$copy_root/scripts/agents/agy"
 cp "$repo_root/scripts/agy-docs-launch.sh" "$copy_root/scripts/"
+cp "$repo_root/scripts/agents/agy/run" "$copy_root/scripts/agents/agy/"
 cp "$repo_root/scripts/lib/agy-settings-check.sh" "$copy_root/scripts/lib/"
+cp "$repo_root/scripts/lib/launch-run.sh" "$copy_root/scripts/lib/"
 cp "$repo_root/scripts/lib/agy-launch-run.sh" "$copy_root/scripts/lib/"
 copy_template="$copy_root/scripts/templates/agy-docs-settings.json"
 

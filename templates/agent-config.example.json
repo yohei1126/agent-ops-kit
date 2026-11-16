@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "_comment": "Agent and model selection for agent-ops-kit. Copy to $HOME/.config/agent-ops-kit/agents.json and edit the entries and lanes for your environment. The adapter field names a directory under scripts/agents/.",
+  "agents": {
+    "agy-subscription": {
+      "adapter": "agy",
+      "display": "agy",
+      "provider": "Google",
+      "who_can_launch": "maintainer",
+      "provisioned": true,
+      "_comment": "Consumer subscription seat. The terms allow interactive use by the maintainer only, so bots never launch this entry."
+    },
+    "agy-api-key": {
+      "adapter": "agy",
+      "display": "agy",
+      "provider": "Google (Gemini API)",
+      "who_can_launch": "bot",
+      "provisioned": false,
+      "_comment": "Gemini API-key mode (pay as you go). Bots may launch it once an API key and a budget cap are provisioned. Neither exists yet, so agent-launch refuses this entry until provisioned is true."
+    },
+    "goat": {
+      "adapter": "goat",
+      "display": "Command Code",
+      "provider": "Command Code",
+      "who_can_launch": "bot",
+      "provisioned": true,
+      "_comment": "Adapter not shipped yet."
+    },
+    "opencode-fireworks": {
+      "adapter": "opencode",
+      "display": "OpenCode",
+      "provider": "Fireworks",
+      "who_can_launch": "bot",
+      "provisioned": true,
+      "_comment": "Adapter not shipped yet."
+    },
+    "codex": {
+      "adapter": "codex",
+      "display": "Codex CLI",
+      "provider": "OpenAI",
+      "who_can_launch": "maintainer",
+      "provisioned": true,
+      "_comment": "Adapter not shipped yet; bot launch is not confirmed under the plan terms."
+    },
+    "cursor": {
+      "adapter": "cursor",
+      "display": "Cursor",
+      "provider": "Cursor",
+      "who_can_launch": "maintainer",
+      "provisioned": true,
+      "_comment": "Shares quota with chat; keep last."
+    }
+  },
+  "lanes": {
+    "coding": {
+      "_comment": "The order is a sample to confirm with the maintainer.",
+      "entries": [
+        {
+          "agent": "agy-subscription",
+          "model": "gemini-4-hydrogen",
+          "model_name": "Gemini 4 Hydrogen"
+        },
+        {
+          "agent": "goat",
+          "model": "deepseek/deepseek-v4.1-flash",
+          "model_name": "DeepSeek V4.1 Flash"
+        },
+        {
+          "agent": "opencode-fireworks",
+          "model": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017",
+          "model_name": "DeepSeek V4.1 Flash"
+        },
+        {
+          "agent": "agy-api-key",
+          "model": "gemini-4-hydrogen",
+          "model_name": "Gemini 4 Hydrogen"
+        },
+        {
+          "agent": "cursor",
+          "model": "composer-2.5",
+          "model_name": "Composer 2.5"
+        }
+      ]
+    },
+    "docs": {
+      "entries": [
+        {
+          "agent": "agy-subscription",
+          "model": "gemini-3.8-flash-medium",
+          "model_name": "Gemini 3.8 Flash",
+          "mode": "docs"
+        },
+        {
+          "agent": "goat",
+          "model": "deepseek/deepseek-v4.1-flash",
+          "model_name": "DeepSeek V4.1 Flash"
+        },
+        {
+          "agent": "opencode-fireworks",
+          "model": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017",
+          "model_name": "DeepSeek V4.1 Flash"
+        }
+      ]
+    },
+    "review": {
+      "entries": [
+        {
+          "agent": "agy-subscription",
+          "model": "gemini-4-hydrogen",
+          "model_name": "Gemini 4 Hydrogen",
+          "mode": "review"
+        },
+        {
+          "agent": "goat",
+          "model": "moonshotai/Kimi-K3.1-Pro",
+          "model_name": "Kimi K3.1 Pro"
+        },
+        {
+          "agent": "agy-api-key",
+          "model": "gemini-4-hydrogen",
+          "model_name": "Gemini 4 Hydrogen",
+          "mode": "review"
+        },
+        {
+          "agent": "opencode-fireworks",
+          "model": "fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro",
+          "model_name": "Kimi K3.1 Pro"
+        }
+      ]
+    },
+    "security-review": {
+      "entries": [
+        {
+          "agent": "agy-subscription",
+          "model": "gemini-4-argon-medium",
+          "model_name": "Gemini 4 Argon",
+          "mode": "review"
+        },
+        {
+          "agent": "agy-api-key",
+          "model": "gemini-4-argon",
+          "model_name": "Gemini 4 Argon",
+          "mode": "review"
+        },
+        {
+          "agent": "opencode-fireworks",
+          "model": "fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro",
+          "model_name": "Kimi K3.1 Pro"
+        }
+      ]
+    }
+  }
+}
