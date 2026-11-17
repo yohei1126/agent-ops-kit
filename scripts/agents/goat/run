@@ -86,6 +86,42 @@ Environment:
 
 A timeout wrapper is used only when timeout or gtimeout is on PATH;
 otherwise the agent runs without a timeout and a note goes to stderr.
+
+Patch checks:
+  Paths come from git apply --numstat after prefix stripping. Headers
+  must use plain a/ and b/ prefixes with no quoted paths. The adapter
+  refuses an absolute path, a . or .. component, .git or .commandcode
+  in any letter case, a symlink, or a submodule, then runs git apply
+  --check before git apply. New files are marked intent-to-add (the
+  path only, no content staged). Named checks run from a copy of the
+  kit taken before the apply, under a throwaway HOME and a PATH of
+  system folders plus the git and jq found before the run.
+
+Write mode:
+  Scopes are literal repository-relative paths (glob characters are
+  refused). A scope matches that path or a child of it, not a sibling
+  prefix (docs does not admit docsx). Generated deny rules cover
+  Shell, web fetches, every MCP tool, edits to .git and .commandcode,
+  reads and edits of the worktree git directories (absolute // rules),
+  edits of hidden files and folders, bin, and Library in the caller's
+  home, edits of /usr/local and /opt/homebrew, and reads of every
+  hidden file and folder and of Library in the caller's home. A kit
+  test fails if any other script passes --yolo. After the run the
+  adapter uses only system tools and calls git with fsmonitor and
+  hooks off.
+
+Exit codes:
+  0  ok
+  1  agent, apply-gate, or scope failure
+  2  usage, validation, or refusal (nothing is applied)
+
+The API key is never printed. --dry-run shows it as <set> or <missing>.
+On an agent failure, a redacted stderr tail is printed (the key value
+is replaced by <redacted>). Patch or review output that contains the
+key is refused without being printed.
+
+GOAT_MODEL_LINE, when unset, becomes "<model-id> (Command Code / GOAT)".
+The adapter reads it from the environment and does not export it.
 EOF
 }
 
