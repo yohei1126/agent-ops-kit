@@ -293,6 +293,9 @@ expect_out "1: help prints usage" "Usage:"
 expect_out "1: help is generated from the flag table" "--lane <lane>"
 expect_out "1: help appends lane names from the config" "mix"
 expect_out "1: help appends agent names from the config" "bot-agent"
+expect_out "1: help lists --pr for the preflight" "--pr <number>"
+expect_out "1: help lists --expect-head for the preflight" "--expect-head <sha>"
+expect_out "1: help describes the review-ready preflight" "preflight"
 
 TEST_CONFIG="$valid_config"
 run_launch help-config --config "$valid_config" --help

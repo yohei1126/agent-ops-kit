@@ -169,8 +169,11 @@ row_issue_maintainer() {
 }
 
 row_adapter_entry() {
+  # docs, not security-review: the review lanes now have a review-ready
+  # preflight that needs --pr and --expect-head. This row only checks that
+  # adapter positionals keep their spaces and leading dash.
   run_case "$BASH" "$scripts/agent-launch.sh" --config "$example_config" \
-    --lane security-review --as maintainer --agent agy-subscription --dry-run -- \
+    --lane docs --as maintainer --agent agy-subscription --dry-run -- \
     run-a "$home/agy-work/repo two" "$home/agy-work/-brief one.md"
   expect_status "entry point (adapter): dry-run exits 0" 0
   if parse_field COMMAND; then

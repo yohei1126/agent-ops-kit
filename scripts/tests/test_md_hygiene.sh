@@ -336,7 +336,7 @@ printf '== invocation ==\n'
 
 run_gate "$repo_root" bash "$gate" --check no-such
 expect_status "I1: unknown check exits 2" 2
-expect_err "I1: unknown check lists the implemented ids" "unknown check: no-such (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, model-ids, pr-state, deploy-hash)"
+expect_err "I1: unknown check lists the implemented ids" "unknown check: no-such (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash)"
 
 run_gate "$repo_root" bash "$gate" --help
 expect_status "I2: --help exits 0" 0

@@ -100,12 +100,17 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
-  `prose-dashes`, `md-links`, `model-ids`, `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
-  message that the check is not implemented. Later checks will be added under
-  the same flag.
+  `prose-dashes`, `md-links`, `model-ids`, `pr-state`, `review-ready`,
+  `review-citations`, and `deploy-hash`. Why the two review gates exist is
+  in [`REVIEW-GATES.md`](REVIEW-GATES.md). Their flags, rows, and exit
+  codes are in `scripts/dev-loop-gate.sh --check review-ready --help` and
+  `--check review-citations --help`. Other ids, including `all`, exit 2
+  with a message that the check is not implemented. Later checks will be
+  added under the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
   row is printed but the exit code stays 0, the same advisory spirit as G2 to
-  G7. `npm-ci` and `node-pin` are the exceptions: their FAIL always exits 1.
+  G7. `npm-ci`, `node-pin`, `review-ready`, and `review-citations` are the
+  exceptions: their FAIL always exits 1.
 - `--repo <root>` points the check at any git work tree. The default is the
   work tree of the current directory. All git calls run with `git -C`. Passing
   `--repo` with something that is not a git work tree exits 2.
@@ -122,8 +127,8 @@ Exit codes:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci and node-pin are never advisory) |
-| 1 | FAIL under `--strict`, or a hard preflight miss: G1, npm-ci, or node-pin, including `--check npm-ci` and `--check node-pin` |
+| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci, node-pin, review-ready, and review-citations are never advisory) |
+| 1 | FAIL under `--strict`, a hard preflight miss: G1, npm-ci, or node-pin, including `--check npm-ci` and `--check node-pin`, or any FAIL from `review-ready` or `review-citations` |
 | 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
 | 3 | A required command is missing (`git`, `jq`, `gh`, or `curl`), `gh` fails or its output is not pull request JSON, or the deploy-hash library cannot be read |
 
@@ -157,8 +162,9 @@ even without `--strict`, the same hard-preflight spirit as G1. The default G1
 to G7 table runs this rule as an `NM` row on every run, with a root that falls
 back to the current directory when git cannot resolve a work tree. A FAIL there
 also exits 1 without `--strict`. The other named checks do not run it, so
-`line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `model-ids`, `pr-state`, and
-`deploy-hash` keep their own exit rules.
+`line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `model-ids`, `pr-state`,
+`deploy-hash`, `review-ready`, and `review-citations` keep their own exit
+rules.
 
 ### node-pin
 
