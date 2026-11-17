@@ -44,6 +44,7 @@ pr <number>|Pull request under review; required when the lane has a preflight
 expect-head <sha>|Head SHA under review (7+ hex); required when the lane has a preflight
 checkout <dir>|Checkout of that head for the preflight (default: the current directory)
 test-log <path>|Test log whose tail goes into the preflight evidence
+gh-repo <owner/repo>|Repository of that pull request for the preflight (default: gh infers it from the checkout)
 dry-run|Print the selection and the exact command instead of launching; for an issue hand-off entry, the agent-task-issue.sh command
 validate|Validate the config, including entry modes against installed adapters, and exit
 list|List lane and agent names from the config
@@ -207,6 +208,7 @@ review_pr=""
 review_head=""
 review_checkout=""
 review_test_log=""
+review_gh_repo=""
 do_validate=0
 do_list=0
 do_help=0
@@ -255,6 +257,7 @@ while [ "$#" -gt 0 ]; do
         expect-head) review_head="$value" ;;
         checkout) review_checkout="$value" ;;
         test-log) review_test_log="$value" ;;
+        gh-repo) review_gh_repo="$value" ;;
         dry-run) dry_run=1 ;;
         validate) do_validate=1 ;;
         list) do_list=1 ;;
@@ -448,7 +451,9 @@ fi
 # A lane with a preflight (review lanes) is fail-closed: the adapter starts,
 # or prints its command, only when CI and the named checks are green for the
 # exact head under review. The evidence file reaches the adapter through
-# AGENT_LAUNCH_EVIDENCE so the brief carries the machine results.
+# AGENT_LAUNCH_EVIDENCE so the brief carries the machine results. On PASS the
+# evidence folder stays in TMPDIR after the launch, as a record of what the
+# review was told; the launcher execs the adapter and cannot clean it up.
 preflight="$(agent_config_lane_preflight "$lane")"
 if [ -n "$preflight" ]; then
   if [ -z "$review_pr" ] || [ -z "$review_head" ]; then
@@ -461,6 +466,9 @@ if [ -n "$preflight" ]; then
     --repo "${review_checkout:-$PWD}" --evidence-out "$evidence_file"
   if [ -n "$review_test_log" ]; then
     set -- "$@" --test-log "$review_test_log"
+  fi
+  if [ -n "$review_gh_repo" ]; then
+    set -- "$@" --gh-repo "$review_gh_repo"
   fi
   preflight_status=0
   "$gate" "$@" >&2 || preflight_status=$?

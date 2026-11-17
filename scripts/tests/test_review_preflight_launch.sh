@@ -28,7 +28,9 @@ exit 99
 SH
 cat >"$fake_bin/gh" <<'SH'
 #!/bin/sh
-# Serves the fixture JSON named by FAKE_GH_JSON for `gh pr view`.
+# Serves the fixture JSON named by FAKE_GH_JSON for `gh pr view` and records
+# its arguments in $HOME/gh.argv.
+printf '%s\n' "$*" >>"$HOME/gh.argv"
 cat "$FAKE_GH_JSON"
 SH
 chmod +x "$fake_bin/agy" "$fake_bin/gh"
@@ -160,6 +162,14 @@ if [ -n "$evidence" ] && [ -f "$evidence" ]; then
 else
   bad "4: evidence file exists" "EVIDENCE=$evidence"
 fi
+
+# 4b. --gh-repo reaches gh as -R.
+: >"$home/gh.argv"
+launch "$green" --lane review --as maintainer --dry-run --pr 7 \
+  --expect-head "$head_sha" --checkout "$checkout" --gh-repo example-org/example-repo \
+  "${adapter_args[@]}"
+expect_status "4b: dry-run with --gh-repo exits 0" 0
+expect_text "4b: gh reads the named repository" "$(cat "$home/gh.argv")" "-R example-org/example-repo"
 
 # 5. Green: the adapter appends the evidence to the run brief once.
 launch "$green" --lane review --as maintainer --pr 7 --expect-head "$head_sha" \

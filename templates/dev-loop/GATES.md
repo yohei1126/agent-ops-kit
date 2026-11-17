@@ -106,7 +106,8 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
   implemented. Later checks will be added under the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
   row is printed but the exit code stays 0, the same advisory spirit as G2 to
-  G7. `npm-ci` and `node-pin` are the exceptions: their FAIL always exits 1.
+  G7. `npm-ci`, `node-pin`, `review-ready`, and `review-citations` are the
+  exceptions: their FAIL always exits 1.
 - `--repo <root>` points the check at any git work tree. The default is the
   work tree of the current directory. All git calls run with `git -C`. Passing
   `--repo` with something that is not a git work tree exits 2.
@@ -158,8 +159,8 @@ even without `--strict`, the same hard-preflight spirit as G1. The default G1
 to G7 table runs this rule as an `NM` row on every run, with a root that falls
 back to the current directory when git cannot resolve a work tree. A FAIL there
 also exits 1 without `--strict`. The other named checks do not run it, so
-`line-cap`, `docs-sweep`, `pr-state`, and `deploy-hash` keep their own exit
-rules.
+`line-cap`, `docs-sweep`, `pr-state`, `deploy-hash`, `review-ready`, and
+`review-citations` keep their own exit rules.
 
 ### node-pin
 

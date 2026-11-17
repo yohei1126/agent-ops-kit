@@ -147,8 +147,8 @@ cat > "$work_tmp/trailing.md" <<'MD'
 See a/long.sh:173-196,420 for the block.
 MD
 run_gate --check review-citations --repo "$dir" --comment "$work_tmp/trailing.md" --expect-head "$sha"
-expect_status "8: text after the range is ignored" 0
-expect_out "8: range checked" "1 citations, 0 bad"
+expect_status "8: a comma list checks every line" 1
+expect_out "8: the trailing line is checked, not dropped" "line 420 is past the end"
 
 cat > "$work_tmp/noeol-ok.md" <<'MD'
 See a/noeol.sh:2.
@@ -177,6 +177,42 @@ MD
 run_gate --check review-citations --repo "$dir" --comment "$work_tmp/empty.md" --expect-head "$sha"
 expect_status "14: zero citations pass" 0
 expect_out "14: zero citation summary" "0 citations; nothing to check"
+
+# 15. Tracked root files without a dot are citations; prose is not.
+rootdir="$(make_repo)"
+printf 'all:\n\ttrue\n' >"$rootdir/Makefile"
+printf 'node_modules\n' >"$rootdir/.gitignore"
+git -C "$rootdir" add Makefile .gitignore
+git -C "$rootdir" -c user.name=t -c user.email=t@example.invalid commit -q -m root
+rootsha="$(git -C "$rootdir" rev-parse HEAD)"
+cat >"$work_tmp/root.md" <<'MD'
+See Makefile:2 and .gitignore:1, step:1, and example.com:443.
+MD
+run_gate --check review-citations --repo "$rootdir" --comment "$work_tmp/root.md" --expect-head "$rootsha"
+expect_status "15: tracked root files pass" 0
+expect_out "15: two citations counted, prose skipped" "2 citations, 0 bad"
+cat >"$work_tmp/root-bad.md" <<'MD'
+See Makefile:9 and missing.sh:3.
+MD
+run_gate --check review-citations --repo "$rootdir" --comment "$work_tmp/root-bad.md" --expect-head "$rootsha"
+expect_status "15: a bad root citation fails" 1
+expect_out "15: Makefile past the end" "Makefile:9: line 9 is past the end"
+expect_out "15: an untracked script name fails" "missing.sh:3: not a tracked file"
+
+# 16. Column suffix, comma lists, and uppercase or short heads.
+cat >"$work_tmp/col.md" <<'MD'
+See a/b.sh:2:5 and a/b.sh:1,3-4.
+MD
+run_gate --check review-citations --repo "$dir" --comment "$work_tmp/col.md" --expect-head "$sha"
+expect_status "16: column suffix and a comma list pass" 0
+expect_out "16: both counted" "2 citations, 0 bad"
+upper="$(printf '%s' "$sha" | tr 'a-f' 'A-F')"
+run_gate --check review-citations --repo "$dir" --comment "$work_tmp/col.md" --expect-head "$upper"
+expect_status "16: an uppercase head matches" 0
+run_gate --check review-citations --repo "$dir" --comment "$work_tmp/col.md" --expect-head abc
+expect_status "16: a head shorter than 7 exits 2" 2
+run_gate --check review-citations --repo "$dir" --comment "$work_tmp/col.md" --expect-head zzzzzzz
+expect_status "16: a non-hex head exits 2" 2
 
 printf 'review-citations tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then

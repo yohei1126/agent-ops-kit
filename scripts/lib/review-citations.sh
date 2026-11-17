@@ -10,7 +10,7 @@ comment_arg="${comment_arg:-}"
 
 run_review_citations() {
   local head_sha short text count bad
-  local word path cite start end lines
+  local word path cite start end lines specs spec
   local lead_chars trail_chars cite_re words
 
   if [ -z "$comment_arg" ]; then
@@ -21,6 +21,17 @@ run_review_citations() {
     printf 'dev-loop-gate: --expect-head is required for review-citations\n' >&2
     exit 2
   fi
+  case "$expect_head_arg" in
+    *[!0-9a-fA-F]*)
+      printf 'dev-loop-gate: --expect-head must be a hex SHA prefix\n' >&2
+      exit 2
+      ;;
+  esac
+  if [ "${#expect_head_arg}" -lt 7 ]; then
+    printf 'dev-loop-gate: --expect-head needs at least 7 characters\n' >&2
+    exit 2
+  fi
+  expect_head_arg="$(printf '%s' "$expect_head_arg" | tr 'A-F' 'a-f')"
   if [ ! -f "$comment_arg" ] || [ ! -r "$comment_arg" ]; then
     printf 'dev-loop-gate: cannot read --comment file: %s\n' "$comment_arg" >&2
     exit 2
@@ -39,7 +50,10 @@ run_review_citations() {
   text="$(cat "$comment_arg")"
   lead_chars='`([{"'\''<'
   trail_chars=']`)}"'\''>.,;:!?'
-  cite_re='^(([A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+)(:L?([0-9]+)(-L?([0-9]+))?|#L([0-9]+)(-L?([0-9]+))?)'
+  # path:N, path:N-M, path:LN-LM, comma lists (path:3,9-12), an optional
+  # :column suffix, and path#LN or path#LN-LM. Anchored at both ends, so a
+  # trailing ,420 is checked as its own line, not dropped.
+  cite_re='^(([A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+)(:(L?[0-9]+(-L?[0-9]+)?(,L?[0-9]+(-L?[0-9]+)?)*)(:[0-9]+)?|#(L[0-9]+(-L?[0-9]+)?))$'
 
   # shellcheck disable=SC2016
   words="$(printf '%s\n' "$text" | awk -v lead="$lead_chars" -v trail="$trail_chars" '
@@ -65,50 +79,59 @@ run_review_citations() {
     fi
     path="${BASH_REMATCH[1]}"
     cite="${BASH_REMATCH[0]}"
-    case "$path" in
-      */*) ;;
-      ?*.*) ;;
-      *) continue ;;
-    esac
-    count=$((count + 1))
-    if [ -n "${BASH_REMATCH[4]}" ]; then
-      start="${BASH_REMATCH[4]}"
-      end="${BASH_REMATCH[6]}"
-    else
-      start="${BASH_REMATCH[7]}"
-      end="${BASH_REMATCH[9]}"
+    specs="${BASH_REMATCH[4]}"
+    if [ -z "$specs" ]; then
+      specs="${BASH_REMATCH[9]}"
     fi
-    start=$((10#$start))
-    if [ -n "$end" ]; then
-      end=$((10#$end))
-    fi
+    # A tracked file at HEAD is a citation whatever its name (Makefile:3,
+    # .gitignore:2). An untracked word is one only when it looks like a path:
+    # it has a slash or a source or doc extension. Anything else (host:port,
+    # step:1) is prose.
     if [ "$(git -C "$repo" cat-file -t "HEAD:$path" 2>/dev/null)" != blob ]; then
-      row RC "$cite" FAIL "$cite: not a tracked file at $short; cite a path that exists in the PR head"
-      bad=$((bad + 1))
+      case "$path" in
+        */* | *.sh | *.bash | *.md | *.json | *.yml | *.yaml | *.toml | *.txt | \
+          *.js | *.mjs | *.cjs | *.ts | *.tsx | *.jsx | *.py | *.go | *.rs | \
+          *.html | *.css)
+          count=$((count + 1))
+          row RC "$cite" FAIL "$cite: not a tracked file at $short; cite a path that exists in the PR head"
+          bad=$((bad + 1))
+          ;;
+      esac
       continue
     fi
+    count=$((count + 1))
     lines="$(git -C "$repo" show "HEAD:$path" 2>/dev/null | awk 'END{print NR}')"
-    case "$lines" in ''|*[!0-9]*) lines=0 ;; esac
-    if [ "$start" -eq 0 ]; then
-      row RC "$cite" FAIL "$cite: line 0 is not a valid line; cite a line that exists or drop the line number"
-      bad=$((bad + 1))
-      continue
-    fi
-    if [ -n "$end" ] && [ "$end" -lt "$start" ]; then
-      row RC "$cite" FAIL "$cite: reversed range; write the lower line first"
-      bad=$((bad + 1))
-      continue
-    fi
-    if [ "$start" -gt "$lines" ]; then
-      row RC "$cite" FAIL "$cite: line $start is past the end ($lines lines at $short); cite a line that exists or drop the line number"
-      bad=$((bad + 1))
-      continue
-    fi
-    if [ -n "$end" ] && [ "$end" -gt "$lines" ]; then
-      row RC "$cite" FAIL "$cite: line $end is past the end ($lines lines at $short); cite a line that exists or drop the line number"
-      bad=$((bad + 1))
-      continue
-    fi
+    case "$lines" in '' | *[!0-9]*) lines=0 ;; esac
+    specs="${specs//L/}"
+    for spec in ${specs//,/ }; do
+      start="${spec%%-*}"
+      end=""
+      case "$spec" in
+        *-*) end="${spec#*-}" ;;
+      esac
+      start=$((10#$start))
+      if [ -n "$end" ]; then
+        end=$((10#$end))
+      fi
+      if [ "$start" -eq 0 ]; then
+        row RC "$cite" FAIL "$cite: line 0 is not a valid line; cite a line that exists or drop the line number"
+        bad=$((bad + 1))
+        break
+      fi
+      if [ -n "$end" ] && [ "$end" -lt "$start" ]; then
+        row RC "$cite" FAIL "$cite: reversed range; write the lower line first"
+        bad=$((bad + 1))
+        break
+      fi
+      if [ -n "$end" ] && [ "$end" -gt "$start" ]; then
+        start="$end"
+      fi
+      if [ "$start" -gt "$lines" ]; then
+        row RC "$cite" FAIL "$cite: line $start is past the end ($lines lines at $short); cite a line that exists or drop the line number"
+        bad=$((bad + 1))
+        break
+      fi
+    done
   done <<EOF
 $words
 EOF

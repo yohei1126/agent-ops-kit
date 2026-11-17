@@ -153,8 +153,23 @@ out="$(DEV_LOOP_REVIEW_READY_CHECKS="line-cap no-such-check" PATH="$stub_bin:$PA
   FAKE_GH_JSON="$work_tmp/green.json" FAKE_GH_ARGV="$work_tmp/gh.argv" \
   "$gate" --check review-ready --repo "$checkout" --pr 7 --expect-head "$short" 2>/dev/null)"
 status=$?
-expect_status "5: an unknown check id does not fail" 0
-expect_text "5: unknown id is SKIP" "$out" "not in this kit version"
+expect_status "5: an unknown id set by the caller fails" 1
+expect_text "5: names the unknown id" "$out" "no-such-check failed"
+out="$(PATH="$stub_bin:$PATH" FAKE_GH_JSON="$work_tmp/green.json" FAKE_GH_ARGV="$work_tmp/gh.argv" \
+  "$gate" --check review-ready --repo "$checkout" --pr 7 --expect-head "$short" 2>/dev/null)"
+status=$?
+expect_status "5: default ids not in this kit do not fail" 0
+expect_text "5: a missing default id is SKIP" "$out" "not in this kit version"
+
+# 5b. Uncommitted edits to tracked files fail the checkout row.
+printf 'edited\n' >>"$checkout/README.md"
+rr green --expect-head "$short"
+expect_status "5b: a dirty checkout exits 1" 1
+expect_text "5b: says why" "$out" "uncommitted changes to tracked files"
+git -C "$checkout" checkout -q -- README.md
+upper="$(printf '%s' "$short" | tr 'a-f' 'A-F')"
+rr green --expect-head "$upper"
+expect_status "5b: an uppercase head matches" 0
 
 # 6. Evidence on PASS only.
 evidence="$work_tmp/evidence.md"

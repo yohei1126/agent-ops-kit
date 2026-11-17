@@ -17,9 +17,12 @@ gh_repo_arg="${gh_repo_arg:-}"
 test_log_arg="${test_log_arg:-}"
 evidence_out_arg="${evidence_out_arg:-}"
 
-# Offline named checks the review needs. An id this kit version does not
-# implement is a SKIP row, so the list can name checks from other branches.
-review_ready_checks="${DEV_LOOP_REVIEW_READY_CHECKS:-line-cap docs-sweep prose-dashes md-links model-ids}"
+# Offline named checks the review needs. A default id this kit version does
+# not implement yet is a SKIP row, so the list can name checks that land in
+# other changes. An id set through DEV_LOOP_REVIEW_READY_CHECKS must exist:
+# a typo there is a FAIL, never a silent skip.
+review_ready_default_checks="line-cap docs-sweep prose-dashes md-links model-ids"
+review_ready_checks="${DEV_LOOP_REVIEW_READY_CHECKS:-$review_ready_default_checks}"
 
 # Prints "<STATE>\t<action>\t<names>" for the statusCheckRollup.
 # shellcheck disable=SC2016 # a jq program, not shell expansions
@@ -81,6 +84,7 @@ run_review_ready() {
     printf 'dev-loop-gate: --expect-head needs at least 7 characters\n' >&2
     exit 2
   fi
+  expect="$(printf '%s' "$expect" | tr 'A-F' 'a-f')"
   if [ -n "$gh_repo_arg" ] && ! [[ "$gh_repo_arg" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
     printf 'dev-loop-gate: --gh-repo must be owner/repo: %s\n' "$gh_repo_arg" >&2
     exit 2
@@ -140,7 +144,16 @@ EOF_CI
     esac
     local_head="$(git -C "$repo" rev-parse HEAD 2>/dev/null || printf 'none')"
     case "$local_head" in
-      "$expect"*) row RR checkout PASS "${local_head:0:12}" ;;
+      "$expect"*)
+        # The named checks read the work tree, so local edits to tracked
+        # files could make them pass for a head that would fail.
+        if git -C "$repo" diff --quiet HEAD -- 2>/dev/null; then
+          row RR checkout PASS "${local_head:0:12}"
+        else
+          row RR checkout FAIL "uncommitted changes to tracked files; stash or commit them so the checks see the PR head"
+          fails=$((fails + 1))
+        fi
+        ;;
       *)
         row RR checkout FAIL "checkout is at ${local_head:0:12}; check out the PR head before review"
         fails=$((fails + 1))
@@ -156,7 +169,8 @@ EOF_CI
         >/dev/null 2>"$err_file" || status=$?
       if [ "$status" -eq 0 ]; then
         row RR "$id" PASS "Continue."
-      elif [ "$status" -eq 2 ] && grep -q 'unknown check' "$err_file"; then
+      elif [ "$status" -eq 2 ] && grep -q 'unknown check' "$err_file" &&
+        [ -z "${DEV_LOOP_REVIEW_READY_CHECKS:-}" ]; then
         row RR "$id" SKIP "not in this kit version"
       else
         row RR "$id" FAIL "$id failed; run scripts/dev-loop-gate.sh --strict --check $id and fix the rows"

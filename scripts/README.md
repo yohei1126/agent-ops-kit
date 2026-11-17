@@ -213,8 +213,11 @@ that fails when `package-lock.json` sits beside a missing `node_modules`;
 local Node major or a workflow departs from the `.nvmrc` or `engines.node`
 pin; `--check node-pin` runs that rule alone. The script also runs a `pr-state`
 check that reads one pull request through `gh`, and a `deploy-hash` check that
-waits for a deployed asset to change. `pr-state` and `deploy-hash` are the
-networked paths. See
+waits for a deployed asset to change. `pr-state`, `review-ready`, and
+`deploy-hash` are the networked paths. The `review-ready` and
+`review-citations` gates guard the model review loop; see
+[`../templates/dev-loop/REVIEW-GATES.md`](../templates/dev-loop/REVIEW-GATES.md).
+See
 [`../templates/dev-loop/GATES.md`](../templates/dev-loop/GATES.md#named-checks).
 
 [`dependabot-red-prs.sh`](dependabot-red-prs.sh) is the read-only weekly

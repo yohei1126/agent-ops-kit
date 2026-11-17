@@ -32,10 +32,13 @@ scripts/dev-loop-gate.sh --check review-ready --pr <n> --expect-head <sha> \
 | `review-ready` | No row failed | Number of failed rows |
 
 No reported checks is a FAIL: wait for CI before review. A `STALE` or any
-other conclusion counts as failing. The named checks default to
-`line-cap docs-sweep prose-dashes md-links model-ids`;
-`DEV_LOOP_REVIEW_READY_CHECKS` overrides the list. An id this kit version does
-not implement is a `SKIP` row, so the list can name checks that land later.
+other conclusion counts as failing. The `checkout` row also fails when tracked
+files have uncommitted changes, because the named checks read the work tree.
+The named checks default to `line-cap docs-sweep prose-dashes md-links
+model-ids`; a default id this kit version does not implement yet is a `SKIP`
+row, so the list can name checks that land later. `DEV_LOOP_REVIEW_READY_CHECKS`
+overrides the list, and there an unknown id is a FAIL, so a typo never turns a
+check off.
 
 On PASS, `--evidence-out <path>` gets a `## Machine evidence (settled; do not
 re-check)` block: the full head SHA, each CI check with its conclusion, the
@@ -53,11 +56,13 @@ accepted value). [`../../scripts/agent-launch.sh`](../../scripts/agent-launch.sh
 then requires `--pr <n>` and `--expect-head <sha>` for that lane (missing:
 exit 2) and runs the check before any agent starts, with `--repo` set to
 `--checkout <path>` or the current directory and `--test-log <path>` passed
-through. A FAIL exits 1 with `no agent started`. On PASS the evidence path is
+through, and `--gh-repo <owner/repo>` when the pull request lives in another
+repository than the checkout's remote. A FAIL exits 1 with `no agent started`. On PASS the evidence path is
 exported as `AGENT_LAUNCH_EVIDENCE`, and the agy adapter appends the block to
 the run's `BRIEF.md` once, so the reviewer reads the settled facts instead of
 re-checking them. `--dry-run` runs the preflight and prints
-`PREFLIGHT=review-ready PASS` and `EVIDENCE=<path>`. The example config sets
+`PREFLIGHT=review-ready PASS` and `EVIDENCE=<path>`. The evidence folder stays
+in `TMPDIR` after a PASS as a record of what the review was told. The example config sets
 the preflight on the `review` and `security-review` lanes.
 
 ## review-citations
@@ -68,7 +73,12 @@ scripts/dev-loop-gate.sh --check review-citations --comment <file> \
 ```
 
 The check reads the comment file and finds citations of the forms `path:N`,
-`path:N-M`, `path:LN-LM`, and `path#LN-LM`. URLs are skipped. `--repo` must be
+`path:N-M`, `path:LN-LM`, comma lists such as `path:3,9-12` (each line is
+checked), an optional `:column` suffix, and `path#LN-LM`. URLs are skipped. A
+file tracked at HEAD is a citation whatever its name (`Makefile:3`,
+`.gitignore:2`). An untracked word counts only when it looks like a path, with
+a slash or a source or doc extension such as `.sh` or `.md`; other words such
+as `host:443` are prose. `--repo` must be
 checked out at `--expect-head`, so the citations are resolved against the head
 the review saw. Each bad citation prints one `RC` FAIL row, and a summary row
 counts all of them:
@@ -83,4 +93,5 @@ counts all of them:
 Line counts come from `git show HEAD:<path>`, not the work tree, so local edits
 do not change the result. A comment with no citations passes with one row
 saying so. Any FAIL exits 1, and so does a checkout at another head. A missing
-or unreadable comment file, or a missing `--expect-head`, exits 2.
+or unreadable comment file, or a missing, non-hex, or shorter than 7
+`--expect-head`, exits 2. Hex case does not matter.
