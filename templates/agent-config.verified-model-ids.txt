@@ -1,0 +1,12 @@
+# Verified model ids for templates/agent-config.example.json.
+# One exact id per line, as the adapter passes it. Blank lines and lines
+# starting with # are ignored.
+#
+# Add an id only after a run record or the vendor's model list confirms the
+# exact string. Until then, set the lane entry's model to null and put a TODO
+# in its _comment. scripts/dev-loop-gate.sh --check model-ids enforces this.
+deepseek/deepseek-v4.1-flash
+fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017
+fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro
+gemini-3.8-flash-medium
+gemini-4-argon-medium

@@ -150,7 +150,7 @@ out="$(jq -r '.lanes.coding.entries[1].mode' "$example")"
 expect_eq "5: the coding agy entry is an issue hand-off" "$out" "issue"
 out="$(jq -r '[.lanes[].entries[] | select(.model == null) | .model_name] | join(",")' "$example")"
 expect_eq "5: only the unverified ids are null" "$out" \
-  "Gemini 4 Hydrogen,GPT-6 Luna,Composer 2.5,Gemini 4 Hydrogen,Gemini 4 Hydrogen,Claude Opus 5.5 High"
+  "Gemini 4 Hydrogen,GPT-6 Luna,Composer 2.5,Gemini 4 Hydrogen,Kimi K3.1 Pro,Gemini 4 Hydrogen,Claude Opus 5.5 High,Kimi K3.1 Pro"
 # Ids with a run record, as corrected by the ops lane.
 out="$(jq -r '[.lanes.docs.entries[] | select(.agent == "agy-subscription") | .model] | join(",")' "$example")"
 expect_eq "5: the docs agy id is the one the launcher ran" "$out" "gemini-3.8-flash-medium"
