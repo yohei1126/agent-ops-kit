@@ -18,13 +18,23 @@ usage() {
     '  --config <path>  Gate config JSON. Default: templates/dev-loop/gate.config.json' \
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
-    '  --check <id>     Run one named check. line-cap, npm-ci, node-pin, docs-sweep, pr-state, and deploy-hash are implemented.' \
+    '  --check <id>     Run one named check. line-cap, npm-ci, node-pin, docs-sweep,' \
+    '                   pr-state, review-ready, review-citations, and deploy-hash' \
+    '                   are implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
     '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
     '  --expect-head <sha> Expected head SHA prefix for pr-state, 7 or more' \
     '                   characters. Env: DEV_LOOP_EXPECT_HEAD.' \
     '  -h, --help       Show this help.' \
+    '' \
+    'Review gates (fail closed: any FAIL exits 1, with or without --strict):' \
+    '  --check review-ready --pr <n> --expect-head <sha> [--gh-repo <slug>]' \
+    '      [--test-log <path>] [--evidence-out <path>]' \
+    '                   CI green and named checks passing for that head; on PASS' \
+    '                   --evidence-out gets the evidence block for the review brief.' \
+    '  --check review-citations --comment <file> --expect-head <sha>' \
+    '                   Every path:line citation in the comment resolves at HEAD.' \
     '' \
     'deploy-hash options (only with --check deploy-hash):' \
     '  --url <URL>             Page URL. Must start with https:// or http://.' \
@@ -51,6 +61,10 @@ pr_number_arg=""
 gh_repo_arg=""
 expect_head_arg=""
 pr_flags_used=0
+comment_arg=""
+test_log_arg=""
+evidence_out_arg=""
+review_flags_used=""
 have_pr_flag=0
 have_gh_repo_flag=0
 have_expect_head_flag=0
@@ -257,6 +271,60 @@ while [ $# -gt 0 ]; do
       strict=1
       shift
       ;;
+    --comment)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        printf 'dev-loop-gate: --comment needs a path\n' >&2
+        exit 2
+      fi
+      comment_arg="$2"
+      review_flags_used="$review_flags_used comment"
+      shift 2
+      ;;
+    --comment=*)
+      comment_arg="${1#--comment=}"
+      if [ -z "$comment_arg" ]; then
+        printf 'dev-loop-gate: --comment needs a path\n' >&2
+        exit 2
+      fi
+      review_flags_used="$review_flags_used comment"
+      shift
+      ;;
+    --test-log)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        printf 'dev-loop-gate: --test-log needs a path\n' >&2
+        exit 2
+      fi
+      test_log_arg="$2"
+      review_flags_used="$review_flags_used test-log"
+      shift 2
+      ;;
+    --test-log=*)
+      test_log_arg="${1#--test-log=}"
+      if [ -z "$test_log_arg" ]; then
+        printf 'dev-loop-gate: --test-log needs a path\n' >&2
+        exit 2
+      fi
+      review_flags_used="$review_flags_used test-log"
+      shift
+      ;;
+    --evidence-out)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        printf 'dev-loop-gate: --evidence-out needs a path\n' >&2
+        exit 2
+      fi
+      evidence_out_arg="$2"
+      review_flags_used="$review_flags_used evidence-out"
+      shift 2
+      ;;
+    --evidence-out=*)
+      evidence_out_arg="${1#--evidence-out=}"
+      if [ -z "$evidence_out_arg" ]; then
+        printf 'dev-loop-gate: --evidence-out needs a path\n' >&2
+        exit 2
+      fi
+      review_flags_used="$review_flags_used evidence-out"
+      shift
+      ;;
     --pr)
       if [ $# -lt 2 ]; then
         printf 'dev-loop-gate: --pr needs a number\n' >&2
@@ -329,11 +397,36 @@ if [ "$have_deploy_hash_flag" = 1 ]; then
   fi
 fi
 
-if [ "$pr_flags_used" = 1 ] && [ "$check_id" != "pr-state" ]; then
-  printf 'dev-loop-gate: --pr, --gh-repo, and --expect-head need --check pr-state\n' >&2
-  usage >&2
-  exit 2
+if [ "$pr_flags_used" = 1 ]; then
+  case "$check_id" in
+    pr-state | review-ready) ;;
+    review-citations)
+      if [ "$have_pr_flag" = 1 ] || [ "$have_gh_repo_flag" = 1 ]; then
+        printf 'dev-loop-gate: review-citations takes --expect-head, not --pr or --gh-repo\n' >&2
+        exit 2
+      fi
+      ;;
+    *)
+      printf 'dev-loop-gate: --pr, --gh-repo, and --expect-head need --check pr-state, review-ready, or review-citations\n' >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
 fi
+
+for flag in $review_flags_used; do
+  case "$flag:$check_id" in
+    comment:review-citations | test-log:review-ready | evidence-out:review-ready) ;;
+    comment:*)
+      printf 'dev-loop-gate: --comment needs --check review-citations\n' >&2
+      exit 2
+      ;;
+    *)
+      printf 'dev-loop-gate: --%s needs --check review-ready\n' "$flag" >&2
+      exit 2
+      ;;
+  esac
+done
 
 # The table keeps working outside a git work tree and without git installed,
 # as it did before the named checks existed. Only --check needs both.
@@ -370,6 +463,10 @@ row() { printf '%-4s %-30s %-6s %s\n' "$1" "$2" "$3" "$4"; }
 
 # shellcheck source=scripts/lib/docs-sweep.sh
 . "$script_dir/lib/docs-sweep.sh"
+# shellcheck source=scripts/lib/review-ready.sh
+. "$script_dir/lib/review-ready.sh"
+# shellcheck source=scripts/lib/review-citations.sh
+. "$script_dir/lib/review-citations.sh"
 # shellcheck source=scripts/lib/npm-ci.sh
 . "$script_dir/lib/npm-ci.sh"
 # shellcheck source=scripts/lib/node-pin.sh
@@ -746,6 +843,14 @@ case "$check_id" in
     ;;
   docs-sweep)
     run_docs_sweep
+    exit $?
+    ;;
+  review-ready)
+    run_review_ready
+    exit $?
+    ;;
+  review-citations)
+    run_review_citations
     exit $?
     ;;
   pr-state)

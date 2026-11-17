@@ -100,9 +100,10 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
-  `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
-  message that the check is not implemented. Later checks will be added under
-  the same flag.
+  `pr-state`, `review-ready`, `review-citations`, and `deploy-hash`. The two
+  review gates are described in [`REVIEW-GATES.md`](REVIEW-GATES.md). Other
+  ids, including `all`, exit 2 with a message that the check is not
+  implemented. Later checks will be added under the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
   row is printed but the exit code stays 0, the same advisory spirit as G2 to
   G7. `npm-ci` and `node-pin` are the exceptions: their FAIL always exits 1.

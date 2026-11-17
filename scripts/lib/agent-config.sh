@@ -68,8 +68,10 @@ else
         else
           (if ($l | has("_comment")) and (($l._comment | type) != "string") then
              "lanes.\($lane)._comment must be a string" else empty end),
-          (if ([$l | keys[] | select(. != "entries" and . != "_comment")] | length) > 0 then
+          (if ([$l | keys[] | select(. != "entries" and . != "_comment" and . != "preflight")] | length) > 0 then
              "lanes.\($lane) has an unknown field" else empty end),
+          (if ($l | has("preflight")) and ($l.preflight != "review-ready") then
+             "lanes.\($lane).preflight must be \"review-ready\" when set" else empty end),
           (if ($l.entries | type) != "array" then
              "lanes.\($lane).entries must be an array"
            else
@@ -191,6 +193,12 @@ agent_config_lane_entry_count() {
 }
 
 # shellcheck disable=SC2034 # field is consumed by the jq --arg
+# agent_config_lane_preflight <lane>
+# Prints the lane's preflight check id (empty when the lane has none).
+agent_config_lane_preflight() {
+  jq -r --arg lane "$1" '.lanes[$lane].preflight // empty' "$agent_config_loaded_file"
+}
+
 agent_config_lane_entry_field() {
   local lane="$1"
   local index="$2"

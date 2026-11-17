@@ -22,7 +22,11 @@
 # maintainer runs the command. A null model id (unverified) exits 2, except
 # for a hand-off entry, which passes the model name marked "id unverified".
 #
-# Exit codes: 0 ok, 1 adapter failure, 2 usage, config, or policy refusal.
+# A lane with "preflight": "review-ready" needs --pr and --expect-head and
+# starts nothing unless scripts/dev-loop-gate.sh --check review-ready passes.
+#
+# Exit codes: 0 ok, 1 adapter or preflight failure, 2 usage, config, or
+# policy refusal.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd -P)"
@@ -36,6 +40,10 @@ lane <lane>|Lane to select an entry from (required for launch)
 as <bot|maintainer>|Caller identity used for who_can_launch (required for launch)
 agent <name>|Pick the first eligible lane entry for this configured agent
 config <path>|Config file, non-empty (overrides AGENT_OPS_KIT_CONFIG)
+pr <number>|Pull request under review; required when the lane has a preflight
+expect-head <sha>|Head SHA under review (7+ hex); required when the lane has a preflight
+checkout <dir>|Checkout of that head for the preflight (default: the current directory)
+test-log <path>|Test log whose tail goes into the preflight evidence
 dry-run|Print the selection and the exact command instead of launching; for an issue hand-off entry, the agent-task-issue.sh command
 validate|Validate the config, including entry modes against installed adapters, and exit
 list|List lane and agent names from the config
@@ -195,6 +203,10 @@ requested_agent=""
 config_path=""
 config_set=0
 dry_run=0
+review_pr=""
+review_head=""
+review_checkout=""
+review_test_log=""
 do_validate=0
 do_list=0
 do_help=0
@@ -239,6 +251,10 @@ while [ "$#" -gt 0 ]; do
           config_path="$value"
           config_set=1
           ;;
+        pr) review_pr="$value" ;;
+        expect-head) review_head="$value" ;;
+        checkout) review_checkout="$value" ;;
+        test-log) review_test_log="$value" ;;
         dry-run) dry_run=1 ;;
         validate) do_validate=1 ;;
         list) do_list=1 ;;
@@ -429,6 +445,34 @@ if [ "$mode" = "$agent_config_handoff_mode" ]; then
   exec "${command_args[@]}"
 fi
 
+# A lane with a preflight (review lanes) is fail-closed: the adapter starts,
+# or prints its command, only when CI and the named checks are green for the
+# exact head under review. The evidence file reaches the adapter through
+# AGENT_LAUNCH_EVIDENCE so the brief carries the machine results.
+preflight="$(agent_config_lane_preflight "$lane")"
+if [ -n "$preflight" ]; then
+  if [ -z "$review_pr" ] || [ -z "$review_head" ]; then
+    usage_error "lane $lane has preflight $preflight: pass --pr <number> and --expect-head <sha> so the review is pinned to one head"
+  fi
+  gate="$script_dir/dev-loop-gate.sh"
+  evidence_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-launch-evidence.XXXXXX")"
+  evidence_file="$evidence_dir/evidence.md"
+  set -- --check "$preflight" --pr "$review_pr" --expect-head "$review_head" \
+    --repo "${review_checkout:-$PWD}" --evidence-out "$evidence_file"
+  if [ -n "$review_test_log" ]; then
+    set -- "$@" --test-log "$review_test_log"
+  fi
+  preflight_status=0
+  "$gate" "$@" >&2 || preflight_status=$?
+  if [ "$preflight_status" -ne 0 ]; then
+    rm -rf "$evidence_dir"
+    printf 'agent-launch: preflight %s failed (exit %s); no agent started. Fix the FAIL rows above, then re-run.\n' \
+      "$preflight" "$preflight_status" >&2
+    exit 1
+  fi
+  export AGENT_LAUNCH_EVIDENCE="$evidence_file"
+fi
+
 command_args=("$adapter_run")
 if [ -n "$mode" ]; then
   command_args[${#command_args[@]}]="--mode"
@@ -448,6 +492,10 @@ if [ "$dry_run" = 1 ]; then
   printf 'ADAPTER=%s\n' "$adapter"
   printf 'MODEL=%s\n' "$model"
   printf 'LABEL=%s\n' "$label"
+  if [ -n "$preflight" ]; then
+    printf 'PREFLIGHT=%s PASS\n' "$preflight"
+    printf 'EVIDENCE=%s\n' "$AGENT_LAUNCH_EVIDENCE"
+  fi
   printf 'COMMAND='
   printf '%q ' "${command_args[@]}"
   printf '\n'
