@@ -63,8 +63,9 @@ run_model_ids() {
           elif .value.model == "" then "NOT_A_STRING"
           elif (.value.model | type) == "string" then .value.model
           else "NOT_A_STRING" end),
-         (if ((.value._comment // "") | type) == "string"
-             and ((.value._comment // "") | test("TODO")) then "yes" else "no" end)]
+         (if ((.value._comment // "") | type) != "string" then "no"
+          elif ((.value._comment // "") | test("TODO")) then "yes"
+          else "no" end)]
       | join("\t")' "$config" 2>/dev/null)"; then
     printf 'dev-loop-gate: model-ids: cannot read lanes from %s\n' "$model_ids_config_rel" >&2
     exit 2

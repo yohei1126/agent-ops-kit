@@ -135,6 +135,12 @@ expect_status "7: empty or non-string ids fail" 1
 expect_out "7: id string hint" "model must be an id string or null"
 expect_out "7: summary counts both hits" "2 entries, 2 hits"
 
+# 7b. A non-string _comment on a null entry is a FAIL row, not a jq error.
+r="$(new_repo numcomment '{"lanes":{"coding":{"entries":[{"agent":"two","model":null,"_comment":7}]}}}' "$list_text")"
+run_gate --strict --check model-ids --repo "$r"
+expect_status "7b: non-string comment fails the entry" 1
+expect_out "7b: reported as a missing TODO" "null model id without a TODO"
+
 # 8. Missing files exit 2.
 r="$(new_repo nolist "$good_config" "")"
 run_gate --check model-ids --repo "$r"
