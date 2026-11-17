@@ -125,8 +125,9 @@
         },
         {
           "agent": "goat",
-          "model": "moonshotai/Kimi-K3.1-Pro",
-          "model_name": "Kimi K3.1 Pro"
+          "model": null,
+          "model_name": "Kimi K3.1 Pro",
+          "_comment": "TODO: model id unverified (the launcher does not pass a model option yet); the maintainer confirms it locally."
         },
         {
           "agent": "agy-api-key",
@@ -166,8 +167,9 @@
         },
         {
           "agent": "goat",
-          "model": "moonshotai/Kimi-K3.1-Pro",
-          "model_name": "Kimi K3.1 Pro"
+          "model": null,
+          "model_name": "Kimi K3.1 Pro",
+          "_comment": "TODO: model id unverified (the launcher does not pass a model option yet); the maintainer confirms it locally."
         },
         {
           "agent": "opencode-fireworks",
