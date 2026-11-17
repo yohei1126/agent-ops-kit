@@ -116,7 +116,8 @@
       ]
     },
     "review": {
-      "_comment": "Non-security review. No Codex, no Cursor.",
+      "_comment": "Non-security review. No Codex, no Cursor. The preflight makes a launch refuse to start until CI and the named checks pass for the reviewed head.",
+      "preflight": "review-ready",
       "entries": [
         {
           "agent": "agy-subscription",
@@ -147,7 +148,8 @@
       ]
     },
     "security-review": {
-      "_comment": "No DeepSeek Flash, no Cursor.",
+      "_comment": "No DeepSeek Flash, no Cursor. Same review-ready preflight as the review lane.",
+      "preflight": "review-ready",
       "entries": [
         {
           "agent": "agy-subscription",

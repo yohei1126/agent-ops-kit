@@ -528,6 +528,23 @@ run_review() {
     cp -f -- "$brief_real" "$run_real/BRIEF.md"
   fi
 
+  # agent-launch passes preflight evidence (CI and named-check results for
+  # the reviewed head). Append it once so the model starts from those facts.
+  if [ -n "${AGENT_LAUNCH_EVIDENCE:-}" ]; then
+    if [ -L "$AGENT_LAUNCH_EVIDENCE" ] || [ ! -f "$AGENT_LAUNCH_EVIDENCE" ] ||
+      [ ! -r "$AGENT_LAUNCH_EVIDENCE" ]; then
+      printf 'agy-review-launch: preflight evidence is not a readable regular file: %s\n' \
+        "$AGENT_LAUNCH_EVIDENCE" >&2
+      exit 1
+    fi
+    if ! grep -q '^## Machine evidence' "$run_real/BRIEF.md"; then
+      {
+        printf '\n'
+        cat -- "$AGENT_LAUNCH_EVIDENCE"
+      } >>"$run_real/BRIEF.md"
+    fi
+  fi
+
   # Generate settings.json from the template, substituting the physical run path.
   if ! agy_settings_generate "$review_template" "$settings_file" "$run_real"; then
     exit 1

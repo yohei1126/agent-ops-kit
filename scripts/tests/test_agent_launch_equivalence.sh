@@ -486,7 +486,7 @@ run_example() {
     exec env -i "HOME=$home" "PATH=$fake_bin:$tool_bin" "TMPDIR=$home/tmp" \
       "AGY_LAUNCH_STALL_SECONDS=0" "FAKE_AGY_ARGV=$dest.argv" \
       "FAKE_AGY_COUNT=$dest.count" \
-      /bin/bash "$repo_root/scripts/agent-launch.sh" --config "$example" \
+      /bin/bash "$repo_root/scripts/agent-launch.sh" --config "${example_cfg:-$example}" \
       --lane "$lane" --as maintainer ${example_agent:+--agent "$example_agent"} -- "$@"
   ) >"$dest.stdout" 2>"$dest.stderr"
   example_status=$?
@@ -511,9 +511,28 @@ else
   bad "example docs lane passes its configured model to agy" "argv: $example_argv"
 fi
 
+# The security-review lane carries the review-ready preflight, so without a
+# pinned pull request and head it refuses before any adapter starts.
+ex_home="$work_tmp/home-example-security-nopr"
+run_example security-nopr security-review --dry-run run-example "$ex_home/agy-work/repo" "$ex_home/agy-inbox/brief.txt"
+if [ "$example_status" -eq 2 ]; then
+  ok "example security-review lane without --pr and --expect-head exits 2"
+else
+  bad "example security-review lane without --pr and --expect-head exits 2" "exit $example_status: $example_err"
+fi
+case "$example_err" in
+  *"has preflight review-ready"*) ok "example security-review refusal names the preflight" ;;
+  *) bad "example security-review refusal names the preflight" "stderr: $example_err" ;;
+esac
+
 # The security-review lane leads with an agy entry whose id has a run record.
+# The preflight has its own tests; here it is removed from a copy of the
+# example so the lane-to-adapter path is checked on its own.
+example_cfg="$work_tmp/example-no-preflight.json"
+jq 'del(.lanes[].preflight)' "$example" >"$example_cfg"
 ex_home="$work_tmp/home-example-security"
 run_example security security-review --dry-run run-example "$ex_home/agy-work/repo" "$ex_home/agy-inbox/brief.txt"
+example_cfg=""
 if [ "$example_status" -eq 0 ]; then
   ok "example security-review lane reaches the agy adapter for the maintainer"
 else
