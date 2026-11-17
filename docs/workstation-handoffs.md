@@ -214,10 +214,11 @@ Include four required sections in every handoff brief:
 - **Goal**: one sentence naming the deliverable.
 - **Target paths, branch, and merge policy**: the absolute repository checkout
   path under the fixed root (`~/agy-work/<repo>` for `agy` or
-  `~/agent-work/<repo>` for `agent`; never `~/work/...`), which branch or pull
-  request to update or create, the exact files in scope, and an explicit merge
-  rule (such as opening a draft PR or updating the branch without merging). Do
-  not tell a worker to "prefer `~/work` if present".
+  `~/agent-work/<repo>` for `agent`; never `~/work/...`), the branch the calling
+  script should use, the exact files in scope, and an explicit merge policy for
+  the collect step (such as opening a draft PR or updating the branch without
+  merging). Do not ask the worker to create the branch, commit, or open the
+  pull request. Do not tell a worker to "prefer `~/work` if present".
 - **Constraints**: line limits, style rules, required reading (such as
   `CONTRIBUTING.md` and `AGENTS.md` on public docs repositories), and forbidden
   content (such as personal identifiers, billing amounts, subscription tiers, or
