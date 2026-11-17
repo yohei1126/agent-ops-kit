@@ -20,7 +20,8 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Check shell syntax
-        run: bash -n scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh
+        # bash -n reads only its first file operand, so check each file.
+        run: for f in scripts/dev-loop-gate.sh scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh; do bash -n "$f"; done
 
       - name: Run shellcheck
         run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh
@@ -43,7 +44,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Check shell syntax with bash 3.2
-        run: /bin/bash -n scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh scripts/dev-loop-gate.sh
+        run: for f in scripts/dev-loop-gate.sh scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh; do /bin/bash -n "$f"; done
 
       - name: Install shellcheck
         run: |

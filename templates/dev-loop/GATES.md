@@ -157,8 +157,8 @@ even without `--strict`, the same hard-preflight spirit as G1. The default G1
 to G7 table runs this rule as an `NM` row on every run, with a root that falls
 back to the current directory when git cannot resolve a work tree. A FAIL there
 also exits 1 without `--strict`. The other named checks do not run it, so
-`line-cap`, `docs-sweep`, `pr-state`, and `deploy-hash` keep their own exit
-rules.
+`line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `pr-state`, and
+`deploy-hash` keep their own exit rules.
 
 ### node-pin
 

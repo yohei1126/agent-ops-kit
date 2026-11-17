@@ -338,6 +338,11 @@ run_gate "$repo_root" bash "$gate" --check no-such
 expect_status "I1: unknown check exits 2" 2
 expect_err "I1: unknown check lists the implemented ids" "unknown check: no-such (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, pr-state, deploy-hash)"
 
+run_gate "$repo_root" bash "$gate" --help
+expect_status "I2: --help exits 0" 0
+expect_out "I2: --help lists prose-dashes" "prose-dashes"
+expect_out "I2: --help lists md-links" "md-links"
+
 printf '== kit self-check ==\n'
 
 run_gate "$repo_root" bash "$gate" --repo "$repo_root" --strict --check prose-dashes
