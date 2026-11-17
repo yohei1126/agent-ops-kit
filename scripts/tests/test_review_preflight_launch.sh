@@ -49,10 +49,13 @@ test_path="$fake_bin:$tool_bin"
 
 # The reviewed checkout: a small git repo with one commit.
 checkout="$home/agy-work/repo"
-mkdir -p "$checkout"
+mkdir -p "$checkout/templates"
 git -C "$checkout" init -q
 printf '# Readme\n\nShort.\n' >"$checkout/README.md"
-git -C "$checkout" add README.md
+# model-ids is now a default review-ready check; a tiny verified pair lets it PASS.
+printf '%s\n' '{"lanes":{}}' >"$checkout/templates/agent-config.example.json"
+printf '%s\n' '# none' >"$checkout/templates/agent-config.verified-model-ids.txt"
+git -C "$checkout" add README.md templates
 git -C "$checkout" -c user.name=t -c user.email=t@example.invalid commit -q -m init
 head_sha="$(git -C "$checkout" rev-parse HEAD)"
 printf 'Review the change.\n' >"$home/agy-work/brief.md"

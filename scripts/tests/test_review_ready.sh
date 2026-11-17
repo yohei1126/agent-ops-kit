@@ -27,10 +27,13 @@ chmod +x "$stub_bin/gh"
 unset DEV_LOOP_PR DEV_LOOP_EXPECT_HEAD DEV_LOOP_REVIEW_READY_CHECKS
 
 checkout="$work_tmp/checkout"
-mkdir -p "$checkout"
+mkdir -p "$checkout/templates"
 git -C "$checkout" init -q
 printf '# Readme\n\nShort.\n' >"$checkout/README.md"
-git -C "$checkout" add README.md
+# model-ids is now a default review-ready check; a tiny verified pair lets it PASS.
+printf '%s\n' '{"lanes":{}}' >"$checkout/templates/agent-config.example.json"
+printf '%s\n' '# none' >"$checkout/templates/agent-config.verified-model-ids.txt"
+git -C "$checkout" add README.md templates
 git -C "$checkout" -c user.name=t -c user.email=t@example.invalid commit -q -m init
 head_sha="$(git -C "$checkout" rev-parse HEAD)"
 short="${head_sha:0:7}"
@@ -158,8 +161,10 @@ expect_text "5: names the unknown id" "$out" "no-such-check failed"
 out="$(PATH="$stub_bin:$PATH" FAKE_GH_JSON="$work_tmp/green.json" FAKE_GH_ARGV="$work_tmp/gh.argv" \
   "$BASH" "$gate" --check review-ready --repo "$checkout" --pr 7 --expect-head "$short" 2>/dev/null)"
 status=$?
-expect_status "5: default ids not in this kit do not fail" 0
-expect_text "5: a missing default id is SKIP" "$out" "not in this kit version"
+expect_status "5: default implemented ids pass" 0
+expect_text "5: model-ids runs" "$out" "model-ids"
+expect_text "5: prose-dashes runs" "$out" "prose-dashes"
+expect_text "5: md-links runs" "$out" "md-links"
 
 # 5b. Uncommitted edits to tracked files fail the checkout row.
 printf 'edited\n' >>"$checkout/README.md"
