@@ -100,6 +100,15 @@ Entry mode $agent_config_handoff_mode (hand-off):
 A lane entry whose model id is null (unverified) exits 2 when selected,
 except in hand-off mode, which executes no model: there the Issue gets the
 model name marked "id unverified".
+
+Preflight:
+  A lane with "preflight": "review-ready" needs --pr and --expect-head.
+  The launcher runs scripts/dev-loop-gate.sh --check review-ready before
+  any agent starts, and starts nothing on FAIL. --checkout, --test-log,
+  and --gh-repo are passed through. --dry-run still runs the preflight
+  and prints PREFLIGHT=review-ready PASS and EVIDENCE=<path>.
+  See scripts/dev-loop-gate.sh --check review-ready --help for rows and
+  exit codes.
 EOF
 }
 

@@ -222,6 +222,22 @@ expect_status "16: a head shorter than 7 exits 2" 2
 run_gate --check review-citations --repo "$dir" --comment "$work_tmp/col.md" --expect-head zzzzzzz
 expect_status "16: a non-hex head exits 2" 2
 
+# 17. --check review-citations --help prints forms, FAIL actions, and exit codes.
+run_gate --check review-citations --help
+expect_status "17: --check review-citations --help exits 0" 0
+expect_out "17: usage line" "--check review-citations --comment"
+expect_out "17: path:N form" "path:N"
+expect_out "17: range form" "path:N-M"
+expect_out "17: LN form" "path:LN-LM"
+expect_out "17: hash form" "path#LN-LM"
+expect_out "17: not tracked FAIL" "not a tracked file at"
+expect_out "17: past the end FAIL" "past the end"
+expect_out "17: line 0 FAIL" "line 0 is not a valid line"
+expect_out "17: reversed range FAIL" "reversed range"
+expect_out "17: exit 0" "0  pass"
+expect_out "17: exit 1" "1  any FAIL"
+expect_out "17: exit 2" "2  usage error"
+
 printf 'review-citations tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
   exit 1

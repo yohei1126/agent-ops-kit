@@ -232,6 +232,24 @@ out="$("$BASH" "$gate" --help)"
 expect_text "9: --help lists review-ready" "$out" "--check review-ready"
 expect_text "9: --help lists review-citations" "$out" "--check review-citations"
 
+# 10. --check review-ready --help prints rows and exit codes from the script.
+out="$("$BASH" "$gate" --check review-ready --help)"
+status=$?
+expect_status "10: --check review-ready --help exits 0" 0
+expect_text "10: usage line" "$out" "--check review-ready --pr"
+expect_text "10: head row" "$out" "Re-read the PR and pass the current head"
+expect_text "10: checkout row" "$out" "Check out the PR head before review"
+expect_text "10: ci row" "$out" "Every check run is COMPLETED"
+expect_text "10: review-ready row" "$out" "No row failed"
+expect_text "10: exit 0" "$out" "0  pass"
+expect_text "10: exit 1" "$out" "1  any FAIL"
+expect_text "10: exit 2" "$out" "2  usage error"
+expect_text "10: exit 3" "$out" "3  gh or jq missing"
+out="$("$BASH" "$gate" --help --check review-ready)"
+status=$?
+expect_status "10: --help --check review-ready exits 0" 0
+expect_text "10: same help with flags reversed" "$out" "Default named checks:"
+
 printf 'review-ready tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
   exit 1

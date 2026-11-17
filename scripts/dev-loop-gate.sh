@@ -29,12 +29,9 @@ usage() {
     '  -h, --help       Show this help.' \
     '' \
     'Review gates (fail closed: any FAIL exits 1, with or without --strict):' \
-    '  --check review-ready --pr <n> --expect-head <sha> [--gh-repo <slug>]' \
-    '      [--test-log <path>] [--evidence-out <path>]' \
-    '                   CI green and named checks passing for that head; on PASS' \
-    '                   --evidence-out gets the evidence block for the review brief.' \
-    '  --check review-citations --comment <file> --expect-head <sha>' \
-    '                   Every path:line citation in the comment resolves at HEAD.' \
+    '  --check review-ready --help' \
+    '  --check review-citations --help' \
+    '                   Flags, rows, accepted citation forms, and exit codes.' \
     '' \
     'deploy-hash options (only with --check deploy-hash):' \
     '  --url <URL>             Page URL. Must start with https:// or http://.' \
@@ -68,6 +65,7 @@ review_flags_used=""
 have_pr_flag=0
 have_gh_repo_flag=0
 have_expect_head_flag=0
+want_help=0
 
 deploy_hash_url=""
 deploy_hash_source="html"
@@ -377,8 +375,8 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     -h|--help)
-      usage
-      exit 0
+      want_help=1
+      shift
       ;;
     *)
       printf 'dev-loop-gate: unknown option: %s\n' "$1" >&2
@@ -387,6 +385,25 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$want_help" = 1 ]; then
+  # shellcheck source=scripts/lib/review-ready.sh
+  . "$script_dir/lib/review-ready.sh"
+  # shellcheck source=scripts/lib/review-citations.sh
+  . "$script_dir/lib/review-citations.sh"
+  case "$check_id" in
+    review-ready)
+      usage_review_ready
+      ;;
+    review-citations)
+      usage_review_citations
+      ;;
+    *)
+      usage
+      ;;
+  esac
+  exit 0
+fi
 
 # Deploy-hash flags are only meaningful with the deploy-hash check. Reject them
 # everywhere else, including the no-argument table and other named checks.

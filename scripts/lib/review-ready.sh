@@ -24,6 +24,54 @@ evidence_out_arg="${evidence_out_arg:-}"
 review_ready_default_checks="line-cap docs-sweep prose-dashes md-links model-ids"
 review_ready_checks="${DEV_LOOP_REVIEW_READY_CHECKS:-$review_ready_default_checks}"
 
+usage_review_ready() {
+  cat <<'EOF'
+usage: dev-loop-gate.sh --check review-ready --pr <n> --expect-head <sha>
+                        [--gh-repo <owner/repo>] [--repo <checkout>]
+                        [--test-log <path>] [--evidence-out <path>]
+
+--pr and --expect-head are required (or DEV_LOOP_PR and DEV_LOOP_EXPECT_HEAD
+when the flag is absent). The check reads
+gh pr view <n> --json headRefOid,statusCheckRollup and prints RR rows.
+
+Row            PASS when                                         FAIL action
+head           The live PR head starts with --expect-head        Re-read the PR and pass the current head
+checkout       --repo is checked out at that head, with no       Check out the PR head before review;
+               uncommitted changes to tracked files              or stash or commit local edits
+ci             Every check run is COMPLETED with SUCCESS,        Names the failing or pending checks
+               NEUTRAL, or SKIPPED, and every status context
+               is SUCCESS
+named check    --strict --check <id> passes on the checkout      Run that check and fix its rows
+review-ready   No row failed                                     Number of failed rows
+
+No reported checks is a FAIL: wait for CI before review. A STALE or any
+other conclusion counts as failing.
+
+EOF
+  printf 'Default named checks: %s\n' "$review_ready_default_checks"
+  cat <<'EOF'
+A default id this kit version does not implement yet is a SKIP row, so
+the list can name checks that land later. DEV_LOOP_REVIEW_READY_CHECKS
+overrides the list, and there an unknown id is a FAIL, so a typo never
+turns a check off.
+
+On PASS, --evidence-out <path> gets a "## Machine evidence (settled; do not
+re-check)" block: the full head SHA, each CI check with its conclusion,
+the rows above, and the last 40 lines of --test-log when given. On FAIL
+nothing is written. A symlinked evidence path exits 2.
+
+Exit codes:
+  0  pass
+  1  any FAIL
+  2  usage error (missing --pr or --expect-head, unreadable --test-log,
+     symlinked --evidence-out)
+  3  gh or jq missing, a gh failure, or unreadable gh output
+
+A lane that opts in with "preflight": "review-ready" is started through
+scripts/agent-launch.sh; see scripts/agent-launch.sh --help for those flags.
+EOF
+}
+
 # Prints "<STATE>\t<action>\t<names>" for the statusCheckRollup.
 # shellcheck disable=SC2016 # a jq program, not shell expansions
 review_ready_ci_jq='

@@ -8,6 +8,49 @@ repo="${repo:-}"
 expect_head_arg="${expect_head_arg:-}"
 comment_arg="${comment_arg:-}"
 
+usage_review_citations() {
+  cat <<'EOF'
+usage: dev-loop-gate.sh --check review-citations --comment <file>
+                        --expect-head <sha> [--repo <checkout>]
+
+--comment (a readable regular file) and --expect-head are required.
+--repo must be checked out at --expect-head, so citations resolve against
+the head the review saw. Hex case in --expect-head does not matter.
+
+Accepted citation forms:
+  path:N
+  path:N-M
+  path:LN-LM
+  path:N,M-P          (comma lists; each range is checked)
+  path:N:column       (optional column suffix is ignored)
+  path#LN-LM
+
+URLs (any word containing ://) are skipped. A file tracked at HEAD is a
+citation whatever its name (Makefile:3, .gitignore:2). An untracked word
+counts only when it looks like a path, with a slash or a source or doc
+extension such as .sh or .md; other words such as host:443 are prose.
+
+Each bad citation prints one RC FAIL row, and a summary row counts them.
+Line counts come from git show HEAD:<path>, not the work tree, so local
+edits do not change the result. A comment with no citations passes with
+one row saying so.
+
+FAIL action                                          When
+not a tracked file at <head>                         The path is not a file in the HEAD commit
+line N is past the end (M lines at <head>)           A cited line is beyond the file's last line
+line 0 is not a valid line                           A citation of line 0
+reversed range                                       A range such as :20-10
+
+Any FAIL exits 1, and so does a checkout at another head.
+
+Exit codes:
+  0  pass
+  1  any FAIL, or a checkout at another head
+  2  usage error (missing or unreadable --comment, or a missing, non-hex,
+     or shorter than 7 --expect-head)
+EOF
+}
+
 run_review_citations() {
   local head_sha short text count bad
   local word path cite start end lines specs spec
