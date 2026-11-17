@@ -303,7 +303,7 @@ set_result "$work_tmp/text-bad"
 run_adapter --mode patch --model m -- "$wt" "$brief"
 expect_status "5: a malformed diff exits 2" 2
 
-for evil in '../escape.txt' '.git/config' '/etc/x' 'docs/../../x'; do
+for evil in '../escape.txt' '.git/config' '/etc/x' 'docs/../../x' '.commandcode/settings.json'; do
   reset_ctl
   {
     printf '```diff\ndiff --git a/%s b/%s\nnew file mode 100644\n--- /dev/null\n+++ b/%s\n@@ -0,0 +1 @@\n+x\n```\n' \
@@ -423,7 +423,7 @@ mkdir -p "$wt/.commandcode"
 run_adapter --mode write --model m -- "$wt" "$brief" docs
 expect_status "10: an existing .commandcode exits 2" 2
 rmdir "$wt/.commandcode"
-for scope in '..' '/abs' '.' '.git' '.git/hooks' 'docs/../..' '.commandcode' ''; do
+for scope in '..' '/abs' '.' '.git' '.git/hooks' 'docs/../..' '.commandcode' '' 'docs*' 'd?cs' '/'; do
   run_adapter --mode write --model m -- "$wt" "$brief" "$scope"
   expect_status "10: scope '$scope' exits 2" 2
 done

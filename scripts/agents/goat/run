@@ -117,7 +117,7 @@ check_path() {
     */../* | */./* | *//*) die_diff_path "$p" ;;
   esac
   case "$p" in
-    .git | .git/*) die_diff_path "$p" ;;
+    .git | .git/* | .commandcode | .commandcode/*) die_diff_path "$p" ;;
   esac
 }
 
@@ -129,6 +129,7 @@ validate_scope() {
     .) die_usage "scope must not be ." ;;
     .git | .git/*) die_usage "scope must not touch .git: $scope" ;;
     .commandcode | .commandcode/*) die_usage "scope must not touch .commandcode: $scope" ;;
+    *[*?[\]\\]*) die_usage "scope must be a literal path, no glob characters: $scope" ;;
   esac
   case "$scope" in
     .. | ../* | */../* | */..) die_usage "scope must not contain ..: $scope" ;;
@@ -247,9 +248,9 @@ if [ "$mode" = write ]; then
   while [ "$index" -lt "$positional_count" ]; do
     scope="${positionals[$index]}"
     index=$((index + 1))
-    case "$scope" in
-      */) scope="${scope%/}" ;;
-    esac
+    while [ "$scope" != "${scope%/}" ]; do
+      scope="${scope%/}"
+    done
     validate_scope "$scope"
     goat_scopes[${#goat_scopes[@]}]="$scope"
     if [ -n "$scope_list" ]; then
@@ -321,7 +322,7 @@ if [ "$mode" = write ]; then
     + rw("//" + $common + "/**") + rw("//" + $gitdir + "/**")
     + w("//usr/local/**") + w("//opt/homebrew/**")
     + (if $home == "" then [] else
-        w("//" + $home + "/.*") + w("//" + $home + "/.*/**") + w("//" + $home + "/bin/**")
+        w("//" + $home + "/.*") + w("//" + $home + "/.*/**") + w("//" + $home + "/bin/**") + w("//" + $home + "/Library/**")
         + ([".ssh/**", ".aws/**", ".config/**", ".gnupg/**", ".docker/**", ".kube/**",
             ".netrc", ".npmrc", ".git-credentials"] | map("Read(//" + $home + "/" + . + ")"))
       end)
@@ -678,6 +679,26 @@ if [ "$has_diff" = 0 ]; then
   exit 2
 fi
 
+# From here on the tree may hold applied content, so use only system tools,
+# the git and jq found before the run (never from inside the worktree), and
+# the throwaway HOME.
+gate_path="$system_path"
+for tool_abs in "$git_bin" "$(command -v jq)"; do
+  tool_dir="$(cd "$(dirname "$tool_abs")" && pwd -P)"
+  case "$tool_dir/" in
+    "$worktree"/*)
+      printf 'goat-run: %s resolves inside the worktree; fix PATH and re-run\n' "$tool_abs" >&2
+      exit 2
+      ;;
+  esac
+  gate_path="$tool_dir:$gate_path"
+done
+PATH="$gate_path"
+export PATH
+git() {
+  "$git_bin" -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+}
+
 # The paths git itself will touch, after prefix stripping and unquoting,
 # are the authority for the worktree check.
 if ! git -C "$worktree" apply --numstat -z "$run_dir/change.diff" >"$run_dir/numstat" 2>"$run_dir/numstat.err"; then
@@ -747,7 +768,7 @@ gate_index=2
 while [ "$gate_index" -lt "$positional_count" ]; do
   check_id="${positionals[$gate_index]}"
   gate_index=$((gate_index + 1))
-  if ! env -i PATH="$PATH" HOME="${HOME:-$run_dir/home}" LANG="${LANG:-C.UTF-8}" TERM=dumb \
+  if ! env -i PATH="$PATH" HOME="$run_dir/home" LANG="${LANG:-C.UTF-8}" TERM=dumb \
     "${BASH:-bash}" "$gate" --strict --check "$check_id" --repo "$worktree"; then
     printf 'goat-run: gate %s failed; the applied diff is left in place for inspection\n' "$check_id" >&2
     gate_failed=1

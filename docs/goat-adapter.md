@@ -21,10 +21,12 @@ the review lanes. `write` is opt-in per lane entry.
 diff, which the adapter checks before applying it to the worktree and then
 gates. The adapter accepts only plain `a/` and `b/` headers without quoted
 paths, checks every path git itself would touch (`git apply --numstat`), and
-refuses an absolute path, a `.` or `..` component, `.git`, a symlink, or a
-submodule, then runs `git apply --check` before `git apply`. The gate runs
+refuses an absolute path, a `.` or `..` component, `.git`, `.commandcode`, a
+symlink, or a submodule, then runs `git apply --check` before `git apply`. The gate runs
 from a copy of the kit taken before the diff is applied, under a minimal
-environment, so a diff that edits the gate scripts cannot run its own code. New files are
+environment with the throwaway `HOME` and a `PATH` of system folders plus the
+git and jq found before the run, so a diff that edits the gate scripts or
+puts a tool on `PATH` cannot run its own code. New files are
 marked intent-to-add (the path only, no content staged) so the named checks,
 which read tracked files, see them. Nothing is committed.
 
@@ -40,8 +42,8 @@ What does narrow a `--yolo` run: `deny` rules win in every mode, including
 yolo. So write mode, and only write mode, pairs `--yolo` with a generated
 `.commandcode/settings.local.json` that denies `Shell`, web fetches, every MCP
 tool, edits to `.git` and `.commandcode`, reads and edits of the worktree's
-git directories (absolute `//` rules), edits of hidden files and folders and
-`bin` in the caller's home, edits of `/usr/local` and `/opt/homebrew`, and
+git directories (absolute `//` rules), edits of hidden files and folders,
+`bin`, and `Library` in the caller's home, edits of `/usr/local` and `/opt/homebrew`, and
 reads of common credential stores (`.ssh`, `.aws`, `.config`, `.gnupg`,
 `.docker`, `.kube`, `.netrc`, `.npmrc`, `.git-credentials`). A deny of every
 absolute path (`//**`) is not possible: it also blocks the workspace. A test fails if any other
@@ -63,7 +65,8 @@ The maintainer approved write-enabled headless GOAT only under all of these:
    node's folder, and the system folders, a throwaway `HOME` and `TMPDIR`
    inside the run folder, `LANG`, `TERM`, and the GOAT API key. No GitHub
    token or other secret reaches it.
-4. The caller declares the scope (repository-relative paths). After the run
+4. The caller declares the scope (literal repository-relative paths; glob
+   characters are refused). After the run
    the adapter removes the generated settings and lists every changed, added,
    deleted, untracked, or newly ignored path. A path outside the scope, a
    sibling prefix such as `docsx` for scope `docs`, anything under `.git`, a
