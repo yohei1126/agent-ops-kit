@@ -7,9 +7,12 @@ the decisions that the three parts must share, so the same job does not depend
 on a fresh chat explanation.
 
 The templates are prose and local checks only. They do not read secrets or run
-a live end-to-end job. The default gate table uses no network. The optional `pr-state` named
-check reads one pull request through the GitHub CLI, and `deploy-hash`
-waits for a deployed asset to change.
+a live end-to-end job. The default gate table uses no network. The optional
+`pr-state` and `review-ready` named checks read one pull request through the
+GitHub CLI, and `deploy-hash` waits for a deployed asset to change. For
+`review-ready` and `review-citations`, see [`REVIEW-GATES.md`](REVIEW-GATES.md)
+for why they exist, and `scripts/dev-loop-gate.sh --check review-ready --help`
+or `--check review-citations --help` for flags, rows, and exit codes.
 
 ## File map
 
@@ -19,6 +22,7 @@ waits for a deployed asset to change.
 | [`RUBRIC.md`](RUBRIC.md) | Two-tier rubric for ambiguous judgments: finite labels in tier A, prose only in tier B. |
 | [`CHECKLIST.md`](CHECKLIST.md) | One-page human operator checklist for a single job. |
 | [`../../scripts/dev-loop-gate.sh`](../../scripts/dev-loop-gate.sh) | Optional thin local gate table. Prints status per gate. The default table uses no network. |
+| [`REVIEW-GATES.md`](REVIEW-GATES.md) | Why the fail-closed review preflight and citation gate exist. Usage is in the gate's `--help`. |
 | [`gate.config.json`](gate.config.json) | Line-cap config for the `line-cap` named check (see [Named checks](GATES.md#named-checks)). |
 
 ## Order of use

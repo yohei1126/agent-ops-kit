@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# agy adapter quota command (stub).
+# Quota reporting for this adapter is handled by a follow-up. The command
+# exists so the adapter interface is complete, and it fails closed with a
+# pointer instead of printing a guessed quota.
+#
+# Usage:
+#   scripts/agents/agy/quota
+#   scripts/agents/agy/quota --help
+
+set -u
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: scripts/agents/agy/quota
+
+Quota reporting is not implemented yet. It is handled by a follow-up; see
+scripts/quota/ for the current quota tooling.
+EOF
+}
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  usage 2>&1
+  exit 0
+fi
+
+printf 'quota for this adapter is handled by a follow-up; see scripts/quota/\n' >&2
+exit 2

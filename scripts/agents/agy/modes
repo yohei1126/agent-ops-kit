@@ -1,0 +1,6 @@
+# Modes this adapter accepts for --mode, one per line. agent-launch.sh
+# refuses a lane entry whose mode is not listed here. issue is a hand-off:
+# agent-launch.sh prepares an agent-task Issue and never runs this adapter.
+docs
+review
+issue

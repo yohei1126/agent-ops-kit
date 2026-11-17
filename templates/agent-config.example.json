@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "_comment": "Agent and model selection for agent-ops-kit. Copy to $HOME/.config/agent-ops-kit/agents.json and edit the entries and lanes for your environment. The adapter field names a directory under scripts/agents/. Lane order was set by the ops lane on behalf of the maintainer. A null model id is unverified: TODO confirm it locally; agent-launch exits 2 for that entry until it is set. overages is never for every agent: paid overages are not allowed.",
+  "agents": {
+    "goat": {
+      "adapter": "goat",
+      "display": "GOAT",
+      "provider": "Command Code",
+      "who_can_launch": "bot",
+      "provisioned": true,
+      "overages": "never",
+      "_comment": "Fixed-quota plan. Adapter: scripts/agents/goat (patch and review are read-only; write mode is gated, see docs/goat-adapter.md)."
+    },
+    "agy-subscription": {
+      "adapter": "agy",
+      "display": "agy",
+      "provider": "Google AI Pro",
+      "who_can_launch": "maintainer",
+      "provisioned": true,
+      "overages": "never",
+      "_comment": "Consumer subscription seat. The terms allow interactive use by the maintainer only, so bots never launch this entry. Coding uses the issue hand-off mode: the bot prepares an agent-task Issue and the maintainer runs agy remotely from it."
+    },
+    "agy-api-key": {
+      "adapter": "agy",
+      "display": "agy",
+      "provider": "Gemini API",
+      "who_can_launch": "bot",
+      "provisioned": false,
+      "overages": "never",
+      "_comment": "Gemini API-key mode (pay as you go). Disabled: no API key and no budget cap yet, so provisioned stays false and selection skips it."
+    },
+    "codex": {
+      "adapter": "codex",
+      "display": "Codex CLI",
+      "provider": "ChatGPT Go",
+      "who_can_launch": "maintainer",
+      "provisioned": false,
+      "overages": "never",
+      "_comment": "Consumer plan seat (fixed quota): maintainer-only under the plan terms. No codex adapter ships yet, so provisioned stays false."
+    },
+    "opencode-fireworks": {
+      "adapter": "opencode",
+      "display": "OpenCode",
+      "provider": "Fireworks",
+      "who_can_launch": "bot",
+      "provisioned": true,
+      "overages": "never",
+      "_comment": "Prepaid Fireworks credits with rollover; used after the fixed-quota agents run out. Adapter not shipped yet."
+    },
+    "cursor": {
+      "adapter": "cursor",
+      "display": "Cursor",
+      "provider": "Cursor",
+      "who_can_launch": "bot",
+      "provisioned": true,
+      "overages": "never",
+      "_comment": "Shares quota with chat: small tasks only, and keep 20% of the weekly quota for chat. Adapter not shipped yet."
+    }
+  },
+  "lanes": {
+    "coding": {
+      "_comment": "Fixed-quota agents first (GOAT, agy, Codex), then OpenCode with prepaid Fireworks credits, and Cursor last because it shares quota with chat. The agy entry is an issue hand-off for remote maintainer runs.",
+      "entries": [
+        {
+          "agent": "goat",
+          "mode": "patch",
+          "model": "deepseek/deepseek-v4.1-flash",
+          "model_name": "DeepSeek V4.1 Flash"
+        },
+        {
+          "agent": "agy-subscription",
+          "model": null,
+          "model_name": "Gemini 4 Hydrogen",
+          "mode": "issue",
+          "_comment": "Hand-off: agent-launch --dry-run prints the agent-task-issue.sh command; the maintainer runs agy from the Issue. In issue mode no model is executed, so a null id is allowed and passed as \"id unverified\". TODO: model id unverified (no run record); the maintainer confirms it locally."
+        },
+        {
+          "agent": "codex",
+          "model": null,
+          "model_name": "GPT-6 Luna",
+          "_comment": "TODO: model id unverified; the maintainer confirms it locally."
+        },
+        {
+          "agent": "opencode-fireworks",
+          "model": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017",
+          "model_name": "DeepSeek V4.1 Flash"
+        },
+        {
+          "agent": "cursor",
+          "model": null,
+          "model_name": "Composer 2.5",
+          "_comment": "TODO: model id unverified; the maintainer confirms it locally. Small tasks only."
+        }
+      ]
+    },
+    "docs": {
+      "_comment": "No Cursor.",
+      "entries": [
+        {
+          "agent": "goat",
+          "mode": "patch",
+          "model": "deepseek/deepseek-v4.1-flash",
+          "model_name": "DeepSeek V4.1 Flash"
+        },
+        {
+          "agent": "agy-subscription",
+          "model": "gemini-3.8-flash-medium",
+          "model_name": "Gemini 3.8 Flash",
+          "mode": "docs"
+        },
+        {
+          "agent": "opencode-fireworks",
+          "model": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017",
+          "model_name": "DeepSeek V4.1 Flash"
+        }
+      ]
+    },
+    "review": {
+      "_comment": "Non-security review. No Codex, no Cursor. The preflight makes a launch refuse to start until CI and the named checks pass for the reviewed head.",
+      "preflight": "review-ready",
+      "entries": [
+        {
+          "agent": "agy-subscription",
+          "model": null,
+          "model_name": "Gemini 4 Hydrogen",
+          "mode": "review",
+          "_comment": "TODO: model id unverified (no run record); the maintainer confirms it locally."
+        },
+        {
+          "agent": "goat",
+          "mode": "review",
+          "model": null,
+          "model_name": "Kimi K3.1 Pro",
+          "_comment": "TODO: model id unverified in templates/agent-config.verified-model-ids.txt; the maintainer adds the exact id there and here in a separate change."
+        },
+        {
+          "agent": "agy-api-key",
+          "model": null,
+          "model_name": "Gemini 4 Hydrogen",
+          "mode": "review",
+          "_comment": "TODO: model id unverified (no run record); the maintainer confirms it locally."
+        },
+        {
+          "agent": "opencode-fireworks",
+          "model": "fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro",
+          "model_name": "Kimi K3.1 Pro"
+        }
+      ]
+    },
+    "security-review": {
+      "_comment": "No DeepSeek Flash, no Cursor. Same review-ready preflight as the review lane.",
+      "preflight": "review-ready",
+      "entries": [
+        {
+          "agent": "agy-subscription",
+          "model": "gemini-4-argon-medium",
+          "model_name": "Gemini 4 Argon",
+          "mode": "review"
+        },
+        {
+          "agent": "agy-subscription",
+          "model": null,
+          "model_name": "Claude Opus 5.5 High",
+          "mode": "review",
+          "_comment": "TODO: model id unverified; the maintainer confirms it locally."
+        },
+        {
+          "agent": "agy-api-key",
+          "model": "gemini-4-argon-medium",
+          "model_name": "Gemini 4 Argon",
+          "mode": "review"
+        },
+        {
+          "agent": "goat",
+          "mode": "review",
+          "model": null,
+          "model_name": "Kimi K3.1 Pro",
+          "_comment": "TODO: model id unverified in templates/agent-config.verified-model-ids.txt; the maintainer adds the exact id there and here in a separate change."
+        },
+        {
+          "agent": "opencode-fireworks",
+          "model": "fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro",
+          "model_name": "Kimi K3.1 Pro"
+        }
+      ]
+    }
+  }
+}

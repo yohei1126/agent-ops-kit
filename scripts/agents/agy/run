@@ -1,0 +1,648 @@
+#!/usr/bin/env bash
+# agy adapter. Runs a headless agy docs or review session through the shared
+# launch helper, and exposes the collect and quota commands.
+#
+# Interface:
+#   run --mode docs|review|issue --model <id> [--dry-run]
+#       [--check-settings <settings.json> <run-dir>] -- <launcher args>
+#   run --help
+#
+# docs launcher args:   <repo> <brief-path> [log-stem]
+# review launcher args: <run-name> <repo-checkout> <brief-path>
+#
+#   run --mode issue ...   always exits 2: issue mode is a hand-off that
+#                          scripts/agent-launch.sh handles itself, so this
+#                          adapter never starts agy for it.
+#
+# Positionals after `--` are literal, as in the former launchers: a brief or
+# run value named --dry-run or --check-settings is a value, never a flag. In
+# review mode only a leading block of review flags right after `--` is read as
+# flags (so `agent-launch.sh ... -- --dry-run <run> <repo> <brief>` works); the
+# first positional or a second `--` ends that block. The review wrapper always
+# forwards `-- -- <positionals>`, so nothing it forwards is read as a flag.
+#
+# There is no default model at this layer. A missing --model exits 2.
+# Settings templates stay in scripts/templates/. The model defaults and the
+# former launcher usage text live in the compatibility wrappers only.
+#
+# Safety properties are unchanged from the former launchers:
+# - Per-run settings are generated from scripts/templates/, never read from
+#   another run, and never written into a checkout or a global settings file.
+# - The shared check in scripts/lib/agy-settings-check.sh refuses an allow
+#   entry that is empty, malformed, a wildcard, or resolves outside the write
+#   root (including .. and symlink escapes).
+# - Symlinked checkouts, run folders, settings files, temp files, PID files,
+#   and log files are refused.
+# - --dangerously-skip-permissions is never passed and allow lists are never
+#   widened.
+# - Shared launch/retry logic lives in scripts/lib/launch-run.sh.
+# - On Darwin, when caffeinate is on PATH, holds an idle-sleep assertion with
+#   `caffeinate -i` for the lifetime of agy. Missing caffeinate is not an
+#   error.
+# - Waits for the run and retries exactly once in total on empty stdout, the
+#   official headless auto-deny notice, or a stall, then fails closed.
+#
+# Exit codes: 0 ok, 1 check or launch failure, 2 usage.
+set -euo pipefail
+
+adapter_dir="$(cd "$(dirname "$0")" && pwd -P)"
+kit_dir="$(cd "$adapter_dir/../.." && pwd -P)"
+settings_lib="$kit_dir/lib/agy-settings-check.sh"
+launch_lib="$kit_dir/lib/launch-run.sh"
+docs_template="$kit_dir/templates/agy-docs-settings.json"
+review_template="$kit_dir/templates/agy-review-settings.json"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: scripts/agents/agy/run --mode docs|review --model <id> [options] -- <args>
+
+Modes:
+  docs     <repo> <brief-path> [log-stem]
+  review   [--dry-run | --check-settings <settings.json> <run-dir>] [--]
+           <run-name> <repo-checkout> <brief-path>
+  issue    Hand-off only. scripts/agent-launch.sh turns an issue-mode lane
+           entry into a scripts/agent-task-issue.sh command; this adapter
+           refuses the mode and never starts agy for it.
+
+Arguments after -- are literal positionals. In review mode a leading block
+of review flags right after -- is read as flags; the first positional or a
+second -- ends it.
+
+Options:
+  --mode <docs|review>   Launcher mode (required)
+  --model <id>           agy model id (required; no default here)
+  --dry-run              Review only: print the agy command, start nothing
+  --check-settings <settings.json> <run-dir>
+                         Review only: run the settings check on a file
+  --help                 Print this help and exit
+EOF
+}
+
+usage_stdout() {
+  usage 2>&1
+}
+
+die_usage() {
+  printf 'agy-run: %s\n' "$1" >&2
+  usage
+  exit 2
+}
+
+mode=""
+model=""
+dry_run=0
+check_mode=0
+check_settings=""
+check_run=""
+positionals=()
+after_separator=()
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --mode)
+      [ "$#" -ge 2 ] || die_usage "missing value for --mode"
+      mode="$2"
+      shift 2
+      ;;
+    --model)
+      [ "$#" -ge 2 ] || die_usage "missing value for --model"
+      model="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --check-settings)
+      [ "$#" -ge 3 ] || die_usage "missing values for --check-settings"
+      check_mode=1
+      check_settings="$2"
+      check_run="$3"
+      shift 3
+      ;;
+    -h | --help)
+      usage_stdout
+      exit 0
+      ;;
+    --)
+      shift
+      while [ "$#" -gt 0 ]; do
+        after_separator[${#after_separator[@]}]="$1"
+        shift
+      done
+      ;;
+    -*)
+      printf 'agy-run: unknown flag: %s\n' "$1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      die_usage "unexpected argument before --: $1"
+      ;;
+  esac
+done
+
+case "$mode" in
+  docs | review) ;;
+  issue)
+    printf 'agy-run: issue mode is a hand-off: scripts/agent-launch.sh prepares a scripts/agent-task-issue.sh command and the maintainer runs agy. This adapter never starts agy for it.\n' >&2
+    exit 2
+    ;;
+  '') die_usage "missing --mode" ;;
+  *)
+    die_usage "unknown mode: $mode"
+    ;;
+esac
+if [ -z "$model" ]; then
+  die_usage "missing --model"
+fi
+
+# Arguments after `--` are literal positionals, as the former launchers took
+# them. Review mode reads only a leading block of its own flags here, so an
+# agent-launch caller can ask for a dry run; the first positional or a second
+# `--` ends the block, and everything after it stays literal.
+sep_count="${#after_separator[@]}"
+sep_index=0
+if [ "$mode" = review ]; then
+  while [ "$sep_index" -lt "$sep_count" ]; do
+    arg="${after_separator[$sep_index]}"
+    case "$arg" in
+      --)
+        sep_index=$((sep_index + 1))
+        break
+        ;;
+      --dry-run)
+        dry_run=1
+        sep_index=$((sep_index + 1))
+        ;;
+      --check-settings)
+        [ $((sep_count - sep_index)) -ge 3 ] || die_usage "missing values for --check-settings"
+        check_mode=1
+        check_settings="${after_separator[$((sep_index + 1))]}"
+        check_run="${after_separator[$((sep_index + 2))]}"
+        sep_index=$((sep_index + 3))
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+fi
+while [ "$sep_index" -lt "$sep_count" ]; do
+  positionals[${#positionals[@]}]="${after_separator[$sep_index]}"
+  sep_index=$((sep_index + 1))
+done
+if [ "$mode" = docs ] && { [ "$dry_run" = 1 ] || [ "$check_mode" = 1 ]; }; then
+  die_usage "docs mode supports neither --dry-run nor --check-settings"
+fi
+
+resolve_path() {
+  agy_physical_path "$1"
+}
+
+validate_token() {
+  local label="$1"
+  local value="$2"
+  if [[ -z "$value" || "$value" == "." || "$value" == ".." || "$value" == *"/"* || "$value" == *".."* || "$value" == -* || "$value" != "$(basename -- "$value")" ]]; then
+    printf 'Error: invalid %s %q (must be a plain basename without slashes or "..").\n' "$label" "$value" >&2
+    exit 2
+  fi
+}
+
+# Load the settings check first: the launch library's error messages do not
+# depend on it, but both launchers use agy_physical_path from this file.
+load_settings_lib() {
+  if [[ ! -r "$settings_lib" ]]; then
+    printf 'Error: missing library: %s\n' "$settings_lib" >&2
+    exit 1
+  fi
+}
+
+load_launch_lib() {
+  if [[ ! -r "$launch_lib" ]]; then
+    printf 'Error: missing library: %s\n' "$launch_lib" >&2
+    exit 1
+  fi
+}
+
+run_docs() {
+  local repo brief_input stem_input
+  local work_root inbox_root work_root_real inbox_root_real
+  local checkout_dir checkout_real brief_real brief_base stem
+  local pid_file stdout_log stderr_log write_target existing_pid settings_file
+
+  if [ "${#positionals[@]}" -lt 2 ] || [ "${#positionals[@]}" -gt 3 ]; then
+    usage
+    exit 2
+  fi
+  repo="${positionals[0]}"
+  brief_input="${positionals[1]}"
+  stem_input="${positionals[2]:-}"
+
+  validate_token "repository name" "$repo"
+
+  load_settings_lib
+  load_launch_lib
+  # Library messages name this launcher.
+  # shellcheck disable=SC2034
+  agy_settings_tag="agy-docs-launch"
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=../../../scripts/lib/agy-settings-check.sh
+  . "$settings_lib"
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=../../../scripts/lib/launch-run.sh
+  . "$launch_lib"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "Error: 'jq' is required to generate and check settings." >&2
+    exit 1
+  fi
+
+  if ! command -v agy >/dev/null 2>&1; then
+    echo "Error: 'agy' binary not found on PATH." >&2
+    exit 1
+  fi
+
+  work_root="$HOME/agy-work"
+  inbox_root="$HOME/agy-inbox"
+  mkdir -p "$work_root" "$inbox_root"
+
+  work_root_real="$(resolve_path "$work_root")"
+  inbox_root_real="$(resolve_path "$inbox_root")"
+
+  checkout_dir="$work_root/$repo"
+  if [[ -L "$checkout_dir" ]]; then
+    printf 'Error: refusing symlinked checkout %s; use the real directory under %s.\n' "$checkout_dir" "$work_root" >&2
+    exit 1
+  fi
+  if [[ ! -d "$checkout_dir" ]]; then
+    printf 'Error: checkout directory missing at %s. Clone the repository under %s first.\n' "$checkout_dir" "$checkout_dir" >&2
+    exit 1
+  fi
+
+  checkout_real="$(resolve_path "$checkout_dir")"
+  case "$checkout_real" in
+    "$work_root_real"/*) ;;
+    *)
+      printf 'Error: checkout path %s resolves outside %s.\n' "$checkout_real" "$work_root_real" >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ ! -f "$brief_input" || ! -r "$brief_input" ]]; then
+    printf 'Error: brief file missing or unreadable: %s\n' "$brief_input" >&2
+    exit 1
+  fi
+
+  brief_real="$(resolve_path "$brief_input")"
+  case "$brief_real" in
+    "$inbox_root_real"/*) ;;
+    *)
+      printf 'Error: brief path %s resolves outside %s/.\n' "$brief_real" "$inbox_root_real" >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ -n "$stem_input" ]]; then
+    stem="$stem_input"
+  else
+    brief_base="$(basename -- "$brief_real")"
+    stem="${brief_base%.*}"
+    if [[ -z "$stem" ]]; then
+      stem="$brief_base"
+    fi
+  fi
+
+  validate_token "log stem" "$stem"
+
+  pid_file="$inbox_root/$stem.pid"
+  stdout_log="$inbox_root/$stem-stdout.log"
+  stderr_log="$inbox_root/$stem-stderr.log"
+
+  # A symlinked log or PID file could redirect a write outside the inbox.
+  for write_target in "$pid_file" "$stdout_log" "$stderr_log"; do
+    if [[ -L "$write_target" ]]; then
+      printf 'Error: refusing symlinked %s: %s\n' "${write_target##*/}" "$write_target" >&2
+      exit 1
+    fi
+  done
+
+  if [[ -f "$pid_file" ]]; then
+    existing_pid="$(tr -d '[:space:]' <"$pid_file" || true)"
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      printf 'Error: existing agy process (PID %s) from %s is still running.\n' "$existing_pid" "$pid_file" >&2
+      exit 1
+    fi
+  fi
+
+  # Per-run settings: the checkout is the only write root.
+  settings_file="$inbox_root_real/$stem.settings.json"
+  if ! agy_settings_generate "$docs_template" "$settings_file" "$checkout_real"; then
+    exit 1
+  fi
+  if ! agy_settings_check "$settings_file" "$checkout_real"; then
+    printf 'Error: settings check failed; not launching.\n' >&2
+    exit 1
+  fi
+
+  launch_run_tag="agy-docs-launch"
+  launch_run_cwd=""
+  launch_run_stdout_log="$stdout_log"
+  launch_run_stderr_log="$stderr_log"
+  launch_run_pid_file="$pid_file"
+  launch_run_brief="$brief_real"
+  launch_run_retry_brief="$inbox_root_real/$stem.retry-brief.txt"
+  launch_run_attempt1_out="$stdout_log.attempt1"
+  launch_run_attempt1_err="$stderr_log.attempt1"
+  launch_run_binary="agy"
+  launch_run_auto_deny_needle='headless mode cannot prompt for'
+  launch_run_child_tag="agy-launch-run"
+  launch_run_env_prefix="AGY_LAUNCH"
+
+  launch_run_prepare_args() {
+    launch_run_args=(
+      --project "$HOME/agy-work/$repo"
+      --model "$model"
+      --settings "$settings_file"
+      -p "$(cat "$launch_run_brief_used")"
+    )
+  }
+
+  launch_run_print_metadata() {
+    printf 'AGY_PID=%s\n' "$(tr -d '[:space:]' <"$pid_file")"
+    printf 'PID_FILE=%s\n' "$pid_file"
+    printf 'MODEL=%s\n' "$model"
+    printf 'SETTINGS=%s\n' "$settings_file"
+    printf 'STDOUT_LOG=%s\n' "$stdout_log"
+    printf 'STDERR_LOG=%s\n' "$stderr_log"
+  }
+
+  if ! launch_run_run; then
+    exit 1
+  fi
+}
+
+run_review() {
+  local run_name repo_input brief_input
+  local work_root runs_root work_root_real runs_root_real
+  local repo_real brief_real run_dir run_real settings_file stdout_log
+  local stderr_log pid_file existing_pid
+
+  load_settings_lib
+  load_launch_lib
+  # Library messages name this launcher.
+  # shellcheck disable=SC2034
+  agy_settings_tag="agy-review-launch"
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=../../../scripts/lib/agy-settings-check.sh
+  . "$settings_lib"
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=../../../scripts/lib/launch-run.sh
+  . "$launch_lib"
+
+  if [ -z "${HOME:-}" ]; then
+    printf 'agy-review-launch: HOME is not set\n' >&2
+    exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    printf 'agy-review-launch: jq is required\n' >&2
+    exit 1
+  fi
+
+  if [ "$check_mode" = 1 ]; then
+    if [ "${#positionals[@]}" -ne 0 ]; then
+      printf 'agy-review-launch: --check-settings takes no positional arguments\n' >&2
+      usage
+      exit 2
+    fi
+    if agy_settings_check "$check_settings" "$check_run"; then
+      printf 'agy-review-launch: settings OK: %s\n' "$check_settings"
+      exit 0
+    fi
+    exit 1
+  fi
+
+  if [ "${#positionals[@]}" -lt 3 ] || [ "${#positionals[@]}" -gt 4 ]; then
+    usage
+    exit 2
+  fi
+
+  run_name="${positionals[0]}"
+  repo_input="${positionals[1]}"
+  brief_input="${positionals[2]}"
+
+  case "$run_name" in
+    '' | . | ..)
+      printf 'agy-review-launch: invalid run name: %s\n' "$run_name" >&2
+      usage
+      exit 2
+      ;;
+    -* | *[!A-Za-z0-9._-]*)
+      printf 'agy-review-launch: invalid run name %s (use [A-Za-z0-9._-]+, not starting with -)\n' \
+        "$run_name" >&2
+      exit 2
+      ;;
+  esac
+
+  # Model: --model from the entry point or the compatibility wrapper.
+  case "$model" in
+    '' | -*)
+      printf 'agy-review-launch: invalid model id: %s\n' "$model" >&2
+      exit 2
+      ;;
+  esac
+
+  work_root="$HOME/agy-work"
+  runs_root="$work_root/runs"
+  mkdir -p -- "$runs_root"
+  work_root_real="$(agy_physical_path "$work_root")"
+  runs_root_real="$(agy_physical_path "$runs_root")"
+
+  # Repository checkout must be an existing directory inside $HOME/agy-work.
+  if [ ! -d "$repo_input" ]; then
+    printf 'agy-review-launch: repo checkout is not a directory: %s\n' "$repo_input" >&2
+    exit 1
+  fi
+  repo_real="$(agy_physical_path "$repo_input")"
+  if [ "$repo_real" = "$work_root_real" ] || ! agy_path_inside "$repo_real" "$work_root_real"; then
+    printf 'agy-review-launch: repo checkout %s resolves to %s outside %s\n' \
+      "$repo_input" "$repo_real" "$work_root_real" >&2
+    exit 1
+  fi
+
+  # Brief must be a readable file; it is copied into the run folder below.
+  if [ ! -f "$brief_input" ] || [ ! -r "$brief_input" ]; then
+    printf 'agy-review-launch: brief file missing or unreadable: %s\n' "$brief_input" >&2
+    exit 1
+  fi
+  brief_real="$(agy_physical_path "$brief_input")"
+
+  run_dir="$runs_root/$run_name"
+
+  if [ -L "$run_dir" ]; then
+    printf 'agy-review-launch: refusing run folder symlink: %s\n' "$run_dir" >&2
+    exit 1
+  fi
+  if [ -e "$run_dir" ] && [ ! -d "$run_dir" ]; then
+    printf 'agy-review-launch: run path exists and is not a directory: %s\n' "$run_dir" >&2
+    exit 1
+  fi
+  mkdir -p -- "$run_dir"
+
+  run_real="$(agy_physical_path "$run_dir")"
+  if [ "$run_real" = "$runs_root_real" ] || ! agy_path_inside "$run_real" "$runs_root_real"; then
+    printf 'agy-review-launch: run folder %s resolves to %s outside %s\n' \
+      "$run_dir" "$run_real" "$runs_root_real" >&2
+    exit 1
+  fi
+
+  settings_file="$run_real/settings.json"
+  stdout_log="$run_real/agy.log"
+  stderr_log="$run_real/agy.stderr.log"
+  pid_file="$run_real/agy.pid"
+
+  # Every path the launcher writes must not be a symlink, including a dangling
+  # one: a link could redirect a write outside the run folder.
+  refuse_symlink_write_target() {
+    local path="$1"
+
+    if [ -L "$path" ]; then
+      printf 'agy-review-launch: refusing symlinked %s: %s\n' "${path##*/}" "$path" >&2
+      exit 1
+    fi
+  }
+
+  if [ -L "$settings_file" ]; then
+    printf 'agy-review-launch: refusing symlinked settings file: %s\n' "$settings_file" >&2
+    exit 1
+  fi
+  if [ -L "$run_real/BRIEF.md" ]; then
+    printf 'agy-review-launch: refusing symlinked brief: %s\n' "$run_real/BRIEF.md" >&2
+    exit 1
+  fi
+  refuse_symlink_write_target "$stdout_log"
+  refuse_symlink_write_target "$stderr_log"
+  refuse_symlink_write_target "$pid_file"
+
+  if [ "$brief_real" != "$run_real/BRIEF.md" ]; then
+    cp -f -- "$brief_real" "$run_real/BRIEF.md"
+  fi
+
+  # agent-launch passes preflight evidence (CI and named-check results for
+  # the reviewed head). Append it once so the model starts from those facts.
+  if [ -n "${AGENT_LAUNCH_EVIDENCE:-}" ]; then
+    if [ -L "$AGENT_LAUNCH_EVIDENCE" ] || [ ! -f "$AGENT_LAUNCH_EVIDENCE" ] ||
+      [ ! -r "$AGENT_LAUNCH_EVIDENCE" ]; then
+      printf 'agy-review-launch: preflight evidence is not a readable regular file: %s\n' \
+        "$AGENT_LAUNCH_EVIDENCE" >&2
+      exit 1
+    fi
+    if ! grep -q '^## Machine evidence' "$run_real/BRIEF.md"; then
+      {
+        printf '\n'
+        cat -- "$AGENT_LAUNCH_EVIDENCE"
+      } >>"$run_real/BRIEF.md"
+    fi
+  fi
+
+  # Generate settings.json from the template, substituting the physical run path.
+  if ! agy_settings_generate "$review_template" "$settings_file" "$run_real"; then
+    exit 1
+  fi
+
+  if ! agy_settings_check "$settings_file" "$run_real"; then
+    printf 'agy-review-launch: settings check failed; not launching\n' >&2
+    exit 1
+  fi
+
+  # Model resolved above so usage errors leave the runs root untouched.
+  if [ -f "$pid_file" ]; then
+    existing_pid="$(tr -d '[:space:]' <"$pid_file" || true)"
+    case "$existing_pid" in
+      '' | *[!0-9]*) ;;
+      *)
+        if kill -0 "$existing_pid" 2>/dev/null; then
+          printf 'agy-review-launch: existing agy process (PID %s) from %s is still running\n' \
+            "$existing_pid" "$pid_file" >&2
+          exit 1
+        fi
+        ;;
+    esac
+  fi
+
+  # Optional idle-sleep assertion and shared retry. Detection, caffeinate,
+  # and the single-retry budget live in scripts/lib/launch-run.sh.
+  launch_run_tag="agy-review-launch"
+  launch_run_cwd="$run_real"
+  launch_run_stdout_log="$stdout_log"
+  launch_run_stderr_log="$stderr_log"
+  launch_run_pid_file="$pid_file"
+  launch_run_brief="$run_real/BRIEF.md"
+  launch_run_retry_brief="$run_real/BRIEF.retry.md"
+  launch_run_attempt1_out="$run_real/agy.log.attempt1"
+  launch_run_attempt1_err="$run_real/agy.stderr.log.attempt1"
+  launch_run_binary="agy"
+  launch_run_auto_deny_needle='headless mode cannot prompt for'
+  launch_run_child_tag="agy-launch-run"
+  launch_run_env_prefix="AGY_LAUNCH"
+
+  launch_run_prepare_args() {
+    launch_run_args=(
+      --project "$run_real"
+      --model "$model"
+      --settings "$settings_file"
+      --add-dir "$run_real"
+      --add-dir "$repo_real"
+      --mode accept-edits
+      --print "$(cat "$launch_run_brief_used")"
+    )
+  }
+
+  launch_run_print_metadata() {
+    printf 'AGY_PID=%s\n' "$(tr -d '[:space:]' <"$pid_file")"
+    printf 'RUN_DIR=%s\n' "$run_real"
+    printf 'SETTINGS=%s\n' "$settings_file"
+    printf 'MODEL=%s\n' "$model"
+    printf 'STDOUT_LOG=%s\n' "$stdout_log"
+    printf 'STDERR_LOG=%s\n' "$stderr_log"
+    printf 'PID_FILE=%s\n' "$pid_file"
+  }
+
+  print_command() {
+    launch_run_brief_used="$launch_run_brief"
+    launch_run_prepare_args
+    printf 'AGY_COMMAND='
+    launch_run_wrapper_prefix
+    printf '%q ' agy "${launch_run_args[@]}"
+    printf '\n'
+  }
+
+  # The dry-run branch prints the wrapper prefix, so resolve caffeinate before
+  # it. A real launch resolves it again inside launch_run_run.
+  launch_run_caffeinate="$(launch_run_use_caffeinate)"
+
+  if [ "$dry_run" = 1 ]; then
+    printf 'RUN_DIR=%s\n' "$run_real"
+    printf 'SETTINGS=%s\n' "$settings_file"
+    printf 'MODEL=%s\n' "$model"
+    printf 'STDOUT_LOG=%s\n' "$stdout_log"
+    printf 'STDERR_LOG=%s\n' "$stderr_log"
+    printf 'PID_FILE=%s\n' "$pid_file"
+    print_command
+    exit 0
+  fi
+
+  if ! command -v agy >/dev/null 2>&1; then
+    printf "agy-review-launch: 'agy' binary not found on PATH\n" >&2
+    exit 1
+  fi
+
+  if ! launch_run_run; then
+    exit 1
+  fi
+}
+
+case "$mode" in
+  docs) run_docs ;;
+  review) run_review ;;
+esac

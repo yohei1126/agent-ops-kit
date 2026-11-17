@@ -1,0 +1,26 @@
+EXIT=2
+ARGV
+END_ARGV
+CWD
+END_CWD
+ENV
+END_ENV
+STDOUT
+END_STDOUT
+STDERR
+Usage: scripts/agy-review-launch.sh <run-name> <repo-checkout> <brief-path> [model]
+       scripts/agy-review-launch.sh --dry-run <run-name> <repo-checkout> <brief-path> [model]
+       scripts/agy-review-launch.sh --check-settings <settings.json> <run-dir>
+
+Arguments:
+  <run-name>       Plain token [A-Za-z0-9._-]+ under $HOME/agy-work/runs
+  <repo-checkout>  Existing checkout directory inside $HOME/agy-work
+  <brief-path>     Readable brief file; copied to <run>/BRIEF.md when needed
+  [model]          Optional agy --model id (default gemini-4-argon-medium;
+                   else AGY_REVIEW_MODEL)
+
+Flags:
+  --dry-run        Generate settings and run the check, then print the agy
+                   command without starting it
+  --check-settings Run only the pre-launch settings check on an existing file
+END_STDERR

@@ -1,0 +1,46 @@
+EXIT=0
+ARGV
+--- ATTEMPT 1 ---
+--project
+@RUN@/run-review-literal-check-settings
+--model
+gemini-4-argon-medium
+--settings
+@RUN@/run-review-literal-check-settings/settings.json
+--add-dir
+@RUN@/run-review-literal-check-settings
+--add-dir
+@HOME@/agy-work/repo
+--mode
+accept-edits
+--print
+Review the flag-like brief.
+END_ARGV
+CWD
+@RUN@/run-review-literal-check-settings
+END_CWD
+ENV
+--- ATTEMPT 1 ---
+AGY_LAUNCH_CHILD_MODE=1
+AGY_LAUNCH_STALL_SECONDS=0
+AGY_LAUNCH_USE_CAFFEINE=0
+FAKE_AGY_ARGV=@CAP@/review-literal-check-settings.argv
+FAKE_AGY_COUNT=@CAP@/review-literal-check-settings.count
+FAKE_AGY_CWD=@CAP@/review-literal-check-settings.cwd
+FAKE_AGY_ENV=@CAP@/review-literal-check-settings.env
+HOME=@HOME@
+PATH=@TMP@/fake-bin:@TMP@/tool-bin
+PWD=@RUN@/run-review-literal-check-settings
+TMPDIR=@HOME@/tmp
+END_ENV
+STDOUT
+AGY_PID=@PID@
+RUN_DIR=@RUN@/run-review-literal-check-settings
+SETTINGS=@RUN@/run-review-literal-check-settings/settings.json
+MODEL=gemini-4-argon-medium
+STDOUT_LOG=@RUN@/run-review-literal-check-settings/agy.log
+STDERR_LOG=@RUN@/run-review-literal-check-settings/agy.stderr.log
+PID_FILE=@RUN@/run-review-literal-check-settings/agy.pid
+END_STDOUT
+STDERR
+END_STDERR

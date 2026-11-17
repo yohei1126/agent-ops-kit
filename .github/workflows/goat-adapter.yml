@@ -1,0 +1,51 @@
+# Test the GOAT adapter with a stub agent binary on Linux and on macOS
+# /bin/bash 3.2. No test starts a real agent session. A separate workflow
+# keeps the dev-loop-gate.yml file lists free of merge conflicts.
+name: GOAT adapter
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: goat-adapter
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax
+        run: |
+          for f in scripts/agents/goat/run scripts/tests/test_goat_adapter.sh; do
+            bash -n "$f"
+          done
+
+      - name: Run shellcheck
+        run: shellcheck -x scripts/agents/goat/run scripts/tests/test_goat_adapter.sh
+
+      - name: Run adapter tests
+        run: bash scripts/tests/test_goat_adapter.sh
+
+  macos:
+    name: goat-adapter-macos
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax with bash 3.2
+        run: |
+          for f in scripts/agents/goat/run scripts/tests/test_goat_adapter.sh; do
+            /bin/bash -n "$f"
+          done
+
+      - name: Run adapter tests with bash 3.2
+        run: /bin/bash scripts/tests/test_goat_adapter.sh

@@ -1,0 +1,940 @@
+#!/usr/bin/env bash
+# goat adapter. Runs a headless agent session in one of three modes: patch,
+# review, or write. It is the adapter interface scripts/agent-launch.sh
+# expects and the only code that starts the agent binary.
+#
+# Interface:
+#   run --mode patch|review|write --model <id> [--dry-run] -- <args>
+#   run --help
+#
+#   patch args:  <worktree> <brief-file> [check-id ...]
+#   review args: <worktree> <brief-file> <result-file>
+#   write args:  <worktree> <brief-file> <scope> [<scope> ...]
+#
+# Everything after -- is a literal positional: a value named --dry-run
+# after -- is a value, never a flag. An unknown flag before --, a missing
+# --mode or --model, an unknown mode, or a wrong positional count prints a
+# reason and the usage to stderr and exits 2.
+#
+# Environment:
+#   GOAT_CMD        binary name or path (default: cmd)
+#   GOAT_MAX_TURNS  agent turn cap (default: 30; digits only)
+#   GOAT_TIMEOUT    wall-clock seconds (default: 2400; digits only); wrapped
+#                   with timeout when on PATH, else gtimeout, else run with
+#                   no timeout and print a note on stderr
+#   GOAT_KEEP_RUN   1 keeps the temporary run folder and prints the diff path
+#   GOAT_MODEL_LINE optional full model label for the review header
+#   COMMAND_CODE_API_KEY  required for a real run, never for --dry-run; its
+#                   value is never printed
+#
+# Safety properties:
+# - The agent runs under env -i with a fixed, minimal environment and in a
+#   throwaway run folder.
+# - patch mode refuses any diff path outside the worktree (including
+#   rename and copy targets), symlinks, and submodules before
+#   git apply --check. New files are marked intent-to-add so tracked-file
+#   checks see them; it never stages content, commits, pushes, or opens a PR.
+# - review mode writes only the caller's result file.
+# - write mode needs a linked, clean worktree on a non-default branch with
+#   no .commandcode directory, installs a settings file that denies shell,
+#   web, MCP, and .git edits, and is the only mode that passes --yolo.
+# - write mode verifies every changed, untracked, or ignored path against
+#   the declared scopes, including pre-existing ignored files by content,
+#   and a moved HEAD or git directory fails the run; the tree is left for
+#   inspection. See docs/goat-adapter.md for the residual risk.
+#
+# Exit codes: 0 ok, 1 agent, apply-gate, or scope failure, 2 usage,
+# validation, or refusal.
+set -euo pipefail
+
+adapter_dir="$(cd "$(dirname "$0")" && pwd -P)"
+kit_dir="$(cd "$adapter_dir/../.." && pwd -P)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/agents/goat/run --mode patch|review|write --model <id> [--dry-run] -- <args>
+  scripts/agents/goat/run --help
+
+Modes and positionals after --:
+  patch    <worktree> <brief-file> [check-id ...]
+            The agent returns one fenced diff block. The adapter checks
+            every path, runs git apply --check, applies the diff, then
+            runs each check id through dev-loop-gate.sh --strict.
+  review   <worktree> <brief-file> <result-file>
+            Writes "Model: ...", a blank line, and the review text to
+            the result file.
+  write    <worktree> <brief-file> <scope> [<scope> ...]
+            The only mode that edits the worktree and passes --yolo. It
+            requires a linked, clean worktree on a non-default branch.
+            Changes outside the scopes fail the run.
+
+Options:
+  --mode <patch|review|write>  Mode (required)
+  --model <id>                 Model id (required; no default here)
+  --dry-run                    Validate, print GOAT_ENV and GOAT_COMMAND,
+                               and start nothing
+  --help                       Print this help and exit
+
+Environment:
+  GOAT_CMD        binary name or path (default: cmd)
+  GOAT_MAX_TURNS  turn cap, digits only (default: 30)
+  GOAT_TIMEOUT    seconds, digits only (default: 2400)
+  GOAT_KEEP_RUN   1 keeps the run folder and prints the change diff path
+  GOAT_MODEL_LINE optional full label for the review header
+  COMMAND_CODE_API_KEY  required for a real run, never for --dry-run
+
+A timeout wrapper is used only when timeout or gtimeout is on PATH;
+otherwise the agent runs without a timeout and a note goes to stderr.
+
+Patch checks:
+  Paths come from git apply --numstat after prefix stripping. Headers
+  must use plain a/ and b/ prefixes with no quoted paths. The adapter
+  refuses an absolute path, a . or .. component, .git or .commandcode
+  in any letter case, a symlink, or a submodule, then runs git apply
+  --check before git apply. New files are marked intent-to-add (the
+  path only, no content staged). Named checks run from a copy of the
+  kit taken before the apply, under a throwaway HOME and a PATH of
+  system folders plus the git and jq found before the run.
+
+Write mode:
+  Scopes are literal repository-relative paths (glob characters are
+  refused). A scope matches that path or a child of it, not a sibling
+  prefix (docs does not admit docsx). Generated deny rules cover
+  Shell, web fetches, every MCP tool, edits to .git and .commandcode,
+  reads and edits of the worktree git directories (absolute // rules),
+  edits of hidden files and folders, bin, and Library in the caller's
+  home, edits of /usr/local and /opt/homebrew, and reads of every
+  hidden file and folder and of Library in the caller's home. A kit
+  test fails if any other script passes --yolo. After the run the
+  adapter uses only system tools and calls git with fsmonitor and
+  hooks off.
+
+Exit codes:
+  0  ok
+  1  agent, apply-gate, or scope failure
+  2  usage, validation, or refusal (nothing is applied)
+
+The API key is never printed. --dry-run shows it as <set> or <missing>.
+On an agent failure, a redacted stderr tail is printed (the key value
+is replaced by <redacted>). Patch or review output that contains the
+key is refused without being printed.
+
+GOAT_MODEL_LINE, when unset, becomes "<model-id> (Command Code / GOAT)".
+The adapter reads it from the environment and does not export it.
+EOF
+}
+
+die_usage() {
+  printf 'goat-run: %s\n' "$1" >&2
+  usage >&2
+  exit 2
+}
+
+die_diff_path() {
+  printf 'goat-run: diff touches a path outside the worktree: %s\n' "$1" >&2
+  exit 2
+}
+
+die_diff_header() {
+  printf 'goat-run: unsupported diff header (use plain a/ and b/ prefixes, no quoted paths): %s\n' "$1" >&2
+  exit 2
+}
+
+# Lower the ASCII letters of a path so the protected dot folders match
+# whatever case the caller or the agent uses.
+lower() {
+  printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+}
+
+# redact drops the API key from text read on stdin. The key comes from the
+# environment, never from an argument.
+redact() {
+  awk 'BEGIN { k = ENVIRON["COMMAND_CODE_API_KEY"] }
+    {
+      if (k != "") {
+        out = ""
+        s = $0
+        while ((i = index(s, k)) > 0) {
+          out = out substr(s, 1, i - 1) "<redacted>"
+          s = substr(s, i + length(k))
+        }
+        $0 = out s
+      }
+      print
+    }'
+}
+
+check_path() {
+  local p="$1"
+  [ -n "$p" ] || return 0
+  case "$p" in
+    /dev/null) return 0 ;;
+  esac
+  case "$p" in
+    /*) die_diff_path "$p" ;;
+  esac
+  case "/$p/" in
+    */../* | */./* | *//*) die_diff_path "$p" ;;
+  esac
+  case "$(lower "$p")" in
+    .git | .git/* | .commandcode | .commandcode/*) die_diff_path "$p" ;;
+  esac
+}
+
+validate_scope() {
+  local scope="$1"
+  case "$(lower "$scope")" in
+    '') die_usage "empty scope" ;;
+    /*) die_usage "scope must be relative: $scope" ;;
+    .) die_usage "scope must not be ." ;;
+    .git | .git/*) die_usage "scope must not touch .git: $scope" ;;
+    .commandcode | .commandcode/*) die_usage "scope must not touch .commandcode: $scope" ;;
+    *[*?[\]\\]*) die_usage "scope must be a literal path, no glob characters: $scope" ;;
+  esac
+  case "$scope" in
+    .. | ../* | */../* | */..) die_usage "scope must not contain ..: $scope" ;;
+  esac
+}
+
+mode=""
+model=""
+dry_run=0
+positionals=()
+goat_scopes=()
+scope_list=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --mode)
+      [ "$#" -ge 2 ] || die_usage "missing value for --mode"
+      mode="$2"
+      shift 2
+      ;;
+    --model)
+      [ "$#" -ge 2 ] || die_usage "missing value for --model"
+      model="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [ "$#" -gt 0 ]; do
+        positionals[${#positionals[@]}]="$1"
+        shift
+      done
+      ;;
+    -?*)
+      die_usage "unknown flag: $1"
+      ;;
+    *)
+      die_usage "unexpected argument before --: $1"
+      ;;
+  esac
+done
+
+case "$mode" in
+  patch | review | write) ;;
+  '') die_usage "missing --mode" ;;
+  *) die_usage "unknown mode: $mode" ;;
+esac
+[ -n "$model" ] || die_usage "missing --model"
+
+positional_count="${#positionals[@]}"
+case "$mode" in
+  patch)
+    [ "$positional_count" -ge 2 ] || die_usage "patch mode needs <worktree> <brief-file> [check-id ...]"
+    ;;
+  review)
+    [ "$positional_count" -eq 3 ] || die_usage "review mode needs <worktree> <brief-file> <result-file>"
+    ;;
+  write)
+    [ "$positional_count" -ge 3 ] || die_usage "write mode needs <worktree> <brief-file> <scope> [<scope> ...]"
+    ;;
+esac
+
+worktree_input="${positionals[0]}"
+brief_input="${positionals[1]}"
+
+if [ ! -d "$worktree_input" ]; then
+  die_usage "worktree does not exist: $worktree_input"
+fi
+if [ -L "$worktree_input" ]; then
+  die_usage "worktree is a symlink; use the real directory: $worktree_input"
+fi
+if ! toplevel="$(git -C "$worktree_input" rev-parse --show-toplevel 2>/dev/null)"; then
+  die_usage "not a git worktree: $worktree_input"
+fi
+worktree="$(cd "$toplevel" && pwd -P)"
+
+if [ -L "$brief_input" ]; then
+  die_usage "brief-file is a symlink: $brief_input"
+fi
+if [ ! -f "$brief_input" ] || [ ! -r "$brief_input" ]; then
+  die_usage "brief-file is not a readable regular file: $brief_input"
+fi
+
+# Per-mode validation runs before anything starts; a failure exits 2.
+result_file=""
+if [ "$mode" = review ]; then
+  result_file="${positionals[2]}"
+  if [ -L "$result_file" ]; then
+    die_usage "result-file is a symlink: $result_file"
+  fi
+  result_parent="$(dirname "$result_file")"
+  if [ ! -d "$result_parent" ]; then
+    die_usage "result-file parent directory does not exist: $result_parent"
+  fi
+fi
+
+# Agent state or project settings in <worktree>/.commandcode could carry
+# hooks that run during a read-only session, so every mode refuses one.
+if [ -e "$worktree/.commandcode" ] || [ -L "$worktree/.commandcode" ]; then
+  die_usage "<worktree>/.commandcode must be absent; move it aside for the run"
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  printf 'goat-run: jq is required\n' >&2
+  exit 2
+fi
+
+if [ "$mode" = write ]; then
+  index=2
+  while [ "$index" -lt "$positional_count" ]; do
+    scope="${positionals[$index]}"
+    index=$((index + 1))
+    while [ "$scope" != "${scope%/}" ]; do
+      scope="${scope%/}"
+    done
+    validate_scope "$scope"
+    goat_scopes[${#goat_scopes[@]}]="$scope"
+    if [ -n "$scope_list" ]; then
+      scope_list="$scope_list $scope"
+    else
+      scope_list="$scope"
+    fi
+  done
+
+  if ! git_dir="$(git -C "$worktree" rev-parse --git-dir)"; then
+    die_usage "cannot resolve the git directory for $worktree"
+  fi
+  if ! common_dir="$(git -C "$worktree" rev-parse --git-common-dir)"; then
+    die_usage "cannot resolve the common git directory for $worktree"
+  fi
+  physical_git="$(cd "$worktree" && cd "$git_dir" && pwd -P)"
+  physical_common="$(cd "$worktree" && cd "$common_dir" && pwd -P)"
+  if [ "$physical_git" = "$physical_common" ]; then
+    die_usage "write mode needs a linked worktree (git worktree add), not the main checkout"
+  fi
+  status_text="$(git -C "$worktree" status --porcelain --untracked-files=all)"
+  if [ -n "$status_text" ]; then
+    die_usage "write mode needs a clean worktree; commit or stash changes first"
+  fi
+  if ! branch="$(git -C "$worktree" symbolic-ref -q --short HEAD)"; then
+    die_usage "write mode needs a checked-out branch; HEAD is detached"
+  fi
+  case "$branch" in
+    main | master) die_usage "write mode refuses the default branch: $branch" ;;
+  esac
+  if origin_head="$(git -C "$worktree" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null)"; then
+    origin_branch="${origin_head#refs/remotes/origin/}"
+    if [ "$branch" = "$origin_branch" ]; then
+      die_usage "write mode refuses the default branch: $branch"
+    fi
+  elif git -C "$worktree" remote get-url origin >/dev/null 2>&1; then
+    die_usage "origin/HEAD is not set, so the default branch is unknown; run git remote set-head origin --auto, then re-run"
+  fi
+  # A tracked symlink inside a scope could point outside the worktree, and
+  # writes through it would never show in git status.
+  for scope in "${goat_scopes[@]}"; do
+    if git -C "$worktree" ls-files -s -- "$scope" | awk '$1 == "120000" { found = 1 } END { exit found ? 0 : 1 }'; then
+      die_usage "scope $scope holds a tracked symlink; pick a scope without symlinks"
+    fi
+  done
+  caller_home=""
+  if [ -n "${HOME:-}" ] && [ -d "$HOME" ]; then
+    caller_home="$(cd "$HOME" && pwd -P)"
+    case "$worktree/" in
+      "$caller_home"/.*)
+        die_usage "write mode refuses a worktree inside a hidden folder of the home folder: $worktree"
+        ;;
+    esac
+  fi
+fi
+
+# Deny rules win over the permission bypass. Besides shell, web, and MCP
+# tools, write mode denies the worktree's git directories, dot folders and
+# credential stores in the caller's home, and shared tool folders, so the
+# agent cannot plant code that the adapter or the caller runs later.
+deny_json=""
+if [ "$mode" = write ]; then
+  deny_json="$(jq -cn --arg common "${physical_common#/}" --arg gitdir "${physical_git#/}" \
+    --arg home "${caller_home#/}" '
+    def r($p): ["Read(" + $p + ")"];
+    def rw($p): ["Read(" + $p + ")", "Edit(" + $p + ")", "Write(" + $p + ")"];
+    def w($p): ["Edit(" + $p + ")", "Write(" + $p + ")"];
+    ["Shell", "WebFetch", "WebSearch", "mcp__*"]
+    + w(".git") + w(".git/**") + w(".commandcode") + w(".commandcode/**")
+    + rw("//" + $common + "/**") + rw("//" + $gitdir + "/**")
+    + w("//usr/local/**") + w("//opt/homebrew/**")
+    + (if $home == "" then [] else
+        w("//" + $home + "/.*") + w("//" + $home + "/.*/**") + w("//" + $home + "/bin/**") + w("//" + $home + "/Library/**")
+        + r("//" + $home + "/.*") + r("//" + $home + "/.*/**") + r("//" + $home + "/Library/**")
+      end)
+    | {permissions: {deny: ., disableBypass: false}}')"
+fi
+
+goat_cmd="${GOAT_CMD:-cmd}"
+max_turns="${GOAT_MAX_TURNS:-30}"
+timeout_secs="${GOAT_TIMEOUT:-2400}"
+case "$max_turns" in
+  '' | *[!0-9]*) die_usage "GOAT_MAX_TURNS must be digits: $max_turns" ;;
+esac
+case "$timeout_secs" in
+  '' | *[!0-9]*) die_usage "GOAT_TIMEOUT must be digits: $timeout_secs" ;;
+esac
+
+case "$mode" in
+  patch)
+    preamble="Do not edit files and do not run shell commands or git. Output exactly one fenced diff block holding a unified diff (git format) of the change, relative to the repository root, then nothing else."
+    ;;
+  review)
+    preamble="Do not edit files and do not run shell commands or git. Review as the brief asks and reply with the review text only."
+    ;;
+  write)
+    preamble="Edit files only under these repository paths: $scope_list. Do not run shell commands, do not touch .git, do not commit or push. Stop when the change is done and summarize it in two lines."
+    ;;
+esac
+brief_text="$(cat "$brief_input")"
+prompt="$preamble"$'\n\n'"$brief_text"
+
+goat_argv=()
+goat_argv[0]="$goat_cmd"
+goat_argv[1]="-p"
+goat_argv[2]="$prompt"
+goat_argv[3]="--model"
+goat_argv[4]="$model"
+goat_argv[5]="--skip-onboarding"
+goat_argv[6]="--no-auto-update"
+goat_argv[7]="--trust"
+goat_argv[8]="--no-session"
+goat_argv[9]="--max-turns"
+goat_argv[10]="$max_turns"
+goat_argv[11]="--output-format"
+goat_argv[12]="json"
+if [ "$mode" = write ]; then
+  goat_argv[13]="--yolo"
+fi
+prompt_index=2
+
+if [ "$dry_run" = 1 ]; then
+  key_state="<missing>"
+  if [ -n "${COMMAND_CODE_API_KEY:-}" ]; then
+    key_state="<set>"
+  fi
+  printf 'GOAT_ENV=PATH HOME TMPDIR LANG TERM COMMAND_CODE_API_KEY=%s\n' "$key_state"
+  printf 'GOAT_COMMAND='
+  argv_index=0
+  while [ "$argv_index" -lt "${#goat_argv[@]}" ]; do
+    if [ "$argv_index" -eq "$prompt_index" ]; then
+      printf '<prompt from BRIEF> '
+    else
+      printf '%q ' "${goat_argv[$argv_index]}"
+    fi
+    argv_index=$((argv_index + 1))
+  done
+  printf '\n'
+  if [ "$mode" = write ]; then
+    printf 'GOAT_SCOPE=%s\n' "$scope_list"
+    printf 'GOAT_SETTINGS=%s\n' "$deny_json"
+  fi
+  exit 0
+fi
+
+if [ -z "${COMMAND_CODE_API_KEY:-}" ]; then
+  printf 'goat-run: COMMAND_CODE_API_KEY is not set; export it and re-run\n' >&2
+  exit 2
+fi
+
+
+run_dir=""
+settings_dir=""
+# shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
+cleanup() {
+  if [ -n "$settings_dir" ]; then
+    rm -rf "${settings_dir:?}"
+  fi
+  if [ "${GOAT_KEEP_RUN:-0}" = 1 ]; then
+    return 0
+  fi
+  if [ -n "$run_dir" ]; then
+    rm -rf "${run_dir:?}"
+  fi
+}
+run_dir="$(mktemp -d "${TMPDIR:-/tmp}/goat-run.XXXXXX")"
+run_dir="$(cd "$run_dir" && pwd -P)"
+trap cleanup EXIT
+mkdir -p "$run_dir/home" "$run_dir/tmp"
+
+# The child PATH holds only the agent binary's folder, node's folder, and
+# the system folders, never the caller's full PATH.
+system_path="/usr/bin:/bin:/usr/sbin:/sbin"
+if ! goat_abs="$(command -v "$goat_cmd")"; then
+  printf 'goat-run: agent binary not found: %s\n' "$goat_cmd" >&2
+  exit 2
+fi
+child_path="$(dirname "$goat_abs"):$system_path"
+if node_abs="$(command -v node 2>/dev/null)"; then
+  child_path="$(dirname "$node_abs"):$child_path"
+fi
+git_bin="$(command -v git)"
+child_env=(env -i
+  "PATH=$child_path"
+  "HOME=$run_dir/home"
+  "TMPDIR=$run_dir/tmp"
+  "LANG=${LANG:-C.UTF-8}"
+  "TERM=dumb"
+  "COMMAND_CODE_API_KEY=$COMMAND_CODE_API_KEY"
+)
+
+timeout_cmd=""
+if command -v timeout >/dev/null 2>&1; then
+  timeout_cmd="$(command -v timeout)"
+elif command -v gtimeout >/dev/null 2>&1; then
+  timeout_cmd="$(command -v gtimeout)"
+fi
+
+# file_hash prints a content hash for one file, so the digest covers what
+# git would actually read and not just a size and time checksum.
+file_hash() {
+  "$git_bin" hash-object --no-filters -- "$1"
+}
+
+# git_dir_digest prints one hash line per file in the git directories that
+# can make git run code or change what it reports: config, hooks, info,
+# index, and refs, plus the worktree link files.
+git_dir_digest() {
+  local f
+  for f in "$worktree/.git" "$physical_common/config" \
+    "$physical_git/config.worktree" "$physical_git/commondir" \
+    "$physical_git/gitdir" "$physical_git/HEAD" "$physical_git/index" \
+    "$physical_common/packed-refs"; do
+    if [ -f "$f" ]; then
+      printf '%s %s\n' "$(file_hash "$f")" "$f"
+    fi
+  done
+  find "$physical_common/hooks" "$physical_common/info" \
+    "$physical_common/refs" "$physical_git/refs" -type f 2>/dev/null |
+    LC_ALL=C sort | while IFS= read -r f; do
+      printf '%s %s\n' "$(file_hash "$f")" "$f"
+    done
+}
+
+# After the run, write mode calls git with fsmonitor and hooks off, from the
+# absolute path found before the run.
+git_safe() {
+  "$git_bin" -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" "$@"
+}
+
+# ignored_digest prints one state line per path read on stdin, with the path
+# relative to the worktree: file:<hash>, link:<target>, dir, or missing.
+ignored_digest() {
+  local p
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if [ -L "$worktree/$p" ]; then
+      printf 'link:%s %s\n' "$(readlink "$worktree/$p")" "$p"
+    elif [ -f "$worktree/$p" ]; then
+      printf 'file:%s %s\n' "$(file_hash "$worktree/$p")" "$p"
+    elif [ -d "$worktree/$p" ]; then
+      printf 'dir %s\n' "$p"
+    else
+      printf 'missing %s\n' "$p"
+    fi
+  done
+}
+
+head_before=""
+ignored_before="$run_dir/ignored-before"
+: >"$ignored_before"
+if [ "$mode" = write ]; then
+  # Ignored paths do not show as untracked, so record them now; the scope
+  # gate checks every ignored path that appears or changes during the run.
+  git -C "$worktree" status --porcelain=v1 -z --untracked-files=all --ignored |
+    tr '\0' '\n' | sed -n 's/^!! //p' >"$ignored_before"
+  ignored_digest <"$ignored_before" >"$run_dir/ignored-hash-before"
+  settings_dir="$worktree/.commandcode"
+  mkdir -p "$settings_dir"
+  printf '%s\n' "$deny_json" >"$settings_dir/settings.local.json"
+  cp "$settings_dir/settings.local.json" "$run_dir/settings-expected"
+  head_before="$(git -C "$worktree" rev-parse HEAD)"
+  git_dir_digest >"$run_dir/gitdir-before"
+fi
+
+agent_status=0
+if [ -n "$timeout_cmd" ]; then
+  (cd "$worktree" && exec "${child_env[@]}" "$timeout_cmd" "$timeout_secs" "${goat_argv[@]}") >"$run_dir/out.jsonl" 2>"$run_dir/err.txt" || agent_status=$?
+else
+  printf 'goat-run: no timeout or gtimeout on PATH; running without a timeout\n' >&2
+  (cd "$worktree" && exec "${child_env[@]}" "${goat_argv[@]}") >"$run_dir/out.jsonl" 2>"$run_dir/err.txt" || agent_status=$?
+fi
+
+if [ "$mode" = write ]; then
+  # From here on, use only system tools: the agent could write to folders
+  # on the caller's PATH that the deny rules do not cover.
+  PATH="$system_path"
+  export PATH
+  settings_ok=1
+  if [ ! -d "$settings_dir" ]; then
+    settings_ok=0
+  elif [ ! -f "$settings_dir/settings.local.json" ] ||
+    [ -L "$settings_dir/settings.local.json" ] ||
+    ! cmp -s "$settings_dir/settings.local.json" "$run_dir/settings-expected"; then
+    settings_ok=0
+  else
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      rel="${entry#"$settings_dir"/}"
+      case "$rel" in
+        settings.local.json) ;;
+        taste)
+          if [ ! -d "$entry" ] || [ -L "$entry" ]; then
+            settings_ok=0
+          fi
+          ;;
+        taste/*)
+          if { [ ! -f "$entry" ] && [ ! -d "$entry" ]; } || [ -L "$entry" ]; then
+            settings_ok=0
+          fi
+          ;;
+        *) settings_ok=0 ;;
+      esac
+    done < <(find "$settings_dir" -mindepth 1 | LC_ALL=C sort)
+  fi
+  if [ "$settings_ok" = 0 ]; then
+    settings_dir=""
+    printf 'SCOPE FAIL .commandcode changed during the run\n'
+    printf 'goat-run: .commandcode was changed or extended during the run; it is left for inspection\n' >&2
+    exit 1
+  fi
+  rm -f -- "$settings_dir/settings.local.json"
+  rm -rf -- "$settings_dir/taste"
+  rmdir "$settings_dir"
+  settings_dir=""
+else
+  # The agent may leave its own state there; it was absent before the run.
+  rm -rf "${worktree:?}/.commandcode"
+fi
+
+if [ "$agent_status" -ne 0 ]; then
+  printf 'goat-run: agent exited %s\n' "$agent_status" >&2
+  tail -n 5 "$run_dir/err.txt" 2>/dev/null | redact >&2 || true
+fi
+
+if [ "$mode" = write ]; then
+  git_dir_digest >"$run_dir/gitdir-after"
+  if ! cmp -s "$run_dir/gitdir-before" "$run_dir/gitdir-after"; then
+    printf 'SCOPE FAIL git directory changed (config, hooks, info, index, or refs)\n'
+    printf 'goat-run: the git directory changed during the run; inspect it before running git in this worktree\n' >&2
+    exit 1
+  fi
+  post_git="$(cd "$worktree" && cd "$(git_safe rev-parse --git-dir)" && pwd -P)"
+  post_common="$(cd "$worktree" && cd "$(git_safe rev-parse --git-common-dir)" && pwd -P)"
+  if [ "$post_git" != "$physical_git" ] || [ "$post_common" != "$physical_common" ]; then
+    printf 'SCOPE FAIL git directory moved\n'
+    printf 'goat-run: the git directory moved during the run; inspect it before running git in this worktree\n' >&2
+    exit 1
+  fi
+  new_head="$(git_safe rev-parse HEAD)"
+  if [ "$new_head" != "$head_before" ]; then
+    printf 'SCOPE FAIL HEAD moved\n'
+    exit 1
+  fi
+  scope_failed=0
+  changed_count=0
+  check_scope_path() {
+    local path="$1"
+    local scope
+    local ok=0
+    if [ -z "$path" ]; then
+      return 0
+    fi
+    case "$(lower "$path")" in
+      .git | .git/* | .commandcode | .commandcode/*) ok=0 ;;
+      *)
+        for scope in "${goat_scopes[@]}"; do
+          if [ "$path" = "$scope" ]; then
+            ok=1
+            break
+          fi
+          case "$path" in
+            "$scope"/*)
+              ok=1
+              break
+              ;;
+          esac
+        done
+        ;;
+    esac
+    if [ "$ok" = 1 ]; then
+      printf 'SCOPE PASS %s\n' "$path"
+      changed_count=$((changed_count + 1))
+    else
+      printf 'SCOPE FAIL %s\n' "$path"
+      scope_failed=1
+    fi
+  }
+  # Ignored paths from before the run are compared by content, so a rewrite
+  # or a delete of one outside the scopes fails even when git status hides it.
+  ignored_digest <"$ignored_before" >"$run_dir/ignored-hash-after"
+  ignored_index=1
+  while IFS= read -r ignored_path; do
+    [ -n "$ignored_path" ] || continue
+    ignored_before_line="$(sed -n "${ignored_index}p" "$run_dir/ignored-hash-before")"
+    ignored_after_line="$(sed -n "${ignored_index}p" "$run_dir/ignored-hash-after")"
+    ignored_index=$((ignored_index + 1))
+    if [ "$ignored_before_line" != "$ignored_after_line" ]; then
+      check_scope_path "$ignored_path"
+    fi
+  done <"$ignored_before"
+  if ! git_safe status --porcelain=v1 -z --untracked-files=all --ignored >"$run_dir/status-after"; then
+    printf 'SCOPE FAIL git status did not complete\n'
+    exit 1
+  fi
+  expect_old=0
+  entry=""
+  while IFS= read -r -d '' entry || [ -n "$entry" ]; do
+    if [ "$expect_old" = 1 ]; then
+      check_scope_path "$entry"
+      expect_old=0
+      continue
+    fi
+    [ -n "$entry" ] || continue
+    entry_status="${entry:0:2}"
+    if [ "$entry_status" = '!!' ] && grep -qxF -- "${entry:3}" "$ignored_before"; then
+      continue
+    fi
+    check_scope_path "${entry:3}"
+    case "$entry_status" in
+      *R* | *C*) expect_old=1 ;;
+    esac
+  done <"$run_dir/status-after"
+  if [ "$scope_failed" = 1 ]; then
+    printf 'goat-run: changes outside the declared scope; the tree is left for inspection\n' >&2
+    exit 1
+  fi
+  if [ "$agent_status" -ne 0 ]; then
+    exit 1
+  fi
+  if [ "$changed_count" -eq 0 ]; then
+    printf 'goat-run: the agent changed nothing\n' >&2
+    exit 1
+  fi
+  printf 'CHANGED %s paths in scope\n' "$changed_count"
+  exit 0
+fi
+
+if [ "$agent_status" -ne 0 ]; then
+  exit 1
+fi
+
+if ! final_text="$(jq -r 'select(.type=="result") | .finalText // empty' "$run_dir/out.jsonl")"; then
+  printf 'goat-run: could not parse the agent output\n' >&2
+  exit 1
+fi
+if [ -z "$final_text" ]; then
+  printf 'goat-run: no final text from the agent\n' >&2
+  exit 1
+fi
+
+if [ -n "${COMMAND_CODE_API_KEY:-}" ]; then
+  case "$final_text" in
+    *"$COMMAND_CODE_API_KEY"*)
+      printf 'goat-run: the agent output contains the API key; refused\n' >&2
+      exit 1
+      ;;
+  esac
+fi
+
+if [ "$mode" = review ]; then
+  if [ -n "${GOAT_MODEL_LINE:-}" ]; then
+    model_line="$GOAT_MODEL_LINE"
+  else
+    model_line="$model (Command Code / GOAT)"
+  fi
+  printf 'Model: %s\n\n' "$model_line" >"$result_file"
+  printf '%s\n' "$final_text" >>"$result_file"
+  printf 'REVIEW=%s\n' "$result_file"
+  exit 0
+fi
+
+# patch mode
+block_count=0
+in_block=0
+: >"$run_dir/change.diff"
+line=""
+while IFS= read -r line || [ -n "$line" ]; do
+  if [ "$in_block" = 0 ] && [ "$line" = '```diff' ]; then
+    block_count=$((block_count + 1))
+    in_block=1
+    continue
+  fi
+  if [ "$in_block" = 1 ]; then
+    if [ "$line" = '```' ]; then
+      in_block=0
+      continue
+    fi
+    if [ "$block_count" = 1 ]; then
+      printf '%s\n' "$line" >>"$run_dir/change.diff"
+    fi
+  fi
+done < <(printf '%s\n' "$final_text")
+if [ "$block_count" -eq 0 ]; then
+  printf 'goat-run: no diff block in the agent output\n' >&2
+  exit 2
+fi
+if [ "$block_count" -gt 1 ]; then
+  printf 'goat-run: more than one diff block in the agent output\n' >&2
+  exit 2
+fi
+
+has_diff=0
+line=""
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in
+    'diff --git '*)
+      has_diff=1
+      # Only plain a/ and b/ prefixes: another prefix or a quoted path would
+      # change what git apply strips or unquotes.
+      case "$line" in
+        *'"'*) die_diff_header "$line" ;;
+        'diff --git a/'*' b/'*) ;;
+        *) die_diff_header "$line" ;;
+      esac
+      ;;
+    'rename from '* | 'copy from '*)
+      check_path "${line#* from }"
+      ;;
+    'rename to '* | 'copy to '*)
+      check_path "${line#* to }"
+      ;;
+    'new file mode 120000'* | 'new mode 120000'* | 'new file mode 160000'* | 'new mode 160000'*)
+      printf 'goat-run: diff adds a symlink or submodule; refused\n' >&2
+      exit 2
+      ;;
+  esac
+done <"$run_dir/change.diff"
+if [ "$has_diff" = 0 ]; then
+  printf 'goat-run: malformed diff from the agent (no diff --git line)\n' >&2
+  exit 2
+fi
+
+# From here on the tree may hold applied content, so use only system tools,
+# the git and jq found before the run (never from inside the worktree), and
+# the throwaway HOME.
+gate_path="$system_path"
+for tool_abs in "$git_bin" "$(command -v jq)"; do
+  tool_dir="$(cd "$(dirname "$tool_abs")" && pwd -P)"
+  case "$tool_dir/" in
+    "$worktree"/*)
+      printf 'goat-run: %s resolves inside the worktree; fix PATH and re-run\n' "$tool_abs" >&2
+      exit 2
+      ;;
+  esac
+  gate_path="$tool_dir:$gate_path"
+done
+PATH="$gate_path"
+export PATH
+git() {
+  "$git_bin" -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+}
+
+# The paths git itself will touch, after prefix stripping and unquoting,
+# are the authority for the worktree check.
+if ! git -C "$worktree" apply --numstat -z "$run_dir/change.diff" >"$run_dir/numstat" 2>"$run_dir/numstat.err"; then
+  redact <"$run_dir/numstat.err" >&2
+  printf 'goat-run: git apply --check failed; nothing applied\n' >&2
+  exit 2
+fi
+applied_count=0
+pending_names=0
+record=""
+while IFS= read -r -d '' record || [ -n "$record" ]; do
+  if [ "$pending_names" -gt 0 ]; then
+    check_path "$record"
+    pending_names=$((pending_names - 1))
+    continue
+  fi
+  applied_count=$((applied_count + 1))
+  numstat_path="${record#*$'\t'}"
+  numstat_path="${numstat_path#*$'\t'}"
+  if [ -z "$numstat_path" ]; then
+    # A rename or copy: the old and new names follow as two records.
+    pending_names=2
+    continue
+  fi
+  check_path "$numstat_path"
+done <"$run_dir/numstat"
+
+if ! apply_error="$(git -C "$worktree" apply --check "$run_dir/change.diff" 2>&1)"; then
+  if [ -n "$apply_error" ]; then
+    printf '%s\n' "$apply_error" | redact >&2
+  fi
+  printf 'goat-run: git apply --check failed; nothing applied\n' >&2
+  exit 2
+fi
+if ! git -C "$worktree" apply --summary "$run_dir/change.diff" >"$run_dir/summary"; then
+  printf 'goat-run: git apply --summary failed; nothing applied\n' >&2
+  exit 2
+fi
+
+# The diff may change the gate scripts themselves, so the gate runs from a
+# copy of this kit taken before the diff is applied, with a minimal env.
+mkdir -p "$run_dir/kit/templates"
+cp -R "$kit_dir" "$run_dir/kit/scripts"
+if [ -d "$kit_dir/../templates/dev-loop" ]; then
+  cp -R "$kit_dir/../templates/dev-loop" "$run_dir/kit/templates/dev-loop"
+fi
+gate="$run_dir/kit/scripts/dev-loop-gate.sh"
+
+if ! git -C "$worktree" apply "$run_dir/change.diff"; then
+  printf 'goat-run: git apply failed\n' >&2
+  exit 2
+fi
+# New files are marked intent-to-add (the path only; no content is staged)
+# so the named checks, which read tracked files, see them too. This is not
+# `git apply --intent-to-add`, which some git versions mishandle for
+# modified files.
+while IFS= read -r new_path; do
+  [ -n "$new_path" ] || continue
+  if ! git -C "$worktree" add -N -- "$new_path"; then
+    printf 'goat-run: could not mark %s intent-to-add; the applied diff is left for inspection\n' "$new_path" >&2
+    exit 1
+  fi
+done < <(sed -n 's/^ create mode [0-7]* //p' "$run_dir/summary")
+
+gate_failed=0
+gate_index=2
+while [ "$gate_index" -lt "$positional_count" ]; do
+  check_id="${positionals[$gate_index]}"
+  gate_index=$((gate_index + 1))
+  if ! env -i PATH="$PATH" HOME="$run_dir/home" LANG="${LANG:-C.UTF-8}" TERM=dumb \
+    "${BASH:-bash}" "$gate" --strict --check "$check_id" --repo "$worktree"; then
+    printf 'goat-run: gate %s failed; the applied diff is left in place for inspection\n' "$check_id" >&2
+    gate_failed=1
+  fi
+done
+if [ "$gate_failed" = 1 ]; then
+  exit 1
+fi
+if [ "${GOAT_KEEP_RUN:-0}" = 1 ]; then
+  printf 'DIFF=%s\n' "$run_dir/change.diff"
+fi
+printf 'APPLIED %s files\n' "$applied_count"
+exit 0

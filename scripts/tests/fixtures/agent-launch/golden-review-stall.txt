@@ -1,0 +1,80 @@
+EXIT=0
+ARGV
+--- ATTEMPT 1 ---
+--project
+@RUN@/run-review-stall
+--model
+gemini-4-argon-medium
+--settings
+@RUN@/run-review-stall/settings.json
+--add-dir
+@RUN@/run-review-stall
+--add-dir
+@HOME@/agy-work/repo
+--mode
+accept-edits
+--print
+Update the docs.
+--- ATTEMPT 2 ---
+--project
+@RUN@/run-review-stall
+--model
+gemini-4-argon-medium
+--settings
+@RUN@/run-review-stall/settings.json
+--add-dir
+@RUN@/run-review-stall
+--add-dir
+@HOME@/agy-work/repo
+--mode
+accept-edits
+--print
+Update the docs.
+
+use simple commands one at a time; no pipes, no redirects, no regex special characters.
+END_ARGV
+CWD
+@RUN@/run-review-stall
+@RUN@/run-review-stall
+END_CWD
+ENV
+--- ATTEMPT 1 ---
+AGY_LAUNCH_CHILD_MODE=1
+AGY_LAUNCH_STALL_SECONDS=1
+AGY_LAUNCH_USE_CAFFEINE=0
+FAKE_AGY_ARGV=@CAP@/review-stall.argv
+FAKE_AGY_COUNT=@CAP@/review-stall.count
+FAKE_AGY_CWD=@CAP@/review-stall.cwd
+FAKE_AGY_ENV=@CAP@/review-stall.env
+FAKE_AGY_STALL_FIRST=1
+HOME=@HOME@
+PATH=@TMP@/fake-bin:@TMP@/tool-bin
+PWD=@RUN@/run-review-stall
+TMPDIR=@HOME@/tmp
+--- ATTEMPT 2 ---
+AGY_LAUNCH_CHILD_MODE=1
+AGY_LAUNCH_STALL_SECONDS=1
+AGY_LAUNCH_USE_CAFFEINE=0
+FAKE_AGY_ARGV=@CAP@/review-stall.argv
+FAKE_AGY_COUNT=@CAP@/review-stall.count
+FAKE_AGY_CWD=@CAP@/review-stall.cwd
+FAKE_AGY_ENV=@CAP@/review-stall.env
+FAKE_AGY_STALL_FIRST=1
+HOME=@HOME@
+PATH=@TMP@/fake-bin:@TMP@/tool-bin
+PWD=@RUN@/run-review-stall
+TMPDIR=@HOME@/tmp
+END_ENV
+STDOUT
+AGY_PID=@PID@
+RUN_DIR=@RUN@/run-review-stall
+SETTINGS=@RUN@/run-review-stall/settings.json
+MODEL=gemini-4-argon-medium
+STDOUT_LOG=@RUN@/run-review-stall/agy.log
+STDERR_LOG=@RUN@/run-review-stall/agy.stderr.log
+PID_FILE=@RUN@/run-review-stall/agy.pid
+END_STDOUT
+STDERR
+agy-review-launch: no log growth for 1 seconds while PID @PID@ is alive; stopping the child
+agy-review-launch: run stalled waiting (no log growth); retrying once with a simpler-commands instruction
+END_STDERR

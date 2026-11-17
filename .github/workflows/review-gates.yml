@@ -1,0 +1,66 @@
+# Test the review gates (review-ready, review-citations) and the launcher
+# preflight on Linux and on macOS /bin/bash 3.2. A separate workflow keeps the
+# dev-loop-gate.yml file lists free of merge conflicts.
+name: Review gates
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: review-gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax
+        run: |
+          for f in scripts/lib/review-ready.sh scripts/lib/review-citations.sh \
+            scripts/tests/test_review_ready.sh scripts/tests/test_review_citations.sh \
+            scripts/tests/test_review_preflight_launch.sh; do
+            bash -n "$f"
+          done
+
+      - name: Run shellcheck
+        run: >-
+          shellcheck -x scripts/dev-loop-gate.sh scripts/lib/review-ready.sh
+          scripts/lib/review-citations.sh scripts/tests/test_review_ready.sh
+          scripts/tests/test_review_citations.sh
+          scripts/tests/test_review_preflight_launch.sh
+
+      - name: Run review gate tests
+        run: |
+          bash scripts/tests/test_review_ready.sh
+          bash scripts/tests/test_review_citations.sh
+          bash scripts/tests/test_review_preflight_launch.sh
+
+  macos:
+    name: review-gates-macos
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax with bash 3.2
+        run: |
+          for f in scripts/dev-loop-gate.sh scripts/lib/review-ready.sh \
+            scripts/lib/review-citations.sh scripts/tests/test_review_ready.sh \
+            scripts/tests/test_review_citations.sh \
+            scripts/tests/test_review_preflight_launch.sh; do
+            /bin/bash -n "$f"
+          done
+
+      - name: Run review gate tests with bash 3.2
+        run: |
+          /bin/bash scripts/tests/test_review_ready.sh
+          /bin/bash scripts/tests/test_review_citations.sh
+          /bin/bash scripts/tests/test_review_preflight_launch.sh

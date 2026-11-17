@@ -100,12 +100,17 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
-  `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
-  message that the check is not implemented. Later checks will be added under
-  the same flag.
+  `prose-dashes`, `md-links`, `model-ids`, `pr-state`, `review-ready`,
+  `review-citations`, and `deploy-hash`. Why the two review gates exist is
+  in [`REVIEW-GATES.md`](REVIEW-GATES.md). Their flags, rows, and exit
+  codes are in `scripts/dev-loop-gate.sh --check review-ready --help` and
+  `--check review-citations --help`. Other ids, including `all`, exit 2
+  with a message that the check is not implemented. Later checks will be
+  added under the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
   row is printed but the exit code stays 0, the same advisory spirit as G2 to
-  G7. `npm-ci` and `node-pin` are the exceptions: their FAIL always exits 1.
+  G7. `npm-ci`, `node-pin`, `review-ready`, and `review-citations` are the
+  exceptions: their FAIL always exits 1.
 - `--repo <root>` points the check at any git work tree. The default is the
   work tree of the current directory. All git calls run with `git -C`. Passing
   `--repo` with something that is not a git work tree exits 2.
@@ -122,8 +127,8 @@ Exit codes:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci and node-pin are never advisory) |
-| 1 | FAIL under `--strict`, or a hard preflight miss: G1, npm-ci, or node-pin, including `--check npm-ci` and `--check node-pin` |
+| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci, node-pin, review-ready, and review-citations are never advisory) |
+| 1 | FAIL under `--strict`, a hard preflight miss: G1, npm-ci, or node-pin, including `--check npm-ci` and `--check node-pin`, or any FAIL from `review-ready` or `review-citations` |
 | 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
 | 3 | A required command is missing (`git`, `jq`, `gh`, or `curl`), `gh` fails or its output is not pull request JSON, or the deploy-hash library cannot be read |
 
@@ -157,7 +162,8 @@ even without `--strict`, the same hard-preflight spirit as G1. The default G1
 to G7 table runs this rule as an `NM` row on every run, with a root that falls
 back to the current directory when git cannot resolve a work tree. A FAIL there
 also exits 1 without `--strict`. The other named checks do not run it, so
-`line-cap`, `docs-sweep`, `pr-state`, and `deploy-hash` keep their own exit
+`line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `model-ids`, `pr-state`,
+`deploy-hash`, `review-ready`, and `review-citations` keep their own exit
 rules.
 
 ### node-pin
@@ -234,6 +240,42 @@ CI runs the check with `--strict` and no name list, so the name rule SKIPs. The
 implementation lives in
 [`../../scripts/lib/docs-sweep.sh`](../../scripts/lib/docs-sweep.sh) so the
 entry script stays small.
+
+### prose-dashes
+
+`--check prose-dashes` enforces the CONTRIBUTING.md humanizer rule mechanically,
+so reviews do not spend time on em dashes and en dashes in prose. It skips
+fenced and inline code, and it never reads a URL or the network. CI runs it
+with `--strict`. See `scripts/dev-loop-gate.sh --help` and
+[`../../scripts/lib/md-hygiene.sh`](../../scripts/lib/md-hygiene.sh).
+
+### md-links
+
+`--check md-links` enforces the AGENTS.md rule that a split or a heading move
+updates every cross-link. It checks relative paths and Markdown heading anchors
+in tracked files, not external URLs, so it needs no network. CI runs it with
+`--strict`. See `scripts/dev-loop-gate.sh --help` and
+[`../../scripts/lib/md-hygiene.sh`](../../scripts/lib/md-hygiene.sh).
+
+### model-ids
+
+`--check model-ids` keeps unverified model ids out of
+[`../agent-config.example.json`](../agent-config.example.json). A wrong id
+looks plausible in review and only fails when an agent starts, so the check
+compares every non-null lane model with
+[`../agent-config.verified-model-ids.txt`](../agent-config.verified-model-ids.txt)
+and requires a TODO in the `_comment` of every null entry. Add an id to the
+list only after a run record or the vendor's model list confirms the exact
+string; until then the entry stays null. CI runs it with `--strict`. See
+`scripts/dev-loop-gate.sh --help` and
+[`../../scripts/lib/model-ids.sh`](../../scripts/lib/model-ids.sh).
+
+The launchers have a matching CI-only test,
+[`../../scripts/tests/test_arg_boundaries.sh`](../../scripts/tests/test_arg_boundaries.sh).
+It runs each `--dry-run` surface with literal arguments after `--`, paths with
+spaces, empty strings, and leading-dash values, and fails when one is dropped,
+split, or reinterpreted. Add a row there when a launcher gains a new argument
+path.
 
 ### pr-state
 
