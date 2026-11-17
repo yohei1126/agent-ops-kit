@@ -9,7 +9,7 @@
       "who_can_launch": "bot",
       "provisioned": true,
       "overages": "never",
-      "_comment": "Fixed-quota plan. Adapter not shipped yet, so agent-launch refuses this entry until it is."
+      "_comment": "Fixed-quota plan. Adapter: scripts/agents/goat (patch and review are read-only; write mode is gated, see docs/goat-adapter.md)."
     },
     "agy-subscription": {
       "adapter": "agy",
@@ -63,6 +63,7 @@
       "entries": [
         {
           "agent": "goat",
+          "mode": "patch",
           "model": "deepseek/deepseek-v4.1-flash",
           "model_name": "DeepSeek V4.1 Flash"
         },
@@ -97,6 +98,7 @@
       "entries": [
         {
           "agent": "goat",
+          "mode": "patch",
           "model": "deepseek/deepseek-v4.1-flash",
           "model_name": "DeepSeek V4.1 Flash"
         },
@@ -126,9 +128,10 @@
         },
         {
           "agent": "goat",
+          "mode": "review",
           "model": null,
           "model_name": "Kimi K3.1 Pro",
-          "_comment": "TODO: model id unverified (the launcher does not pass a model option yet); the maintainer confirms it locally."
+          "_comment": "TODO: model id unverified in templates/agent-config.verified-model-ids.txt; the maintainer adds the exact id there and here in a separate change."
         },
         {
           "agent": "agy-api-key",
@@ -169,9 +172,10 @@
         },
         {
           "agent": "goat",
+          "mode": "review",
           "model": null,
           "model_name": "Kimi K3.1 Pro",
-          "_comment": "TODO: model id unverified (the launcher does not pass a model option yet); the maintainer confirms it locally."
+          "_comment": "TODO: model id unverified in templates/agent-config.verified-model-ids.txt; the maintainer adds the exact id there and here in a separate change."
         },
         {
           "agent": "opencode-fireworks",
