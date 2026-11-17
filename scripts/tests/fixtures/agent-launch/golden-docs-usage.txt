@@ -1,0 +1,19 @@
+EXIT=2
+ARGV
+END_ARGV
+CWD
+END_CWD
+ENV
+END_ENV
+STDOUT
+END_STDOUT
+STDERR
+Usage: scripts/agy-docs-launch.sh <repo> <brief-path> [log-stem] [model]
+
+Arguments:
+  <repo>        Repository directory basename under $HOME/agy-work/<repo>
+  <brief-path>  Readable brief file under $HOME/agy-inbox/
+  [log-stem]    Optional log/PID filename stem (defaults to brief basename)
+  [model]       Optional agy --model id (default gemini-3.8-flash-medium;
+                else AGY_DOCS_MODEL, else AGY_MODEL)
+END_STDERR

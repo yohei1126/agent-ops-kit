@@ -1,0 +1,77 @@
+EXIT=0
+ARGV
+--- ATTEMPT 1 ---
+--project
+@RUN@/run-review-retry
+--model
+gemini-4-argon-medium
+--settings
+@RUN@/run-review-retry/settings.json
+--add-dir
+@RUN@/run-review-retry
+--add-dir
+@HOME@/agy-work/repo
+--mode
+accept-edits
+--print
+Update the docs.
+--- ATTEMPT 2 ---
+--project
+@RUN@/run-review-retry
+--model
+gemini-4-argon-medium
+--settings
+@RUN@/run-review-retry/settings.json
+--add-dir
+@RUN@/run-review-retry
+--add-dir
+@HOME@/agy-work/repo
+--mode
+accept-edits
+--print
+Update the docs.
+END_ARGV
+CWD
+@RUN@/run-review-retry
+@RUN@/run-review-retry
+END_CWD
+ENV
+--- ATTEMPT 1 ---
+AGY_LAUNCH_CHILD_MODE=1
+AGY_LAUNCH_STALL_SECONDS=0
+AGY_LAUNCH_USE_CAFFEINE=0
+FAKE_AGY_ARGV=@CAP@/review-retry.argv
+FAKE_AGY_COUNT=@CAP@/review-retry.count
+FAKE_AGY_CWD=@CAP@/review-retry.cwd
+FAKE_AGY_EMPTY_FIRST=1
+FAKE_AGY_ENV=@CAP@/review-retry.env
+HOME=@HOME@
+PATH=@TMP@/fake-bin:@TMP@/tool-bin
+PWD=@RUN@/run-review-retry
+TMPDIR=@HOME@/tmp
+--- ATTEMPT 2 ---
+AGY_LAUNCH_CHILD_MODE=1
+AGY_LAUNCH_STALL_SECONDS=0
+AGY_LAUNCH_USE_CAFFEINE=0
+FAKE_AGY_ARGV=@CAP@/review-retry.argv
+FAKE_AGY_COUNT=@CAP@/review-retry.count
+FAKE_AGY_CWD=@CAP@/review-retry.cwd
+FAKE_AGY_EMPTY_FIRST=1
+FAKE_AGY_ENV=@CAP@/review-retry.env
+HOME=@HOME@
+PATH=@TMP@/fake-bin:@TMP@/tool-bin
+PWD=@RUN@/run-review-retry
+TMPDIR=@HOME@/tmp
+END_ENV
+STDOUT
+AGY_PID=@PID@
+RUN_DIR=@RUN@/run-review-retry
+SETTINGS=@RUN@/run-review-retry/settings.json
+MODEL=gemini-4-argon-medium
+STDOUT_LOG=@RUN@/run-review-retry/agy.log
+STDERR_LOG=@RUN@/run-review-retry/agy.stderr.log
+PID_FILE=@RUN@/run-review-retry/agy.pid
+END_STDOUT
+STDERR
+agy-review-launch: empty stdout log (@RUN@/run-review-retry/agy.log); retrying once
+END_STDERR

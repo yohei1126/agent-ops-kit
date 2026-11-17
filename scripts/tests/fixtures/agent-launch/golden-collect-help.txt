@@ -1,0 +1,12 @@
+EXIT=2
+ARGV
+END_ARGV
+CWD
+END_CWD
+ENV
+END_ENV
+STDOUT
+END_STDOUT
+STDERR
+Error: invalid repository name --help (must be a plain basename without slashes or "..").
+END_STDERR

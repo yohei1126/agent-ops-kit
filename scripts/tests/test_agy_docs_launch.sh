@@ -41,9 +41,12 @@ printf 'Update the docs.\n' >"$brief"
 
 # Copy of the scripts tree; each failure fixture rewrites its template.
 copy_root="$work_tmp/kit"
-mkdir -p "$copy_root/scripts/lib" "$copy_root/scripts/templates"
+mkdir -p "$copy_root/scripts/lib" "$copy_root/scripts/templates" \
+  "$copy_root/scripts/agents/agy"
 cp "$repo_root/scripts/agy-docs-launch.sh" "$copy_root/scripts/"
+cp "$repo_root/scripts/agents/agy/run" "$copy_root/scripts/agents/agy/"
 cp "$repo_root/scripts/lib/agy-settings-check.sh" "$copy_root/scripts/lib/"
+cp "$repo_root/scripts/lib/launch-run.sh" "$copy_root/scripts/lib/"
 cp "$repo_root/scripts/lib/agy-launch-run.sh" "$copy_root/scripts/lib/"
 copy_template="$copy_root/scripts/templates/agy-docs-settings.json"
 
@@ -196,7 +199,7 @@ run_launcher() {
   : >"$launch_file"
   : >"$argv_all"
   : >"$err_file"
-  out="$(HOME="$test_home" PATH="$fake_bin:$PATH" FAKE_AGY_ARGV="$argv_file" \
+  out="$(HOME="$test_home" PATH="$fake_bin:$sys_bin" FAKE_AGY_ARGV="$argv_file" \
     FAKE_AGY_ARGV_ALL="$argv_all" FAKE_AGY_LAUNCHES="$launch_file" \
     FAKE_AGY_EMPTY="${FAKE_AGY_EMPTY:-}" \
     FAKE_AGY_EMPTY_FIRST="${FAKE_AGY_EMPTY_FIRST:-}" \
@@ -255,6 +258,22 @@ build_path_hiding() {
     ln -s "$path" "$dest/$cmd"
   done
 }
+
+# Closed PATH: every launcher invocation sees the stub agy plus symlinks to
+# the system tools above, never the caller's PATH (no real agy, no
+# caffeinate unless a case adds its stub directory).
+sys_bin="$work_tmp/sys-bin"
+build_path_hiding "$sys_bin"
+if [ "$(PATH="$fake_bin:$sys_bin" command -v agy)" = "$fake_bin/agy" ]; then
+  ok "0: command -v agy resolves to the stub on the closed PATH"
+else
+  bad "0: command -v agy resolves to the stub on the closed PATH" "got: $(PATH="$fake_bin:$sys_bin" command -v agy)"
+fi
+if PATH="$sys_bin" command -v caffeinate >/dev/null 2>&1; then
+  bad "0: the closed tool directory has no caffeinate" "found"
+else
+  ok "0: the closed tool directory has no caffeinate"
+fi
 
 write_uname_stub() {
   local dest="$1"
@@ -530,7 +549,7 @@ rm -f "$test_home/agy-inbox/live.pid"
 printf '== the shared check refuses a symlinked settings file ==\n'
 
 ln -s "$inbox_real/brief.settings.json" "$work_tmp/linked-check.json"
-check_err="$(bash -c '. "$1"; agy_settings_check "$2" "$3"' _ \
+check_err="$(PATH="$sys_bin" bash -c '. "$1"; agy_settings_check "$2" "$3"' _ \
   "$repo_root/scripts/lib/agy-settings-check.sh" "$work_tmp/linked-check.json" "$checkout" 2>&1)"
 check_status=$?
 if [ "$check_status" -eq 1 ]; then
@@ -556,7 +575,7 @@ write_uname_stub "$hidden_bin" Darwin
 
 unset FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST FAKE_AGY_AUTODENY FAKE_AGY_AUTODENY_FIRST
 unset FAKE_AGY_STALL FAKE_AGY_STALL_FIRST
-run_launcher_on_path cafe-present "$darwin_bin" "$PATH" "$launcher" repo "$brief" cafe-present
+run_launcher_on_path cafe-present "$darwin_bin" "$sys_bin" "$launcher" repo "$brief" cafe-present
 expect_status "18: caffeinate present exits 0" 0
 expect_launches "18: caffeinate present launches once" 1
 if grep -q -F 'holding idle-sleep assertion with caffeinate -i' "$inbox_real/cafe-present-stderr.log"; then
@@ -577,7 +596,7 @@ fi
 
 FAKE_AGY_EMPTY_FIRST=1
 unset FAKE_AGY_EMPTY
-run_launcher_on_path empty-then-ok "$darwin_bin" "$PATH" "$launcher" repo "$brief" empty-then-ok
+run_launcher_on_path empty-then-ok "$darwin_bin" "$sys_bin" "$launcher" repo "$brief" empty-then-ok
 unset FAKE_AGY_EMPTY_FIRST
 expect_status "20: empty then non-empty exits 0" 0
 expect_launches "20: empty then non-empty launches twice" 2
@@ -606,7 +625,7 @@ fi
 
 FAKE_AGY_EMPTY=1
 unset FAKE_AGY_EMPTY_FIRST
-run_launcher_on_path both-empty "$darwin_bin" "$PATH" "$launcher" repo "$brief" both-empty
+run_launcher_on_path both-empty "$darwin_bin" "$sys_bin" "$launcher" repo "$brief" both-empty
 unset FAKE_AGY_EMPTY
 expect_status "21: both empty exits 1" 1
 expect_launches "21: both empty launches twice" 2
@@ -617,7 +636,7 @@ expect_err "21: both empty does not suggest widening allow" "Do not add allow-ru
 
 FAKE_AGY_AUTODENY_FIRST=1
 unset FAKE_AGY_AUTODENY FAKE_AGY_EMPTY FAKE_AGY_EMPTY_FIRST
-run_launcher_on_path deny-then-ok "$darwin_bin" "$PATH" "$launcher" repo "$brief" deny-then-ok
+run_launcher_on_path deny-then-ok "$darwin_bin" "$sys_bin" "$launcher" repo "$brief" deny-then-ok
 unset FAKE_AGY_AUTODENY_FIRST
 expect_status "22: auto-deny then non-empty exits 0" 0
 expect_launches "22: auto-deny then non-empty launches twice" 2
@@ -637,7 +656,7 @@ fi
 FAKE_AGY_STALL_FIRST=1
 unset FAKE_AGY_STALL
 AGY_LAUNCH_STALL_SECONDS=2
-run_launcher_on_path stall-then-ok "$darwin_bin" "$PATH" "$launcher" repo "$brief" stall-then-ok
+run_launcher_on_path stall-then-ok "$darwin_bin" "$sys_bin" "$launcher" repo "$brief" stall-then-ok
 unset FAKE_AGY_STALL_FIRST
 unset AGY_LAUNCH_STALL_SECONDS
 expect_status "23: stall then non-empty exits 0" 0
@@ -668,6 +687,37 @@ for name in .gemini .antigravity .agy .config; do
     ok "11: temp HOME has no $name"
   fi
 done
+
+printf '== docs positionals that look like flags stay literal ==\n'
+
+# The former docs launcher took every positional literally. A brief named
+# --dry-run in the inbox launches; a flag-like repo or stem reaches the same
+# token validation (and diagnostic) as before.
+adapter_run="$repo_root/scripts/agents/agy/run"
+printf 'Flag-like brief.\n' >"$inbox_real/--dry-run"
+cd "$inbox_real" || exit 1
+run_launcher flaglike-brief "$launcher" repo --dry-run flaglike-brief
+expect_status "36: a brief named --dry-run launches through the wrapper" 0
+expect_launches "36: the flag-like brief starts agy once" 1
+run_launcher flaglike-brief-adapter "$adapter_run" --mode docs --model docs-model -- repo --dry-run flaglike-adapter
+expect_status "36: a brief named --dry-run launches through the adapter" 0
+expect_launches "36: the adapter treats --dry-run after -- as the brief" 1
+cd "$repo_root" || exit 1
+rm -f "$inbox_real/--dry-run"
+
+run_launcher flaglike-repo "$launcher" --dry-run "$brief"
+expect_status "37: a repo named --dry-run exits 2" 2
+expect_err "37: a flag-like repo gets the repository-name diagnostic" "invalid repository name"
+expect_not_started "37: a flag-like repo does not start agy"
+
+run_launcher flaglike-stem "$launcher" repo "$brief" --check-settings
+expect_status "37: a stem named --check-settings exits 2" 2
+expect_err "37: a flag-like stem gets the log-stem diagnostic" "invalid log stem"
+expect_not_started "37: a flag-like stem does not start agy"
+
+run_launcher flaglike-adapter-stem "$adapter_run" --mode docs --model docs-model -- repo "$brief" --check-settings
+expect_status "37: the adapter keeps a stem named --check-settings literal" 2
+expect_err "37: the adapter stem diagnostic is unchanged" "invalid log stem"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
