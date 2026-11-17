@@ -100,7 +100,7 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
-  `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
+  `model-ids`, `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
   message that the check is not implemented. Later checks will be added under
   the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
@@ -234,6 +234,26 @@ CI runs the check with `--strict` and no name list, so the name rule SKIPs. The
 implementation lives in
 [`../../scripts/lib/docs-sweep.sh`](../../scripts/lib/docs-sweep.sh) so the
 entry script stays small.
+
+### model-ids
+
+`--check model-ids` keeps unverified model ids out of
+[`../agent-config.example.json`](../agent-config.example.json). A wrong id
+looks plausible in review and only fails when an agent starts, so the check
+compares every non-null lane model with
+[`../agent-config.verified-model-ids.txt`](../agent-config.verified-model-ids.txt)
+and requires a TODO in the `_comment` of every null entry. Add an id to the
+list only after a run record or the vendor's model list confirms the exact
+string; until then the entry stays null. CI runs it with `--strict`. See
+`scripts/dev-loop-gate.sh --help` and
+[`../../scripts/lib/model-ids.sh`](../../scripts/lib/model-ids.sh).
+
+The launchers have a matching CI-only test,
+[`../../scripts/tests/test_arg_boundaries.sh`](../../scripts/tests/test_arg_boundaries.sh).
+It runs each `--dry-run` surface with literal arguments after `--`, paths with
+spaces, empty strings, and leading-dash values, and fails when one is dropped,
+split, or reinterpreted. Add a row there when a launcher gains a new argument
+path.
 
 ### pr-state
 
