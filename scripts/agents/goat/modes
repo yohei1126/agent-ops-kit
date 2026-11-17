@@ -1,0 +1,7 @@
+# Modes this adapter accepts for --mode, one per line. agent-launch.sh
+# refuses a lane entry whose mode is not listed here. write is the only
+# mode that edits the worktree, and the only one that skips the agent's
+# permission prompts (under generated deny rules and a scope gate).
+patch
+review
+write

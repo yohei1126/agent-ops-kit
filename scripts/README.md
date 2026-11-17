@@ -31,6 +31,10 @@ marks an id nobody has confirmed yet, so a guessed id never reaches a launch.
 Run `scripts/agent-launch.sh --help` for flags, the hand-off and null-id rules,
 and the lane and agent names in the loaded config.
 
+The GOAT adapter (`scripts/agents/goat/`) runs read-only `patch` and `review`
+modes and a gated `write` mode; see
+[`../docs/goat-adapter.md`](../docs/goat-adapter.md).
+
 ## Run launch and collection in two workstation shell calls
 
 Write long briefs on the Grok box and `CopyFromBox` them into `$HOME/agy-inbox/`

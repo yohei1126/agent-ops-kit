@@ -96,7 +96,7 @@ out="$(agent_config_agent_field agy-api-key provisioned)"
 expect_eq "3: agent field reads a false boolean" "$out" "false"
 out="$(agent_config_lane_entry_field coding 4 model_name)"
 expect_eq "3: lane entry field reads model_name" "$out" "Composer 2.5"
-out="$(agent_config_lane_entry_field coding 0 mode)"
+out="$(agent_config_lane_entry_field coding 2 mode)"
 expect_eq "3: an absent optional mode is empty" "$out" ""
 
 out="$(agent_config_label opencode-fireworks "DeepSeek V4.1 Flash")"
