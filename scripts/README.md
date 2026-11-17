@@ -232,6 +232,9 @@ checks are red or that has stayed open longer than `--days` (default 3), and it
 never comments, closes, rebases, or merges. See
 [`../docs/security-audit-lanes.md`](../docs/security-audit-lanes.md#flag-red-dependabot-pull-requests-weekly).
 
+[`work-graph.sh`](work-graph.sh) prints two read-only views of stuck work; run
+`scripts/work-graph.sh --help` for its output and options.
+
 ## Prepare a coding-agent task issue
 
 Use [`agent-task-issue.sh`](agent-task-issue.sh) when a bot must write a

@@ -1,0 +1,51 @@
+{
+  "data": {
+    "repository": {
+      "issues": {
+        "nodes": [
+          {
+            "number": 401,
+            "title": "Late retro example",
+            "body": "Tracked work.",
+            "createdAt": "2025-10-01T00:00:00Z",
+            "updatedAt": "2025-10-02T00:00:00Z",
+            "url": "https://example.com/issues/401",
+            "author": {
+              "login": "reporter-example"
+            },
+            "assignees": {
+              "nodes": []
+            },
+            "comments": {
+              "nodes": []
+            },
+            "timelineItems": {
+              "nodes": [
+                {
+                  "__typename": "CrossReferencedEvent",
+                  "willCloseTarget": true,
+                  "source": {
+                    "number": 990,
+                    "state": "MERGED",
+                    "merged": true,
+                    "mergedAt": "2025-09-01T00:00:00Z",
+                    "closedAt": "2025-09-01T00:00:00Z"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "pullRequests": {
+        "nodes": []
+      },
+      "merged": {
+        "nodes": []
+      },
+      "closed": {
+        "nodes": []
+      }
+    }
+  }
+}
