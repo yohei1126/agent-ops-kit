@@ -21,8 +21,9 @@ the review lanes. `write` is opt-in per lane entry.
 diff, which the adapter checks before applying it to the worktree and then
 gates. The adapter accepts only plain `a/` and `b/` headers without quoted
 paths, checks every path git itself would touch (`git apply --numstat`), and
-refuses an absolute path, a `.` or `..` component, `.git`, `.commandcode`, a
-symlink, or a submodule, then runs `git apply --check` before `git apply`. The gate runs
+refuses an absolute path, a `.` or `..` component, `.git` or `.commandcode` in
+any letter case (macOS file systems ignore case), a symlink, or a submodule,
+then runs `git apply --check` before `git apply`. The gate runs
 from a copy of the kit taken before the diff is applied, under a minimal
 environment with the throwaway `HOME` and a `PATH` of system folders plus the
 git and jq found before the run, so a diff that edits the gate scripts or
@@ -44,8 +45,9 @@ yolo. So write mode, and only write mode, pairs `--yolo` with a generated
 tool, edits to `.git` and `.commandcode`, reads and edits of the worktree's
 git directories (absolute `//` rules), edits of hidden files and folders,
 `bin`, and `Library` in the caller's home, edits of `/usr/local` and `/opt/homebrew`, and
-reads of common credential stores (`.ssh`, `.aws`, `.config`, `.gnupg`,
-`.docker`, `.kube`, `.netrc`, `.npmrc`, `.git-credentials`). A deny of every
+reads of every hidden file and folder and of `Library` in the caller's home
+(shell startup files and histories hold secrets too, so a fixed list of
+credential stores is not enough). A deny of every
 absolute path (`//**`) is not possible: it also blocks the workspace. A test fails if any other
 kit script passes `--yolo`.
 
@@ -67,10 +69,16 @@ The maintainer approved write-enabled headless GOAT only under all of these:
    token or other secret reaches it.
 4. The caller declares the scope (literal repository-relative paths; glob
    characters are refused). After the run
-   the adapter removes the generated settings and lists every changed, added,
-   deleted, untracked, or newly ignored path. A path outside the scope, a
+   the adapter checks `.commandcode`: the generated settings must be
+   unchanged and the only other entries allowed are the CLI's own `taste`
+   state; anything else fails the run and the folder is left for inspection.
+   It then lists every changed, added, deleted, untracked, or newly ignored
+   path, and compares files that were already ignored before the run by
+   content hash, so a rewrite or delete of one outside the scope fails too. A path outside the scope, a
    sibling prefix such as `docsx` for scope `docs`, anything under `.git`, a
-   changed git config, hook, or info file, or a moved `HEAD` is a FAIL (exit
+   changed git config, hook, info, index, ref, or worktree link file
+   (compared by content hash), a moved git directory, or a moved `HEAD` is a
+   FAIL (exit
    1), and the tree is left for inspection. After the run the adapter uses
    only system tools and calls git with fsmonitor and hooks off.
 5. The adapter never stages, commits, pushes, or opens a pull request. The
@@ -81,8 +89,10 @@ under yolo a write outside the workspace admits a new root instead of
 prompting. The deny list covers the usual places where a planted file would
 run later, and the scope gate catches anything inside the worktree, but a
 write to another absolute path the caller can write is not caught. Write mode
-therefore belongs on a disposable machine, container, or separate user. Content changes to files that were already ignored
-before the run are not visible to git either.
+therefore belongs on a disposable machine, container, or separate user. When
+the agent exits non-zero, its stderr tail is printed with the API key value
+replaced by `<redacted>`, and patch or review output that contains the key is
+refused without being printed.
 
 ## Model line
 

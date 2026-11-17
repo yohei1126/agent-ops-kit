@@ -47,6 +47,9 @@ fi
 if [ -f "$ctl/out" ]; then
   cat "$ctl/out"
 fi
+if [ -f "$ctl/leak" ]; then
+  printf 'leak: %s\n' "\$COMMAND_CODE_API_KEY" >&2
+fi
 if [ -f "$ctl/exit" ]; then
   printf 'stub failure line\n' >&2
   exit "\$(cat "$ctl/exit")"
@@ -178,7 +181,7 @@ expect_text "2: write prints the scope" "$out" "GOAT_SCOPE=docs"
 expect_text "2: write prints the deny list" "$out" '"Shell"'
 common_abs="$(cd "$main_repo" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
 expect_text "2: the deny list covers the git directory" "$out" "Edit(/$common_abs/**)"
-expect_text "2: the deny list covers ssh keys" "$out" "/.ssh/**)"
+expect_text "2: the deny list reads hidden home entries" "$out" "/.*/**)"
 if [ -e "$wt/.commandcode" ]; then
   bad "2: write dry-run writes no settings" ".commandcode exists"
 else
@@ -525,6 +528,141 @@ set_result "$work_tmp/text-review"
 run_adapter --mode write --model m -- "$wt" "$brief" docs
 expect_status "12: no change exits 1" 1
 expect_text "12: says nothing changed" "$err" "changed nothing"
+
+printf '== case-insensitive dot folders ==\n'
+reset_ctl
+reset_wt
+for evil in '.COMMANDCODE/settings.local.json' '.Git/config'; do
+  reset_ctl
+  printf '```diff\ndiff --git a/%s b/%s\nnew file mode 100644\n--- /dev/null\n+++ b/%s\n@@ -0,0 +1 @@\n+x\n```\n' \
+    "$evil" "$evil" "$evil" >"$work_tmp/text-case"
+  set_result "$work_tmp/text-case"
+  run_adapter --mode patch --model m -- "$wt" "$brief"
+  expect_status "15: a diff touching $evil exits 2" 2
+  expect_text "15: names the refusing path $evil" "$err" "outside the worktree"
+done
+if [ -z "$(git -C "$wt" status --porcelain)" ]; then
+  ok "15: refused case variants leave the tree clean"
+else
+  bad "15: refused case variants leave the tree clean" "$(git -C "$wt" status --porcelain)"
+fi
+reset_ctl
+reset_wt
+for scope in '.COMMANDCODE' '.Git/hooks'; do
+  run_adapter --mode write --model m -- "$wt" "$brief" "$scope"
+  expect_status "15: write scope '$scope' exits 2" 2
+done
+expect_not_called "15: no case-variant scope starts the agent"
+
+printf '== home read deny ==\n'
+reset_ctl
+mkdir -p "$work_tmp/home"
+home_phys="$(cd "$work_tmp/home" && pwd -P)"
+HOME="$work_tmp/home" run_adapter --mode write --model m --dry-run -- "$wt" "$brief" docs
+expect_status "16: write dry-run with a home exits 0" 0
+expect_text "16: the deny list reads every hidden home entry" "$out" "Read(/$home_phys/.*)"
+expect_text "16: the deny list reads the hidden home subtree" "$out" "Read(/$home_phys/.*/**)"
+expect_text "16: the deny list reads the home Library" "$out" "/Library/**)"
+
+printf '== git directory content gate ==\n'
+reset_ctl
+reset_wt
+printf 'docs/ok.md\n%s/refs/heads/sneaky\n' "$common_abs" >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "17: a changed ref exits 1" 1
+expect_text "17: names the changed git directory" "$out$err" "git directory changed"
+rm -f "$common_abs/refs/heads/sneaky"
+
+reset_ctl
+reset_wt
+index_path="$(cd "$wt" && cd "$(git rev-parse --git-dir)" && pwd -P)/index"
+cp "$index_path" "$work_tmp/index-backup"
+printf 'docs/ok.md\n%s\n' "$index_path" >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "17: a changed worktree index exits 1" 1
+expect_text "17: names the changed index" "$out$err" "git directory changed"
+cp "$work_tmp/index-backup" "$index_path"
+reset_wt
+
+printf '== .commandcode inspection ==\n'
+reset_ctl
+reset_wt
+printf 'docs/ok.md\n.commandcode/hooks.json\n' >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "18: an extended .commandcode exits 1" 1
+expect_text "18: reports the .commandcode change" "$out" "SCOPE FAIL .commandcode"
+if [ -f "$wt/.commandcode/hooks.json" ]; then
+  ok "18: the changed .commandcode is left for inspection"
+else
+  bad "18: the changed .commandcode is left for inspection" "folder removed"
+fi
+rm -rf "$wt/.commandcode"
+
+reset_ctl
+reset_wt
+printf 'docs/ok.md\n.commandcode/taste/notes.md\n' >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "18: the CLI taste state is allowed" 0
+if [ -e "$wt/.commandcode" ]; then
+  bad "18: the allowed .commandcode is removed" "folder remains"
+else
+  ok "18: the allowed .commandcode is removed"
+fi
+
+printf '== key redaction ==\n'
+reset_ctl
+reset_wt
+touch "$ctl/leak"
+printf '3\n' >"$ctl/exit"
+set_result "$work_tmp/text-ok"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "19: a failing agent that leaks the key exits 1" 1
+expect_no_text "19: the leaked key is not printed" "$out$err" "$secret"
+expect_text "19: the leaked key is redacted" "$out$err" "<redacted>"
+
+reset_ctl
+reset_wt
+printf 'Key is %s\n' "$secret" >"$work_tmp/text-leak"
+set_result "$work_tmp/text-leak"
+result="$work_tmp/review-leak.md"
+run_adapter --mode review --model m -- "$wt" "$brief" "$result"
+expect_status "19: a review echoing the key exits 1" 1
+expect_no_text "19: the review refusal does not print the key" "$out$err" "$secret"
+if [ -f "$result" ]; then
+  expect_no_text "19: the key is not written to the result" "$(cat "$result")" "$secret"
+fi
+rm -f "$result"
+
+printf '== pre-existing ignored files ==\n'
+reset_ctl
+reset_wt
+common="$(cd "$main_repo" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+mkdir -p "$common/info"
+printf '*.log\n' >>"$common/info/exclude"
+printf 'old\n' >"$wt/src/pre.log"
+printf 'docs/ok.md\nsrc/pre.log\n' >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "20: an out-of-scope pre-existing ignored file exits 1" 1
+expect_text "20: names the changed ignored file" "$out$err" "SCOPE FAIL src/pre.log"
+rm -f "$wt/src/pre.log"
+printf '' >"$common/info/exclude"
+
+reset_ctl
+reset_wt
+mkdir -p "$common/info"
+printf '*.log\n' >>"$common/info/exclude"
+printf 'old\n' >"$wt/docs/pre.log"
+printf 'docs/ok.md\ndocs/pre.log\n' >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "20: an in-scope pre-existing ignored file exits 0" 0
+rm -f "$wt/docs/ok.md" "$wt/docs/pre.log"
+printf '' >"$common/info/exclude"
 
 printf '== kit hygiene ==\n'
 # Comment lines and refusal messages ("never passed", "Do not pass") are
