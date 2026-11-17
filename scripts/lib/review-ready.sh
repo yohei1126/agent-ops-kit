@@ -165,8 +165,12 @@ EOF_CI
     fi
     for id in $review_ready_checks; do
       status=0
-      "$script_dir/dev-loop-gate.sh" --strict --check "$id" --repo "$repo" \
-        >/dev/null 2>"$err_file" || status=$?
+      set -- --strict --check "$id" --repo "$repo"
+      if [ -n "${config_path:-}" ]; then
+        set -- "$@" --config "$config_path"
+      fi
+      # Same bash as this gate, so a bash 3.2 run checks the children too.
+      "${BASH:-bash}" "$script_dir/dev-loop-gate.sh" "$@" >/dev/null 2>"$err_file" || status=$?
       if [ "$status" -eq 0 ]; then
         row RR "$id" PASS "Continue."
       elif [ "$status" -eq 2 ] && grep -q 'unknown check' "$err_file" &&
@@ -207,7 +211,12 @@ EOF_CI
         printf 'Test log tail: none provided.\n\n'
       fi
       printf 'Review only what these checks cannot decide: design, correctness, security, and the acceptance criteria of the linked Issue.\n'
-    } >"$evidence_out_arg"
+    } >"$evidence_out_arg" || {
+      printf 'dev-loop-gate: could not write --evidence-out: %s\n' "$evidence_out_arg" >&2
+      rm -f "$err_file" "$rows_file"
+      trap - EXIT
+      return 1
+    }
   fi
   rm -f "$err_file" "$rows_file"
   trap - EXIT

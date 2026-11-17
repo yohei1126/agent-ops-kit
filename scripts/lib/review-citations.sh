@@ -48,8 +48,9 @@ run_review_citations() {
   fi
 
   text="$(cat "$comment_arg")"
-  lead_chars='`([{"'\''<'
-  trail_chars=']`)}"'\''>.,;:!?'
+  # Markdown emphasis (*, _, ~) and quotes around a citation are stripped.
+  lead_chars='`([{"'\''<*_~'
+  trail_chars=']`)}"'\''>.,;:!?*_~'
   # path:N, path:N-M, path:LN-LM, comma lists (path:3,9-12), an optional
   # :column suffix, and path#LN or path#LN-LM. Anchored at both ends, so a
   # trailing ,420 is checked as its own line, not dropped.
@@ -58,6 +59,8 @@ run_review_citations() {
   # shellcheck disable=SC2016
   words="$(printf '%s\n' "$text" | awk -v lead="$lead_chars" -v trail="$trail_chars" '
     {
+      # A Markdown link [label](a/b.sh:3) yields its target as a word.
+      gsub(/\]\(/, " ")
       for (i = 1; i <= NF; i++) {
         w = $i
         sub("^[" lead "]+", "", w)

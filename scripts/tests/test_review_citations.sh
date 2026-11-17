@@ -76,7 +76,7 @@ make_repo() {
 
 run_gate() {
   : > "$err_file"
-  out="$(bash "$gate" "$@" 2>"$err_file")"
+  out="$("$BASH" "$gate" "$@" 2>"$err_file")"
   status=$?
   err="$(cat "$err_file")"
 }
@@ -198,6 +198,14 @@ run_gate --check review-citations --repo "$rootdir" --comment "$work_tmp/root-ba
 expect_status "15: a bad root citation fails" 1
 expect_out "15: Makefile past the end" "Makefile:9: line 9 is past the end"
 expect_out "15: an untracked script name fails" "missing.sh:3: not a tracked file"
+
+# 15b. Emphasis and Markdown links around a citation.
+cat >"$work_tmp/md.md" <<'MD'
+See **a/b.sh:9**, _a/b.sh:2_, and [the block](a/b.sh:7).
+MD
+run_gate --check review-citations --repo "$dir" --comment "$work_tmp/md.md" --expect-head "$sha"
+expect_status "15b: bad citations in emphasis or links fail" 1
+expect_out "15b: three citations counted" "3 citations, 2 bad"
 
 # 16. Column suffix, comma lists, and uppercase or short heads.
 cat >"$work_tmp/col.md" <<'MD'

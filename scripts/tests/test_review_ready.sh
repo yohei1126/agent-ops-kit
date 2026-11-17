@@ -71,7 +71,7 @@ gate_run() {
   local fixture_name="$1"
   shift
   out="$(PATH="$stub_bin:$PATH" FAKE_GH_JSON="$work_tmp/$fixture_name.json" \
-    FAKE_GH_ARGV="$work_tmp/gh.argv" "$gate" "$@" 2>"$work_tmp/stderr")"
+    FAKE_GH_ARGV="$work_tmp/gh.argv" "$BASH" "$gate" "$@" 2>"$work_tmp/stderr")"
   status=$?
   err="$(cat "$work_tmp/stderr")"
 }
@@ -151,12 +151,12 @@ short="${head_sha:0:7}"
 fixture green "[$run_ok]"
 out="$(DEV_LOOP_REVIEW_READY_CHECKS="line-cap no-such-check" PATH="$stub_bin:$PATH" \
   FAKE_GH_JSON="$work_tmp/green.json" FAKE_GH_ARGV="$work_tmp/gh.argv" \
-  "$gate" --check review-ready --repo "$checkout" --pr 7 --expect-head "$short" 2>/dev/null)"
+  "$BASH" "$gate" --check review-ready --repo "$checkout" --pr 7 --expect-head "$short" 2>/dev/null)"
 status=$?
 expect_status "5: an unknown id set by the caller fails" 1
 expect_text "5: names the unknown id" "$out" "no-such-check failed"
 out="$(PATH="$stub_bin:$PATH" FAKE_GH_JSON="$work_tmp/green.json" FAKE_GH_ARGV="$work_tmp/gh.argv" \
-  "$gate" --check review-ready --repo "$checkout" --pr 7 --expect-head "$short" 2>/dev/null)"
+  "$BASH" "$gate" --check review-ready --repo "$checkout" --pr 7 --expect-head "$short" 2>/dev/null)"
 status=$?
 expect_status "5: default ids not in this kit do not fail" 0
 expect_text "5: a missing default id is SKIP" "$out" "not in this kit version"
@@ -213,7 +213,7 @@ expect_status "7: --comment without review-citations exits 2" 2
 
 # 8. gh failures exit 3.
 out="$(FAKE_GH_FAIL=1 PATH="$stub_bin:$PATH" FAKE_GH_JSON="$work_tmp/green.json" \
-  FAKE_GH_ARGV="$work_tmp/gh.argv" "$gate" --check review-ready --repo "$checkout" \
+  FAKE_GH_ARGV="$work_tmp/gh.argv" "$BASH" "$gate" --check review-ready --repo "$checkout" \
   --pr 7 --expect-head "$short" 2>"$work_tmp/stderr")"
 status=$?
 err="$(cat "$work_tmp/stderr")"
@@ -223,7 +223,7 @@ rr garbage --expect-head "$short"
 expect_status "8: unreadable gh output exits 3" 3
 
 # 9. --help lists both review gates.
-out="$("$gate" --help)"
+out="$("$BASH" "$gate" --help)"
 expect_text "9: --help lists review-ready" "$out" "--check review-ready"
 expect_text "9: --help lists review-citations" "$out" "--check review-citations"
 

@@ -57,7 +57,9 @@ then requires `--pr <n>` and `--expect-head <sha>` for that lane (missing:
 exit 2) and runs the check before any agent starts, with `--repo` set to
 `--checkout <path>` or the current directory and `--test-log <path>` passed
 through, and `--gh-repo <owner/repo>` when the pull request lives in another
-repository than the checkout's remote. A FAIL exits 1 with `no agent started`. On PASS the evidence path is
+repository than the checkout's remote. Any preflight failure exits 1 with
+`no agent started`; the message carries the gate's own exit code, so a `gh`
+or usage error (3 or 2) is still told apart from a red head (1). On PASS the evidence path is
 exported as `AGENT_LAUNCH_EVIDENCE`, and the agy adapter appends the block to
 the run's `BRIEF.md` once, so the reviewer reads the settled facts instead of
 re-checking them. `--dry-run` runs the preflight and prints
