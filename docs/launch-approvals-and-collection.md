@@ -172,6 +172,9 @@ Retrospective source: an earlier hub operations pull request.
 - **`agy` is `write_file`-only.** Briefs for `agy` docs work never ask it to
   run git, `gh`, shell commands, or linters. `agy` writes the files; Grok Bot
   owns git and the draft pull request.
+- **Every coding agent changes files only.** The file-only rule applies to
+  every coding agent, not only `agy`; see
+  [Coding agents change files only](shared-rules.md#coding-agents-change-files-only).
 - **Grok Bot owns git and the draft PR.** After the handoff, Grok Bot runs the
   collect step: status, add, commit, push, and `gh pr create --draft` (or a
   follow-up commit on the open draft PR).

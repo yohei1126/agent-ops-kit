@@ -205,8 +205,9 @@ using the wrapper scripts:
   reports the exact command and reason so the operator can review permissions
   offline.
 - **One `argv`-style command per worker tool call**: inside the `agy` session,
-  the worker must still issue one simple command per `RunCommand` tool call and
-  keep `git` and `gh` invocations separate.
+  the worker must still issue one simple command per `RunCommand` tool call for
+  any allow-listed verification command. The worker does not run `git` or `gh`;
+  commit, push, and the draft pull request happen in the collect step.
 
 ## Local gate checks
 

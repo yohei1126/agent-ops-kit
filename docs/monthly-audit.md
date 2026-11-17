@@ -171,10 +171,10 @@ Proposal: a short PR against this docs repo or your fork that updates
   [`cast-and-routing.md`](cast-and-routing.md#format-job-items-so-handoff-ownership-is-visible-at-a-glance)).
   Chat transcripts, watched inbox folders, and progress or status docs were not
   used as a second backlog.
-- [ ] For long-form work, a document worker drafted the body and a coding
-  agent committed only approved text. Nothing was published or merged without
-  the operator. Sources meant for pasting into LinkedIn-style surfaces stayed
-  plain Markdown.
+- [ ] For long-form work, a document worker drafted the body and the kit
+  adapter or the calling script committed only approved text. Nothing was
+  published or merged without the operator. Sources meant for pasting into
+  LinkedIn-style surfaces stayed plain Markdown.
 
 ## 6. Open the monthly-audit PR with generalized diffs only
 

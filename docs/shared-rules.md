@@ -83,10 +83,10 @@ design review or cross-domain triage.
   hardware, local-only files, or headless local tooling), and run it only under
   `~/agent-work/<repo>` (`mkdir -p ~/agent-work`).
 - Documents, articles, and decks: a document worker drafts the whole piece,
-  and a coding agent only commits the approved text into the repo. Document
-  drafting and rewrite stay on workstation `agy` under `~/agy-work/<repo>`,
-  including repository Markdown docs, md-deck slide body prose,
-  customer-facing proposals, and Q&A decks (never under `~/work/...`; see
+  and the kit adapter or the calling script commits the approved text into the
+  repo. Document drafting and rewrite stay on workstation `agy` under
+  `~/agy-work/<repo>`, including repository Markdown docs, md-deck slide body
+  prose, customer-facing proposals, and Q&A decks (never under `~/work/...`; see
   [Fixed checkout roots](workstation-handoffs.md#fixed-checkout-roots) and
   [Docs and deck prose lane](workstation-handoffs.md#docs-and-deck-prose-lane-non-negotiable)).
   Do not use `agy` for code or smoke verification. Prefer `agy` (defaulting to
@@ -100,6 +100,27 @@ design review or cross-domain triage.
   When a Mac local Shell command waits on an approval card, wait for operator
   confirmation, relaunch `agy` after allow, or stop and report. Do not escape
   to Cursor cloud to finish prose drafting.
+
+### Coding agents change files only
+
+Every coding agent (headless `agy`, `agent -p`, OpenCode, GOAT, and others)
+changes files only and runs without secrets. Branching, committing, pushing,
+and draft pull request creation happen deterministically in the kit adapter or
+the calling script after the scope check passes. The one exception is the
+maintainer running `agy` interactively.
+
+The reasons:
+
+- Keep GitHub and push credentials out of the agent environment, so a prompt
+  injection or a runaway run has no path out.
+- Run the scope gate and tests before anything is committed.
+- Keep branch and pull request head correctness, and the Model and author
+  lines, in one consistent place.
+- Headless CLIs need broad permission (for example `--yolo`) to run git, which
+  is another reason git stays outside the agent.
+
+Commit, push, and draft pull request creation happen in the collect step (see
+[Collect agy handoffs in one Mac shell](launch-approvals-and-collection.md#collect-agy-handoffs-in-one-mac-shell-and-keep-reporting-thin)).
 
 Do not ask a long-lived domain bot to own every commit for a PR. Do not ask a
 coding agent to write a full article in the repo without a draft approved
@@ -273,7 +294,9 @@ These rules apply on any platform. The division of labor matches
 [Code and documents](#5-code-and-documents-use-different-workers):
 
 - A document worker drafts the body.
-- A cloud coding agent only commits text the operator has approved.
+- The kit adapter or the calling script commits only text the operator has
+  approved (see
+  [Coding agents change files only](#coding-agents-change-files-only)).
 - Prefer a draft pull request, and set an unpublished or draft flag when the
   repo or platform has one.
 - Bots never publish or merge without the operator.

@@ -224,7 +224,8 @@ Include four required sections in every handoff brief:
   real bot display names).
 - **Success criteria and return format**: the exact verification commands to run
   (such as `wc -l` or an explicitly allow-listed linter or test command) and
-  what to report back (such as the PR URL and the list of changed files).
+  what to report back (such as the list of changed files and verification
+  results). The calling script reports the pull request URL after collect.
 
 Keep secrets out of command arguments (`argv`): never pass API keys, tokens, or
 private URLs inline inside `agy -p "..."` or `agent -p "..."`, because arguments
@@ -242,13 +243,15 @@ command per `RunCommand` tool call. Scoped allow lists match a single command
 prefix and soft-deny compound shell lines that contain `&&`, `||`, `;`, `|`,
 `$()`, backticks, or unquoted shell globs.
 
-Split verification, git, and pull request steps into separate tool calls using
-commands already in the workstation allow list (see
-[Headless agy soft-deny handling](launch-approvals-and-collection.md#headless-agy-soft-deny-handling)): `wc -l`,
-`git status`, `git diff`, `git add`, `git commit`, `git push`, and
-`gh pr create --draft`. These git steps apply to `agent -p`. Docs briefs for
-`agy` stay `write_file`-only, and Grok Bot runs git and the draft PR at collect
-(see [Collect agy handoffs in one Mac shell](launch-approvals-and-collection.md#collect-agy-handoffs-in-one-mac-shell-and-keep-reporting-thin)).
+Split verification commands into separate tool calls using commands already in
+the workstation allow list (see
+[Headless agy soft-deny handling](launch-approvals-and-collection.md#headless-agy-soft-deny-handling)),
+such as `wc -l` or an explicitly allow-listed linter or test command. Do not
+ask `agy -p` or `agent -p` to run git or gh. Commit, push, and draft pull
+request creation happen in the collect step (see
+[Collect agy handoffs in one Mac shell](launch-approvals-and-collection.md#collect-agy-handoffs-in-one-mac-shell-and-keep-reporting-thin)).
+The rule and its reasons are in
+[Coding agents change files only](shared-rules.md#coding-agents-change-files-only).
 
 ### Six labeled lines for every agent-to-agent handoff
 
