@@ -100,7 +100,7 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
-  `model-ids`, `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
+  `prose-dashes`, `md-links`, `model-ids`, `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
   message that the check is not implemented. Later checks will be added under
   the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
@@ -157,8 +157,8 @@ even without `--strict`, the same hard-preflight spirit as G1. The default G1
 to G7 table runs this rule as an `NM` row on every run, with a root that falls
 back to the current directory when git cannot resolve a work tree. A FAIL there
 also exits 1 without `--strict`. The other named checks do not run it, so
-`line-cap`, `docs-sweep`, `pr-state`, and `deploy-hash` keep their own exit
-rules.
+`line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `model-ids`, `pr-state`, and
+`deploy-hash` keep their own exit rules.
 
 ### node-pin
 
@@ -234,6 +234,22 @@ CI runs the check with `--strict` and no name list, so the name rule SKIPs. The
 implementation lives in
 [`../../scripts/lib/docs-sweep.sh`](../../scripts/lib/docs-sweep.sh) so the
 entry script stays small.
+
+### prose-dashes
+
+`--check prose-dashes` enforces the CONTRIBUTING.md humanizer rule mechanically,
+so reviews do not spend time on em dashes and en dashes in prose. It skips
+fenced and inline code, and it never reads a URL or the network. CI runs it
+with `--strict`. See `scripts/dev-loop-gate.sh --help` and
+[`../../scripts/lib/md-hygiene.sh`](../../scripts/lib/md-hygiene.sh).
+
+### md-links
+
+`--check md-links` enforces the AGENTS.md rule that a split or a heading move
+updates every cross-link. It checks relative paths and Markdown heading anchors
+in tracked files, not external URLs, so it needs no network. CI runs it with
+`--strict`. See `scripts/dev-loop-gate.sh --help` and
+[`../../scripts/lib/md-hygiene.sh`](../../scripts/lib/md-hygiene.sh).
 
 ### model-ids
 
