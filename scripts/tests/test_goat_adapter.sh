@@ -33,6 +33,7 @@ cat >"$work_tmp/bin/fake-goat" <<SH
 : >"$ctl/called"
 for a in "\$@"; do printf '%s\n' "\$a"; done >"$ctl/argv"
 env | sed 's/=.*//' | sort >"$ctl/env-names"
+printf '%s\n' "\$PATH" >"$ctl/path"
 pwd -P >"$ctl/cwd"
 if [ -f .commandcode/settings.local.json ]; then
   cp .commandcode/settings.local.json "$ctl/settings-seen"
@@ -69,7 +70,7 @@ set_result() {
 }
 
 run_adapter() {
-  out="$(PATH="$work_tmp/bin:$PATH" GOAT_CMD=fake-goat COMMAND_CODE_API_KEY="$secret" \
+  out="$(PATH="$work_tmp/bin:$work_tmp/sentinel-bin:$PATH" GOAT_CMD=fake-goat COMMAND_CODE_API_KEY="$secret" \
     GH_TOKEN=gh-should-not-pass "$adapter" "$@" 2>"$work_tmp/stderr")"
   status=$?
   err="$(cat "$work_tmp/stderr")"
@@ -175,6 +176,9 @@ expect_status "2: write dry-run exits 0" 0
 expect_text "2: write passes --yolo" "$out" "--yolo"
 expect_text "2: write prints the scope" "$out" "GOAT_SCOPE=docs"
 expect_text "2: write prints the deny list" "$out" '"Shell"'
+common_abs="$(cd "$main_repo" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+expect_text "2: the deny list covers the git directory" "$out" "Edit(/$common_abs/**)"
+expect_text "2: the deny list covers ssh keys" "$out" "/.ssh/**)"
 if [ -e "$wt/.commandcode" ]; then
   bad "2: write dry-run writes no settings" ".commandcode exists"
 else
@@ -260,6 +264,20 @@ expect_no_text "4: patch argv has no permission bypass" "$argv" "dangerously"
 expect_text "4: the prompt carries the brief" "$argv" "Change docs/a.md."
 expect_text "4: the prompt forbids edits" "$argv" "Do not edit files"
 expect_no_text "4: the key never reaches the output" "$out$err" "$secret"
+expect_no_text "4: the child PATH drops the caller's other folders" "$(cat "$ctl/path")" "sentinel-bin"
+
+reset_ctl
+mkdir -p "$wt/.commandcode"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "4: an existing .commandcode exits 2 in patch mode" 2
+rmdir "$wt/.commandcode"
+for header in 'diff --git x/docs/a.md y/docs/a.md' 'diff --git "a/docs/a.md" "b/docs/a.md"'; do
+  reset_ctl
+  printf '```diff\n%s\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-one\n+ONE\n```\n' "$header" >"$work_tmp/text-header"
+  set_result "$work_tmp/text-header"
+  run_adapter --mode patch --model m -- "$wt" "$brief"
+  expect_status "4: header '$header' exits 2" 2
+done
 
 reset_ctl
 reset_wt
@@ -411,6 +429,23 @@ for scope in '..' '/abs' '.' '.git' '.git/hooks' 'docs/../..' '.commandcode' '';
 done
 expect_not_called "10: no write refusal starts the agent"
 
+git -C "$main_repo" remote add origin "$work_tmp/nowhere"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "10: origin without origin/HEAD exits 2" 2
+expect_text "10: says how to set it" "$err" "git remote set-head origin --auto"
+git -C "$main_repo" update-ref refs/remotes/origin/feat/topic "$head0"
+git -C "$main_repo" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/feat/topic
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "10: the remote default branch exits 2" 2
+git -C "$main_repo" remote remove origin
+ln -s ../.. "$wt/docs/up"
+git -C "$wt" add docs/up
+git_c -C "$wt" commit -q -m link
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "10: a scope holding a tracked symlink exits 2" 2
+reset_wt
+expect_not_called "10: no write refusal starts the agent (2)"
+
 printf '== write mode scope gate ==\n'
 reset_ctl
 reset_wt
@@ -470,6 +505,15 @@ printf '' >"$common/info/exclude"
 
 reset_ctl
 reset_wt
+printf 'docs/ok.md\n%s/hooks/post-checkout\n' "$common_abs" >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "12: a change in the git directory exits 1" 1
+expect_text "12: names the git directory" "$out$err" "git directory changed"
+rm -f "$common_abs/hooks/post-checkout"
+
+reset_ctl
+reset_wt
 printf 'docsx/near.md\n' >"$ctl/write"
 set_result "$work_tmp/text-review"
 run_adapter --mode write --model m -- "$wt" "$brief" docs
@@ -483,8 +527,12 @@ expect_status "12: no change exits 1" 1
 expect_text "12: says nothing changed" "$err" "changed nothing"
 
 printf '== kit hygiene ==\n'
-hits="$(grep -rlF -- '--yolo' "$repo_root/scripts" "$repo_root/templates" 2>/dev/null |
-  grep -v -e '/scripts/agents/goat/run$' -e '/scripts/tests/' || true)"
+# Comment lines and refusal messages ("never passed", "Do not pass") are
+# documentation, not launches.
+hits="$(grep -rnE --exclude='*.md' -- '--yolo|dangerously-skip-permissions|permission-mode[ =]yolo' \
+  "$repo_root/scripts" "$repo_root/templates" 2>/dev/null |
+  grep -v -e '^[^:]*/scripts/agents/goat/run:' -e '^[^:]*/scripts/tests/' |
+  grep -vE '^[^:]*:[0-9]+: *#' | grep -vE 'never|Do not' || true)"
 if [ -z "$hits" ]; then
   ok "13: only the goat adapter passes --yolo"
 else
