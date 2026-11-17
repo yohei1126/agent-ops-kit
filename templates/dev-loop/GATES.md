@@ -127,8 +127,8 @@ Exit codes:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci and node-pin are never advisory) |
-| 1 | FAIL under `--strict`, or a hard preflight miss: G1, npm-ci, or node-pin, including `--check npm-ci` and `--check node-pin` |
+| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci, node-pin, review-ready, and review-citations are never advisory) |
+| 1 | FAIL under `--strict`, a hard preflight miss: G1, npm-ci, or node-pin, including `--check npm-ci` and `--check node-pin`, or any FAIL from `review-ready` or `review-citations` |
 | 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
 | 3 | A required command is missing (`git`, `jq`, `gh`, or `curl`), `gh` fails or its output is not pull request JSON, or the deploy-hash library cannot be read |
 

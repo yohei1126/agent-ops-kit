@@ -48,6 +48,7 @@ Exit codes:
   1  any FAIL, or a checkout at another head
   2  usage error (missing or unreadable --comment, or a missing, non-hex,
      or shorter than 7 --expect-head)
+  3  git missing (shared gate precondition)
 EOF
 }
 

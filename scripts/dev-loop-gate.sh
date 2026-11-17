@@ -43,10 +43,11 @@ usage() {
     '  --print-current         Print the current value and exit.' \
     '  See templates/dev-loop/GATES.md for the baseline workflow.' \
     '' \
-    'Exit codes: 0 pass or advisory, 1 strict failure or a hard preflight' \
+    'Exit codes: 0 pass or advisory, 1 strict failure, a hard preflight' \
     'miss (G1, npm-ci, node-pin, including --check npm-ci and' \
-    '--check node-pin), 2 usage or config error, 3 required command missing' \
-    'or gh read failure.'
+    '--check node-pin), or a FAIL from review-ready or review-citations,' \
+    '2 usage or config error, 3 required command missing or gh read' \
+    'failure.'
 }
 
 config_path=""

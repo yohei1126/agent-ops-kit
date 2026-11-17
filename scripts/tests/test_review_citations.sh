@@ -237,6 +237,7 @@ expect_out "17: reversed range FAIL" "reversed range"
 expect_out "17: exit 0" "0  pass"
 expect_out "17: exit 1" "1  any FAIL"
 expect_out "17: exit 2" "2  usage error"
+expect_out "17: exit 3" "3  git missing"
 
 printf 'review-citations tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
