@@ -20,10 +20,10 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Check shell syntax
-        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/model-ids.sh scripts/tests/test_model_ids.sh scripts/tests/test_arg_boundaries.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/agy-docs-launch.sh scripts/agy-docs-collect.sh scripts/lib/agy-settings-check.sh scripts/lib/agy-launch-run.sh scripts/lib/launch-run.sh scripts/lib/agent-config.sh scripts/agent-launch.sh scripts/agents/agy/run scripts/agents/agy/collect scripts/agents/agy/quota scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/dependabot-red-prs.sh scripts/agent-task-issue.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_agent_config.sh scripts/tests/test_agent_launch.sh scripts/tests/test_agent_launch_equivalence.sh scripts/tests/test_pr_state.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh scripts/tests/test_dependabot_red_prs.sh scripts/tests/test_agent_task_issue.sh
+        run: bash -n scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/model-ids.sh scripts/tests/test_model_ids.sh scripts/tests/test_arg_boundaries.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/agy-docs-launch.sh scripts/agy-docs-collect.sh scripts/lib/agy-settings-check.sh scripts/lib/agy-launch-run.sh scripts/lib/launch-run.sh scripts/lib/agent-config.sh scripts/agent-launch.sh scripts/agents/agy/run scripts/agents/agy/collect scripts/agents/agy/quota scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/dependabot-red-prs.sh scripts/agent-task-issue.sh scripts/work-graph.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_agent_config.sh scripts/tests/test_agent_launch.sh scripts/tests/test_agent_launch_equivalence.sh scripts/tests/test_pr_state.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh scripts/tests/test_dependabot_red_prs.sh scripts/tests/test_agent_task_issue.sh scripts/tests/test_work_graph.sh
 
       - name: Run shellcheck
-        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/model-ids.sh scripts/tests/test_model_ids.sh scripts/tests/test_arg_boundaries.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/agy-docs-launch.sh scripts/agy-docs-collect.sh scripts/lib/agy-settings-check.sh scripts/lib/agy-launch-run.sh scripts/lib/launch-run.sh scripts/lib/agent-config.sh scripts/agent-launch.sh scripts/agents/agy/run scripts/agents/agy/collect scripts/agents/agy/quota scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/dependabot-red-prs.sh scripts/agent-task-issue.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_agent_config.sh scripts/tests/test_agent_launch.sh scripts/tests/test_agent_launch_equivalence.sh scripts/tests/test_pr_state.sh scripts/tests/test_docs_sweep.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh scripts/tests/test_dependabot_red_prs.sh scripts/tests/test_agent_task_issue.sh
+        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/pr-state.sh scripts/lib/docs-sweep.sh scripts/lib/model-ids.sh scripts/tests/test_model_ids.sh scripts/tests/test_arg_boundaries.sh scripts/lib/deploy-hash.sh scripts/agy-review-launch.sh scripts/agy-docs-launch.sh scripts/agy-docs-collect.sh scripts/lib/agy-settings-check.sh scripts/lib/agy-launch-run.sh scripts/lib/launch-run.sh scripts/lib/agent-config.sh scripts/agent-launch.sh scripts/agents/agy/run scripts/agents/agy/collect scripts/agents/agy/quota scripts/rate-limit-check.sh scripts/worker-deploy.sh scripts/dependabot-red-prs.sh scripts/agent-task-issue.sh scripts/work-graph.sh scripts/tests/test_dev_loop_gate.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_agent_config.sh scripts/tests/test_agent_launch.sh scripts/tests/test_agent_launch_equivalence.sh scripts/tests/test_pr_state.sh scripts/tests/test_docs_sweep.sh scripts/tests/test_deploy_hash.sh scripts/tests/test_rate_limit_check.sh scripts/tests/test_worker_deploy.sh scripts/tests/test_dependabot_red_prs.sh scripts/tests/test_agent_task_issue.sh scripts/tests/test_work_graph.sh
 
       - name: Run gate tests
         run: |
@@ -41,6 +41,7 @@ jobs:
           bash scripts/tests/test_worker_deploy.sh
           bash scripts/tests/test_dependabot_red_prs.sh
           bash scripts/tests/test_agent_task_issue.sh
+          bash scripts/tests/test_work_graph.sh
 
       - name: Run quota dump tests
         run: python3 -m unittest scripts/quota/test_quota_dump.py
@@ -66,7 +67,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Check shell syntax with bash 3.2
-        run: /bin/bash -n scripts/dev-loop-gate.sh scripts/lib/model-ids.sh scripts/tests/test_model_ids.sh scripts/tests/test_arg_boundaries.sh scripts/agent-task-issue.sh scripts/agent-launch.sh scripts/lib/agent-config.sh scripts/lib/launch-run.sh scripts/lib/agy-launch-run.sh scripts/agents/agy/run scripts/agents/agy/collect scripts/agents/agy/quota scripts/agy-docs-launch.sh scripts/agy-review-launch.sh scripts/agy-docs-collect.sh scripts/tests/test_agent_task_issue.sh scripts/tests/test_agent_config.sh scripts/tests/test_agent_launch.sh scripts/tests/test_agent_launch_equivalence.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_agy_review_launch.sh
+        run: /bin/bash -n scripts/dev-loop-gate.sh scripts/lib/model-ids.sh scripts/tests/test_model_ids.sh scripts/tests/test_arg_boundaries.sh scripts/agent-task-issue.sh scripts/agent-launch.sh scripts/lib/agent-config.sh scripts/lib/launch-run.sh scripts/lib/agy-launch-run.sh scripts/agents/agy/run scripts/agents/agy/collect scripts/agents/agy/quota scripts/agy-docs-launch.sh scripts/agy-review-launch.sh scripts/agy-docs-collect.sh scripts/tests/test_agent_task_issue.sh scripts/tests/test_agent_config.sh scripts/tests/test_agent_launch.sh scripts/tests/test_agent_launch_equivalence.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_agy_review_launch.sh scripts/work-graph.sh scripts/tests/test_work_graph.sh
 
       - name: Install shellcheck
         run: |
@@ -75,7 +76,7 @@ jobs:
           fi
 
       - name: Run shellcheck
-        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/model-ids.sh scripts/tests/test_model_ids.sh scripts/tests/test_arg_boundaries.sh scripts/agent-task-issue.sh scripts/agent-launch.sh scripts/lib/agent-config.sh scripts/lib/launch-run.sh scripts/lib/agy-launch-run.sh scripts/agents/agy/run scripts/agents/agy/collect scripts/agents/agy/quota scripts/agy-docs-launch.sh scripts/agy-review-launch.sh scripts/agy-docs-collect.sh scripts/tests/test_agent_task_issue.sh scripts/tests/test_agent_config.sh scripts/tests/test_agent_launch.sh scripts/tests/test_agent_launch_equivalence.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_agy_review_launch.sh
+        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/model-ids.sh scripts/tests/test_model_ids.sh scripts/tests/test_arg_boundaries.sh scripts/agent-task-issue.sh scripts/work-graph.sh scripts/agent-launch.sh scripts/lib/agent-config.sh scripts/lib/launch-run.sh scripts/lib/agy-launch-run.sh scripts/agents/agy/run scripts/agents/agy/collect scripts/agents/agy/quota scripts/agy-docs-launch.sh scripts/agy-review-launch.sh scripts/agy-docs-collect.sh scripts/tests/test_agent_task_issue.sh scripts/tests/test_agent_config.sh scripts/tests/test_agent_launch.sh scripts/tests/test_agent_launch_equivalence.sh scripts/tests/test_agy_docs_launch.sh scripts/tests/test_agy_review_launch.sh scripts/tests/test_work_graph.sh
 
       - name: Run agent task issue tests
         run: |
@@ -88,3 +89,4 @@ jobs:
           /bin/bash scripts/tests/test_agent_launch_equivalence.sh
           /bin/bash scripts/tests/test_agy_docs_launch.sh
           /bin/bash scripts/tests/test_agy_review_launch.sh
+          /bin/bash scripts/tests/test_work_graph.sh

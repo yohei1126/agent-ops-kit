@@ -1,0 +1,578 @@
+{
+  "issues": [
+    {
+      "number": 101,
+      "title": "Ship the example widget",
+      "body": "Tracked work.",
+      "author": "reporter-example",
+      "assignees": [
+        "maintainer-example"
+      ],
+      "created_at": "2025-11-20T00:00:00Z",
+      "updated_at": "2025-12-02T00:00:00Z",
+      "url": "https://example.com/issues/101",
+      "comment_authors": [],
+      "timeline_closing_prs": []
+    },
+    {
+      "number": 102,
+      "title": "Rework the example widget",
+      "body": "Tracked work.",
+      "author": "reporter-example",
+      "assignees": [],
+      "created_at": "2025-11-21T00:00:00Z",
+      "updated_at": "2025-12-06T00:00:00Z",
+      "url": "https://example.com/issues/102",
+      "comment_authors": [],
+      "timeline_closing_prs": []
+    },
+    {
+      "number": 103,
+      "title": "Plan the example widget",
+      "body": "Tracked work.",
+      "author": "reporter-example",
+      "assignees": [
+        "assignee-example"
+      ],
+      "created_at": "2025-11-22T00:00:00Z",
+      "updated_at": "2025-11-23T00:00:00Z",
+      "url": "https://example.com/issues/103",
+      "comment_authors": [],
+      "timeline_closing_prs": []
+    },
+    {
+      "number": 104,
+      "title": "Draft pull request target",
+      "body": "Covered by an open pull request.",
+      "author": "reporter-example",
+      "assignees": [],
+      "created_at": "2025-11-24T00:00:00Z",
+      "updated_at": "2025-11-24T00:00:00Z",
+      "url": "https://example.com/issues/104",
+      "comment_authors": [],
+      "timeline_closing_prs": []
+    },
+    {
+      "number": 105,
+      "title": "Mention only",
+      "body": "Tracked work.",
+      "author": "reporter-example",
+      "assignees": [],
+      "created_at": "2025-11-25T00:00:00Z",
+      "updated_at": "2025-11-26T00:00:00Z",
+      "url": "https://example.com/issues/105",
+      "comment_authors": [],
+      "timeline_closing_prs": []
+    },
+    {
+      "number": 106,
+      "title": "Merged and open link",
+      "body": "Covered by an open pull request.",
+      "author": "reporter-example",
+      "assignees": [],
+      "created_at": "2025-11-27T00:00:00Z",
+      "updated_at": "2025-11-27T00:00:00Z",
+      "url": "https://example.com/issues/106",
+      "comment_authors": [],
+      "timeline_closing_prs": []
+    },
+    {
+      "number": 108,
+      "title": "Timeline closing event",
+      "body": "Covered by an open pull request.",
+      "author": "reporter-example",
+      "assignees": [],
+      "created_at": "2025-11-28T00:00:00Z",
+      "updated_at": "2025-11-28T00:00:00Z",
+      "url": "https://example.com/issues/108",
+      "comment_authors": [],
+      "timeline_closing_prs": [
+        216
+      ]
+    },
+    {
+      "number": 109,
+      "title": "Qualified closing keyword",
+      "body": "Tracked work.",
+      "author": "reporter-example",
+      "assignees": [],
+      "created_at": "2025-11-29T00:00:00Z",
+      "updated_at": "2025-11-29T00:00:00Z",
+      "url": "https://example.com/issues/109",
+      "comment_authors": [],
+      "timeline_closing_prs": []
+    },
+    {
+      "number": 110,
+      "title": "Timeline only merged link",
+      "body": "Tracked work.",
+      "author": "reporter-example",
+      "assignees": [],
+      "created_at": "2025-11-30T00:00:00Z",
+      "updated_at": "2025-11-30T00:00:00Z",
+      "url": "https://example.com/issues/110",
+      "comment_authors": [],
+      "timeline_closing_prs": [
+        {
+          "number": 905,
+          "state": "MERGED",
+          "merged": true,
+          "merged_at": "2025-12-07T00:00:00Z",
+          "closed_at": "2025-12-07T00:00:00Z"
+        }
+      ]
+    }
+  ],
+  "prs": [
+    {
+      "number": 201,
+      "title": "Draft example work",
+      "body": "This fixes #104.",
+      "is_draft": true,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "draft",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z",
+      "url": "https://example.com/pulls/201"
+    },
+    {
+      "number": 202,
+      "title": "Conflicted example work",
+      "body": "This closes #106.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "dirty",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [
+        {
+          "status": "COMPLETED",
+          "conclusion": "FAILURE",
+          "completed_at": "2026-01-06T00:00:00Z",
+          "started_at": "2026-01-05T00:00:00Z"
+        }
+      ],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-02T00:00:00Z",
+      "updated_at": "2026-01-06T00:00:00Z",
+      "url": "https://example.com/pulls/202"
+    },
+    {
+      "number": 203,
+      "title": "Changes requested example work",
+      "body": "Work in progress.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "CHANGES_REQUESTED",
+      "mergeable_state": "clean",
+      "reviews": [
+        {
+          "author": "reviewer-example",
+          "state": "CHANGES_REQUESTED",
+          "submitted_at": "2026-01-05T00:00:00Z"
+        }
+      ],
+      "review_requests": [
+        "reviewer-example"
+      ],
+      "review_request_times": [
+        "2026-01-04T00:00:00Z"
+      ],
+      "checks": [
+        {
+          "status": "COMPLETED",
+          "conclusion": "FAILURE",
+          "completed_at": "2026-01-05T00:00:00Z",
+          "started_at": "2026-01-04T00:00:00Z"
+        }
+      ],
+      "last_commit_at": "2026-01-07T00:00:00Z",
+      "draft_conversion_at": null,
+      "non_draft_at": "2026-01-03T00:00:00Z",
+      "comment_authors": [],
+      "created_at": "2026-01-03T00:00:00Z",
+      "updated_at": "2026-01-07T00:00:00Z",
+      "url": "https://example.com/pulls/203"
+    },
+    {
+      "number": 204,
+      "title": "Failing checks example work",
+      "body": "Work in progress.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "unstable",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [
+        {
+          "status": "COMPLETED",
+          "conclusion": "FAILURE",
+          "completed_at": "2026-01-06T00:00:00Z",
+          "started_at": "2026-01-05T00:00:00Z"
+        }
+      ],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-04T00:00:00Z",
+      "updated_at": "2026-01-06T00:00:00Z",
+      "url": "https://example.com/pulls/204"
+    },
+    {
+      "number": 205,
+      "title": "Pending checks example work",
+      "body": "Work in progress.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "unstable",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [
+        {
+          "status": "IN_PROGRESS",
+          "conclusion": "",
+          "completed_at": null,
+          "started_at": "2026-01-08T00:00:00Z"
+        }
+      ],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-04T00:00:00Z",
+      "updated_at": "2026-01-08T00:00:00Z",
+      "url": "https://example.com/pulls/205"
+    },
+    {
+      "number": 206,
+      "title": "Unrouted review example work",
+      "body": "Work in progress.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "clean",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-05T00:00:00Z",
+      "url": "https://example.com/pulls/206"
+    },
+    {
+      "number": 207,
+      "title": "Pending review example work",
+      "body": "Work in progress.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "REVIEW_REQUIRED",
+      "mergeable_state": "clean",
+      "reviews": [],
+      "review_requests": [
+        "reviewer-example"
+      ],
+      "review_request_times": [
+        "2026-01-05T12:00:00Z"
+      ],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-06T00:00:00Z",
+      "url": "https://example.com/pulls/207"
+    },
+    {
+      "number": 208,
+      "title": "Followup review example work",
+      "body": "Work in progress.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "REVIEW_REQUIRED",
+      "mergeable_state": "clean",
+      "reviews": [
+        {
+          "author": "reviewer-example",
+          "state": "COMMENTED",
+          "submitted_at": "2026-01-06T00:00:00Z"
+        }
+      ],
+      "review_requests": [
+        "reviewer-example"
+      ],
+      "review_request_times": [
+        "2026-01-05T00:00:00Z"
+      ],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-06T00:00:00Z",
+      "url": "https://example.com/pulls/208"
+    },
+    {
+      "number": 209,
+      "title": "Clean approved example work",
+      "body": "Ready.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "APPROVED",
+      "mergeable_state": "clean",
+      "reviews": [
+        {
+          "author": "reviewer-example",
+          "state": "APPROVED",
+          "submitted_at": "2026-01-07T00:00:00Z"
+        }
+      ],
+      "review_requests": [
+        "reviewer-example"
+      ],
+      "review_request_times": [
+        "2026-01-06T00:00:00Z"
+      ],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": "2026-01-06T00:00:00Z",
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-07T00:00:00Z",
+      "url": "https://example.com/pulls/209"
+    },
+    {
+      "number": 210,
+      "title": "Unknown approved example work",
+      "body": "Ready.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "APPROVED",
+      "mergeable_state": "unknown",
+      "reviews": [
+        {
+          "author": "reviewer-example",
+          "state": "APPROVED",
+          "submitted_at": "2026-01-07T00:00:00Z"
+        }
+      ],
+      "review_requests": [
+        "reviewer-example"
+      ],
+      "review_request_times": [
+        "2026-01-06T00:00:00Z"
+      ],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": "2026-01-06T00:00:00Z",
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-07T00:00:00Z",
+      "url": "https://example.com/pulls/210"
+    },
+    {
+      "number": 211,
+      "title": "Hooks gated example work",
+      "body": "Ready.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "APPROVED",
+      "mergeable_state": "has_hooks",
+      "reviews": [
+        {
+          "author": "reviewer-example",
+          "state": "APPROVED",
+          "submitted_at": "2026-01-07T00:00:00Z"
+        }
+      ],
+      "review_requests": [
+        "reviewer-example"
+      ],
+      "review_request_times": [
+        "2026-01-06T00:00:00Z"
+      ],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": "2026-01-06T00:00:00Z",
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-07T00:00:00Z",
+      "url": "https://example.com/pulls/211"
+    },
+    {
+      "number": 212,
+      "title": "Approved with comment example work",
+      "body": "Ready.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "APPROVED",
+      "mergeable_state": "clean",
+      "reviews": [
+        {
+          "author": "reviewer-example",
+          "state": "APPROVED",
+          "submitted_at": "2026-01-07T00:00:00Z"
+        },
+        {
+          "author": "reviewer-two-example",
+          "state": "COMMENTED",
+          "submitted_at": "2026-01-07T01:00:00Z"
+        }
+      ],
+      "review_requests": [
+        "reviewer-example",
+        "reviewer-two-example"
+      ],
+      "review_request_times": [
+        "2026-01-06T00:00:00Z",
+        "2026-01-06T00:00:00Z"
+      ],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": "2026-01-06T00:00:00Z",
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-07T00:00:00Z",
+      "url": "https://example.com/pulls/212"
+    },
+    {
+      "number": 214,
+      "title": "Behind approved example work",
+      "body": "Ready.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "APPROVED",
+      "mergeable_state": "behind",
+      "reviews": [
+        {
+          "author": "reviewer-example",
+          "state": "APPROVED",
+          "submitted_at": "2026-01-07T00:00:00Z"
+        }
+      ],
+      "review_requests": [
+        "reviewer-example"
+      ],
+      "review_request_times": [
+        "2026-01-06T00:00:00Z"
+      ],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": "2026-01-06T00:00:00Z",
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-07T00:00:00Z",
+      "url": "https://example.com/pulls/214"
+    },
+    {
+      "number": 216,
+      "title": "Timeline link example work",
+      "body": "Related work without a closing keyword.",
+      "is_draft": false,
+      "author": "builder-example",
+      "assignees": [],
+      "review_decision": "",
+      "mergeable_state": "clean",
+      "reviews": [],
+      "review_requests": [],
+      "review_request_times": [],
+      "checks": [],
+      "last_commit_at": null,
+      "draft_conversion_at": null,
+      "non_draft_at": null,
+      "comment_authors": [],
+      "created_at": "2026-01-05T00:00:00Z",
+      "updated_at": "2026-01-05T00:00:00Z",
+      "url": "https://example.com/pulls/216"
+    }
+  ],
+  "related_prs": [
+    {
+      "number": 900,
+      "title": "Context only",
+      "body": "See #105 for context.",
+      "state": "MERGED",
+      "merged_at": "2025-12-03T00:00:00Z",
+      "closed_at": "2025-12-03T00:00:00Z",
+      "author": "builder-example"
+    },
+    {
+      "number": 901,
+      "title": "Merged fix",
+      "body": "Fixes #101.",
+      "state": "MERGED",
+      "merged_at": "2025-12-01T00:00:00Z",
+      "closed_at": "2025-12-01T00:00:00Z",
+      "author": "builder-example"
+    },
+    {
+      "number": 902,
+      "title": "Closed without merge",
+      "body": "Closes #102.",
+      "state": "CLOSED",
+      "merged_at": null,
+      "closed_at": "2025-12-05T00:00:00Z",
+      "author": "builder-example"
+    },
+    {
+      "number": 903,
+      "title": "Merged fix for open link issue",
+      "body": "Fixes #106.",
+      "state": "MERGED",
+      "merged_at": "2025-12-04T00:00:00Z",
+      "closed_at": "2025-12-04T00:00:00Z",
+      "author": "builder-example"
+    },
+    {
+      "number": 904,
+      "title": "Qualified keyword fix",
+      "body": "Fixes example/widgets#109.",
+      "state": "MERGED",
+      "merged_at": "2025-12-06T00:00:00Z",
+      "closed_at": "2025-12-06T00:00:00Z",
+      "author": "builder-example"
+    }
+  ]
+}
