@@ -100,7 +100,7 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
-  `prose-dashes`, `md-links`, `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
+  `prose-dashes`, `md-links`, `model-ids`, `pr-state`, and `deploy-hash`. Other ids, including `all`, exit 2 with a
   message that the check is not implemented. Later checks will be added under
   the same flag.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
@@ -157,7 +157,7 @@ even without `--strict`, the same hard-preflight spirit as G1. The default G1
 to G7 table runs this rule as an `NM` row on every run, with a root that falls
 back to the current directory when git cannot resolve a work tree. A FAIL there
 also exits 1 without `--strict`. The other named checks do not run it, so
-`line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `pr-state`, and
+`line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `model-ids`, `pr-state`, and
 `deploy-hash` keep their own exit rules.
 
 ### node-pin
@@ -250,6 +250,26 @@ updates every cross-link. It checks relative paths and Markdown heading anchors
 in tracked files, not external URLs, so it needs no network. CI runs it with
 `--strict`. See `scripts/dev-loop-gate.sh --help` and
 [`../../scripts/lib/md-hygiene.sh`](../../scripts/lib/md-hygiene.sh).
+
+### model-ids
+
+`--check model-ids` keeps unverified model ids out of
+[`../agent-config.example.json`](../agent-config.example.json). A wrong id
+looks plausible in review and only fails when an agent starts, so the check
+compares every non-null lane model with
+[`../agent-config.verified-model-ids.txt`](../agent-config.verified-model-ids.txt)
+and requires a TODO in the `_comment` of every null entry. Add an id to the
+list only after a run record or the vendor's model list confirms the exact
+string; until then the entry stays null. CI runs it with `--strict`. See
+`scripts/dev-loop-gate.sh --help` and
+[`../../scripts/lib/model-ids.sh`](../../scripts/lib/model-ids.sh).
+
+The launchers have a matching CI-only test,
+[`../../scripts/tests/test_arg_boundaries.sh`](../../scripts/tests/test_arg_boundaries.sh).
+It runs each `--dry-run` surface with literal arguments after `--`, paths with
+spaces, empty strings, and leading-dash values, and fails when one is dropped,
+split, or reinterpreted. Add a row there when a launcher gains a new argument
+path.
 
 ### pr-state
 

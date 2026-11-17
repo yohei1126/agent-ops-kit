@@ -19,8 +19,8 @@ usage() {
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
     '  --check <id>     Run one named check. line-cap, npm-ci, node-pin, docs-sweep,' \
-    '                   prose-dashes, md-links, pr-state, and deploy-hash are' \
-    '                   implemented.' \
+    '                   prose-dashes, md-links, model-ids, pr-state, and' \
+    '                   deploy-hash are implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
     '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
@@ -374,6 +374,8 @@ row() { printf '%-4s %-30s %-6s %s\n' "$1" "$2" "$3" "$4"; }
 . "$script_dir/lib/docs-sweep.sh"
 # shellcheck source=scripts/lib/md-hygiene.sh
 . "$script_dir/lib/md-hygiene.sh"
+# shellcheck source=scripts/lib/model-ids.sh
+. "$script_dir/lib/model-ids.sh"
 # shellcheck source=scripts/lib/npm-ci.sh
 . "$script_dir/lib/npm-ci.sh"
 # shellcheck source=scripts/lib/node-pin.sh
@@ -736,6 +738,10 @@ require_git
 resolve_repo
 
 case "$check_id" in
+  model-ids)
+    run_model_ids
+    exit $?
+    ;;
   line-cap)
     run_line_cap
     exit $?
@@ -776,7 +782,7 @@ case "$check_id" in
     exit 2
     ;;
   *)
-    printf 'unknown check: %s (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, pr-state, deploy-hash)\n' "$check_id" >&2
+    printf 'unknown check: %s (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, model-ids, pr-state, deploy-hash)\n' "$check_id" >&2
     exit 2
     ;;
 esac
