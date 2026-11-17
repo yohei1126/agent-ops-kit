@@ -183,7 +183,7 @@ and reports the version id, and the maintainer decides whether to roll back.
 
 ## Relation to the deploy-hash helper
 
-[`lib/deploy-hash.sh`](lib/deploy-hash.sh) is unchanged. It waits for a served
+[`lib/deploy-hash.sh`](../scripts/lib/deploy-hash.sh) is unchanged. It waits for a served
 asset or ETag to change and never deploys. The deploy script may compose with it
 later, for example to wait for the new bundle before a smoke check, but the two
 helpers stay separate today.

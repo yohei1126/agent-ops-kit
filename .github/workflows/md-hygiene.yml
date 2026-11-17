@@ -1,0 +1,64 @@
+# Run the Markdown hygiene checks on PRs and pushes to main.
+name: Markdown hygiene
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  md-hygiene:
+    name: md-hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax
+        run: bash -n scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh
+
+      - name: Run shellcheck
+        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh
+
+      - name: Run Markdown hygiene tests
+        run: bash scripts/tests/test_md_hygiene.sh
+
+      - name: Check prose dashes
+        run: scripts/dev-loop-gate.sh --strict --check prose-dashes
+
+      - name: Check Markdown links
+        run: scripts/dev-loop-gate.sh --strict --check md-links
+
+  md-hygiene-macos:
+    name: md-hygiene-macos
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax with bash 3.2
+        run: /bin/bash -n scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh scripts/dev-loop-gate.sh
+
+      - name: Install shellcheck
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            brew install shellcheck
+          fi
+
+      - name: Run shellcheck
+        run: shellcheck -x scripts/dev-loop-gate.sh scripts/lib/md-hygiene.sh scripts/tests/test_md_hygiene.sh
+
+      - name: Run Markdown hygiene tests with bash 3.2
+        run: /bin/bash scripts/tests/test_md_hygiene.sh
+
+      - name: Check prose dashes with bash 3.2
+        run: /bin/bash scripts/dev-loop-gate.sh --strict --check prose-dashes
+
+      - name: Check Markdown links with bash 3.2
+        run: /bin/bash scripts/dev-loop-gate.sh --strict --check md-links
