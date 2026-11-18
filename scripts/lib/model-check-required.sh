@@ -104,9 +104,10 @@ The first failing rule decides REQUIRED, in this order:
  7. a path is a symlink, a submodule, has another mode change, or is
     a deleted path outside docs/
  8. a path is not on the allow list
- 9. a change is binary, a test loses lines, or the added plus deleted
+ 9. a script and its paired test changed together
+10. a change is binary, a test loses lines, or the added plus deleted
     lines exceed the cap
-10. the default G1 to G7 table fails under strict
+11. the default G1 to G7 table fails under strict
 
 Exit codes: 0 whenever a decision row is printed, 2 when the path is not a
 git work tree or a usage error, 3 when git is missing.
@@ -119,7 +120,8 @@ A script scripts/<name>.sh is allowed only when both the script and
 scripts/tests/test_<name>.sh exist at the merge base and the test still
 exists at HEAD, with every - in <name> replaced by _. A test
 scripts/tests/test_<name>.sh is allowed only when it exists at the merge
-base and the change adds lines without deleting any.
+base and the change adds lines without deleting any. A script and its
+paired test changed in the same diff are always REQUIRED.
 EOF
 }
 
@@ -136,11 +138,26 @@ mcr_run_table_strict() {
   return "$status"
 }
 
+# True when the path is one of the changed paths.
+mcr_path_listed() {
+  local want="$1"
+  local n="$2"
+  local j=0
+
+  while [ "$j" -lt "$n" ]; do
+    if [ "${mcr_paths[$j]}" = "$want" ]; then
+      return 0
+    fi
+    j=$((j + 1))
+  done
+  return 1
+}
+
 run_model_check_required() {
   local LC_ALL=C
   local base mb status_out raw_out numstat_out line rest tab
   local old_mode new_mode raw_path added deleted npath path
-  local i npaths files total
+  local i npaths files total name
   local mcr_tmp=""
   local mcr_paths
 
@@ -253,6 +270,27 @@ EOF_RAW
       mcr_finish REQUIRED "not on allow list: $path"
       return 0
     fi
+    i=$((i + 1))
+  done
+
+  i=0
+  while [ "$i" -lt "$npaths" ]; do
+    path="${mcr_paths[$i]}"
+    case "$path" in
+      scripts/*.sh) rest="${path#scripts/}" ;;
+      *) rest="" ;;
+    esac
+    case "$rest" in
+      ""|*/*) ;;
+      *)
+        name="${rest%.sh}"
+        if [ -n "$name" ] &&
+          mcr_path_listed "scripts/tests/test_${name//-/_}.sh" "$npaths"; then
+          mcr_finish REQUIRED "script and its test changed together: $path"
+          return 0
+        fi
+        ;;
+    esac
     i=$((i + 1))
   done
 

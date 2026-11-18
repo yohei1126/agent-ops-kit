@@ -341,6 +341,7 @@ expect_out "21: help prints the workflow deny pattern" ".github/*"
 expect_out "21: help prints the library deny pattern" "scripts/lib/*"
 expect_out "21: help prints the allow list heading" "Allow list:"
 expect_out "21: help prints the docs allow pattern" "docs/*.md"
+expect_out "21: help prints the paired test rule" "changed together"
 
 r="$(case_repo c22)"
 printf '# More test body.\n' >> "$r/scripts/tests/test_foo_bar.sh"
@@ -393,6 +394,25 @@ rgit "$r" commit -q -m "submodule"
 run_case "$r"
 expect_status "28: gitlink exits 0" 0
 expect_decision "28: gitlink is REQUIRED" REQUIRED "mode change: docs/sub"
+
+r="$(case_repo c29)"
+printf 'printf more\n' >> "$r/scripts/foo-bar.sh"
+printf '# More test body.\n' >> "$r/scripts/tests/test_foo_bar.sh"
+commit_all "$r" "script and test change"
+run_case "$r"
+expect_status "29: script and test together exit 0" 0
+expect_decision "29: script and test together are REQUIRED" REQUIRED "script and its test changed together: scripts/foo-bar.sh"
+
+r="$(case_repo c30)"
+printf 'printf more\n' >> "$r/scripts/foo-bar.sh"
+head -n 1 "$r/scripts/tests/test_foo_bar.sh" > "$r/scripts/tests/test_foo_bar.new"
+printf 'exit 0\n' >> "$r/scripts/tests/test_foo_bar.new"
+tail -n +2 "$r/scripts/tests/test_foo_bar.sh" >> "$r/scripts/tests/test_foo_bar.new"
+mv "$r/scripts/tests/test_foo_bar.new" "$r/scripts/tests/test_foo_bar.sh"
+commit_all "$r" "script and exit line"
+run_case "$r"
+expect_status "30: script with exit line test exits 0" 0
+expect_decision "30: script with exit line test is REQUIRED" REQUIRED "script and its test changed together: scripts/foo-bar.sh"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
