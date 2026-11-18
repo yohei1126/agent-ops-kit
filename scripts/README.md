@@ -269,8 +269,8 @@ scripts/rate-limit-check.sh --base-url https://example.com \
   --path /health --limit 100 --window 60 --mode detect
 ```
 
-Exit codes: 0 pass, 1 check failed (including transport errors), 2 usage error,
-3 curl missing. The Durable Object limiter it verifies lives in
+Run `scripts/rate-limit-check.sh --help` for flags and exit codes. The Durable
+Object limiter it verifies lives in
 [`../templates/workers-do-rate-limiter/`](../templates/workers-do-rate-limiter/README.md).
 
 ## Deploy a Worker through one shared script
@@ -289,7 +289,7 @@ scripts/worker-deploy.sh --dir <worker-dir> --mode deploy
 
 The optional post-deploy smoke and rate-limit hook stay off by default. The
 script refuses shell xtrace and redacts token, secret, password, and key values
-from all child output. Exit codes: 0 okay, 1 preflight, deploy, smoke, or hook
-failure, 2 usage error, 3 required command missing. See
+from all child output. Run `scripts/worker-deploy.sh --help` for the flag list
+and exit behavior. See
 [`../docs/worker-deploy.md`](../docs/worker-deploy.md) for the reusable workflow,
 token wiring, concurrency, and rollback.

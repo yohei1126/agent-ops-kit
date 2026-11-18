@@ -31,14 +31,9 @@ also appends that line to `GITHUB_OUTPUT` when that path is a writable regular
 file. Child tool output goes to stderr after redaction. If wrangler exits 0 but
 the output has no valid `Version ID`, the script fails closed.
 
-Exit codes:
-
-| Code | Meaning |
-| --- | --- |
-| 0 | Okay |
-| 1 | Preflight, deploy, smoke, or rate-limit hook failure |
-| 2 | Usage error |
-| 3 | A required command is missing (`npm`, `npx`, `node`, or `curl` when a smoke or hook is requested) |
+The script exits non-zero on a preflight, deploy, smoke, or hook failure, a
+usage error, or a missing required command. Run
+`scripts/worker-deploy.sh --help` for the flag list and exit behavior.
 
 ## Call the reusable workflow
 

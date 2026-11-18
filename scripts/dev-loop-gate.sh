@@ -19,8 +19,9 @@ usage() {
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
     '  --check <id>     Run one named check. line-cap, npm-ci, node-pin, docs-sweep,' \
-    '                   prose-dashes, md-links, model-ids, pr-state, review-ready,' \
-    '                   review-citations, and deploy-hash are implemented.' \
+    '                   docs-usage-dup, prose-dashes, md-links, model-ids, pr-state,' \
+    '                   review-ready, review-citations, and deploy-hash are' \
+    '                   implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
     '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
@@ -43,6 +44,12 @@ usage() {
     '  --print-current         Print the current value and exit.' \
     '  See templates/dev-loop/GATES.md for the baseline workflow.' \
     '' \
+    'docs-usage-dup: fails a doc that copies a script --help. It reads an explicit' \
+    'script list in scripts/lib/docs-usage-dup.sh and flags a pasted help block of' \
+    '3 or more help lines, a full usage line, or a restated exit-code mapping.' \
+    'Opt out with an HTML comment <!-- docs-usage-dup:allow --> before one fenced' \
+    'block, or up to an HTML comment <!-- docs-usage-dup:end -->. With --strict,' \
+    'a hit exits 1; without it, hits are advisory and the exit stays 0.' \
     'Exit codes: 0 pass or advisory, 1 strict failure, a hard preflight' \
     'miss (G1, npm-ci, node-pin, including --check npm-ci and' \
     '--check node-pin), or a FAIL from review-ready or review-citations,' \
@@ -481,6 +488,8 @@ row() { printf '%-4s %-30s %-6s %s\n' "$1" "$2" "$3" "$4"; }
 
 # shellcheck source=scripts/lib/docs-sweep.sh
 . "$script_dir/lib/docs-sweep.sh"
+# shellcheck source=scripts/lib/docs-usage-dup.sh
+. "$script_dir/lib/docs-usage-dup.sh"
 # shellcheck source=scripts/lib/md-hygiene.sh
 . "$script_dir/lib/md-hygiene.sh"
 # shellcheck source=scripts/lib/model-ids.sh
@@ -871,6 +880,10 @@ case "$check_id" in
     run_docs_sweep
     exit $?
     ;;
+  docs-usage-dup)
+    run_docs_usage_dup
+    exit $?
+    ;;
   prose-dashes)
     run_prose_dashes
     exit $?
@@ -903,7 +916,7 @@ case "$check_id" in
     exit 2
     ;;
   *)
-    printf 'unknown check: %s (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash)\n' "$check_id" >&2
+    printf 'unknown check: %s (implemented: line-cap, npm-ci, node-pin, docs-sweep, docs-usage-dup, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash)\n' "$check_id" >&2
     exit 2
     ;;
 esac

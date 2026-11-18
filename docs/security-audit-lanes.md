@@ -131,8 +131,8 @@ repository and reads only open Dependabot pull requests.
 It flags a pull request when any check failed, or when the pull request has
 been open longer than 3 days. Change the age limit with `--days N`.
 
-Exit codes: 0 nothing flagged, 1 at least one flagged, 2 usage error, missing
-`gh` or `jq`, a `gh` failure, or unreadable JSON.
+Run `scripts/dependabot-red-prs.sh --help` for the flag list and exit
+behavior.
 
 The script is read-only and report-only. It never comments, closes, rebases, or
 merges. When a pull request is flagged, open one human pull request that fixes
