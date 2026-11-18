@@ -12,6 +12,10 @@
 #
 # With several --repo values, rows stream per repository, and a later gh failure
 # exits 2 without the summary line.
+#
+# gh pr list stops at --limit pull requests, so a repository that answers with
+# exactly that many may be truncated. One warning per such repository goes to
+# stderr and changes no row, summary, or exit code.
 set -euo pipefail
 
 script="dependabot-red-prs"
@@ -175,6 +179,10 @@ trap 'rm -f "$gh_err"; exit 129' HUP
 trap 'rm -f "$gh_err"; exit 130' INT
 trap 'rm -f "$gh_err"; exit 143' TERM
 
+# gh pr list returns at most --limit pull requests; the loop warns when one
+# repository fills that page exactly.
+limit=100
+
 checked=0
 flagged=0
 
@@ -182,7 +190,7 @@ while IFS= read -r repo; do
   [ -n "$repo" ] || continue
 
   if ! json="$(gh pr list -R "$repo" --author app/dependabot --state open \
-    --limit 100 \
+    --limit "$limit" \
     --json number,title,url,createdAt,headRefOid,statusCheckRollup \
     </dev/null 2>"$gh_err")"; then
     first_line=""
@@ -198,6 +206,18 @@ while IFS= read -r repo; do
       exit 2
       ;;
   esac
+
+  # Exactly --limit pull requests may mean gh stopped at the limit and the
+  # list is truncated. Warn once for this repository. Unreadable JSON yields
+  # no count and still fails in the row pass below.
+  if ! count="$(printf '%s' "$json" |
+    jq 'if type == "array" then length else 0 end' 2>/dev/null)"; then
+    count=""
+  fi
+  if [ "$count" = "$limit" ]; then
+    printf '%s: %s returned %s pull requests, the gh --limit; the list may be truncated\n' \
+      "$script" "$repo" "$limit" >&2
+  fi
 
   if ! rows="$(printf '%s' "$json" |
     jq -r --arg now "$now" --arg days "$days" "$jq_program" 2>/dev/null)"; then
