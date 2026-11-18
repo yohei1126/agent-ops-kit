@@ -34,12 +34,27 @@ exit 99
 SH
 chmod +x "$fake_bin/agy"
 
+cmd_record="$work_tmp/cmd-started"
+cat >"$fake_bin/cmd" <<SH
+#!/bin/sh
+printf 'cmd started\n' >>"$cmd_record"
+exit 99
+SH
+chmod +x "$fake_bin/cmd"
+
+# The GOAT adapter resolves the worktree with git even in --dry-run, so give
+# it a real repository to inspect and keep git itself on the closed PATH.
+git -C "$home/agy-work/repo two" init -q -b main 2>/dev/null || {
+  git -C "$home/agy-work/repo two" init -q
+  git -C "$home/agy-work/repo two" symbolic-ref HEAD refs/heads/main
+}
+
 # The launchers run under the same bash as this test (macOS CI uses
 # /bin/bash 3.2), including scripts they start through `bash` on PATH.
 ln -s "$BASH" "$tool_bin/bash"
 for cmd in jq tr mkdir kill cp mv cat uname mktemp sed wc rm ln \
   readlink realpath dirname basename chmod date head env nohup tee cut \
-  sort uniq touch sleep grep find ls printf; do
+  sort uniq touch sleep grep find ls printf git; do
   cmd_path="$(command -v "$cmd" 2>/dev/null)" || continue
   case "$cmd_path" in
     '' | */agy | */caffeinate | "$fake_bin"/*) continue ;;
@@ -219,6 +234,54 @@ row_review_empty_brief() {
   fi
 }
 
+row_goat_dry_run() {
+  if [ ! -f "$scripts/agents/goat/run" ] || [ ! -x "$scripts/agents/goat/run" ]; then
+    ok "goat dry-run: skipped; scripts/agents/goat/run is missing or not executable"
+    return 0
+  fi
+  run_case "$BASH" "$scripts/agents/goat/run" --mode patch \
+    --model deepseek/deepseek-v4.1-flash --dry-run -- \
+    "$home/agy-work/repo two" "$home/agy-work/-brief one.md"
+  expect_status "goat dry-run: exits 0" 0
+  raw_out="$out"
+  out="$(printf '%s\n' "$out" | sed 's/<prompt from BRIEF>/"<prompt from BRIEF>"/')"
+  if parse_field GOAT_COMMAND; then
+    expect_seq "goat dry-run: --model arrives as a word" \
+      --model deepseek/deepseek-v4.1-flash
+    expect_seq "goat dry-run: the prompt placeholder is one word" \
+      -p '<prompt from BRIEF>'
+  else
+    bad "goat dry-run" "no GOAT_COMMAND= line"
+  fi
+  out="$raw_out"
+  case "$out" in
+    *PWNED*) bad "goat dry-run: the brief text is not printed" "output contains the brief" ;;
+    *) ok "goat dry-run: the brief text is not printed" ;;
+  esac
+  case "$out" in
+    *"COMMAND_CODE_API_KEY="*)
+      case "$out" in
+        *"COMMAND_CODE_API_KEY=<set>"* | *"COMMAND_CODE_API_KEY=<missing>"*)
+          ok "goat dry-run: the key is not printed" ;;
+        *) bad "goat dry-run: the key is never printed" "GOAT_ENV shows a key value" ;;
+      esac
+      ;;
+  esac
+  if [ -e "$cmd_record" ]; then
+    bad "goat dry-run: starts nothing" "the stub cmd was called"
+  else
+    ok "goat dry-run: starts nothing"
+  fi
+  run_case "$BASH" "$scripts/agents/goat/run" --mode patch \
+    --model deepseek/deepseek-v4.1-flash --dry-run -- \
+    "$home/agy-work/repo two" ''
+  if [ "$status" -ne 0 ]; then
+    ok "goat dry-run: an empty brief argument is refused, not dropped"
+  else
+    bad "goat dry-run: empty brief" "exit 0; output: $out"
+  fi
+}
+
 # Self-test: a launcher that word-splits its arguments must fail the
 # comparison, so a regression cannot pass by accident.
 row_broken_stub() {
@@ -250,6 +313,7 @@ row_adapter_entry
 row_review_wrapper
 row_adapter_flag_like_brief
 row_review_empty_brief
+row_goat_dry_run
 row_broken_stub
 
 if [ -e "$agy_record" ]; then
