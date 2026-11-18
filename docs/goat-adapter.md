@@ -67,10 +67,11 @@ The maintainer approved write-enabled headless GOAT only under all of these:
    were already ignored are compared by content hash; a path outside the
    scope, a sibling prefix such as `docsx` for scope `docs`, anything under
    `.git`, a changed git config, hook, info, index, ref, or worktree link
-   file, a new file directly in a git directory or in objects/info, a moved
-   git directory, or a moved `HEAD` is a FAIL (exit 1), and the tree is
-   left for inspection. After the run the adapter uses only system tools and
-   calls git with fsmonitor and hooks off.
+   file, a new, changed, or retargeted file or symlink anywhere in either
+   git directory outside the object store (objects/info is still checked),
+   a moved git directory, or a moved `HEAD` is a FAIL (exit 1), and the
+   tree is left for inspection. After the run the adapter uses only system
+   tools and calls git with fsmonitor and hooks off.
 5. The adapter never stages, commits, pushes, or opens a pull request. The
    operator does that after the gate passes.
 
