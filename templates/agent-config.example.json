@@ -129,9 +129,8 @@
         {
           "agent": "goat",
           "mode": "review",
-          "model": null,
-          "model_name": "Kimi K3.1 Pro",
-          "_comment": "TODO: model id unverified in templates/agent-config.verified-model-ids.txt; the maintainer adds the exact id there and here in a separate change."
+          "model": "moonshotai/kimi-k3.1-pro",
+          "model_name": "Kimi K3.1 Pro"
         },
         {
           "agent": "agy-api-key",
@@ -173,9 +172,8 @@
         {
           "agent": "goat",
           "mode": "review",
-          "model": null,
-          "model_name": "Kimi K3.1 Pro",
-          "_comment": "TODO: model id unverified in templates/agent-config.verified-model-ids.txt; the maintainer adds the exact id there and here in a separate change."
+          "model": "moonshotai/kimi-k3.1-pro",
+          "model_name": "Kimi K3.1 Pro"
         },
         {
           "agent": "opencode-fireworks",
