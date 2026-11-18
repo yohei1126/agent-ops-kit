@@ -781,6 +781,30 @@ else
   bad "21: a new file with a glob character is tracked" "got: $glob_path"
 fi
 
+reset_ctl
+reset_wt
+{
+  printf '```diff\n'
+  cat <<'DIFF'
+diff --git a/docs/sub/x.md b/docs/sub/x.md
+new file mode 100644
+--- /dev/null
++++ b/docs/sub/x.md
+@@ -0,0 +1 @@
++x
+DIFF
+  printf '```\n'
+} >"$work_tmp/text-subdir"
+set_result "$work_tmp/text-subdir"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "21: a new file in a new subdirectory applies" 0
+sub_tracked="$(git -C "$wt" ls-files -- docs/sub/x.md)"
+if [ "$sub_tracked" = "docs/sub/x.md" ]; then
+  ok "21: the new subdirectory file is tracked"
+else
+  bad "21: the new subdirectory file is tracked" "got: $sub_tracked"
+fi
+
 printf '== new files in the git directories ==\n'
 git_abs="$(cd "$wt" && cd "$(git rev-parse --git-dir)" && pwd -P)"
 for planted in "$common_abs/planted-top" "$git_abs/MERGE_HEAD" "$common_abs/objects/info/alternates"; do
@@ -793,6 +817,33 @@ for planted in "$common_abs/planted-top" "$git_abs/MERGE_HEAD" "$common_abs/obje
   expect_text "22: a new file $(basename "$planted") names the changed git directory" "$out$err" "git directory changed"
   rm -f "$planted"
 done
+
+reset_ctl
+reset_wt
+printf 'docs/ok.md\n%s/hooks/post-merge\n' "$common_abs" >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "22: a new hook file post-merge exits 1" 1
+expect_text "22: a new hook file post-merge names the changed git directory" "$out$err" "git directory changed"
+rm -f "$common_abs/hooks/post-merge"
+
+reset_ctl
+reset_wt
+printf 'docs/ok.md\n%s/logs/planted-log\n' "$common_abs" >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "22: a new file under logs exits 1" 1
+expect_text "22: a new file under logs names the changed git directory" "$out$err" "git directory changed"
+rm -f "$common_abs/logs/planted-log"
+
+reset_ctl
+reset_wt
+ln -s /nonexistent-target "$common_abs/planted-link"
+printf 'docs/ok.md\n' >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "22: a pre-existing symlink in the git directory does not fail a clean run" 0
+rm -f "$common_abs/planted-link"
 reset_ctl
 reset_wt
 printf 'docs/ok.md\n' >"$ctl/write"
