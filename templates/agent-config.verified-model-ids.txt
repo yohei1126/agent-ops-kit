@@ -10,7 +10,7 @@ fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017
 fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro
 gemini-3.8-flash-medium
 gemini-4-argon-medium
-moonshotai/kimi-k3.1-pro
+moonshotai/Kimi-K3.1-Pro
 deepseek/deepseek-v4-pro
 google/gemini-4-argon
 gpt-6-sol

@@ -129,7 +129,7 @@
         {
           "agent": "goat",
           "mode": "review",
-          "model": "moonshotai/kimi-k3.1-pro",
+          "model": "moonshotai/Kimi-K3.1-Pro",
           "model_name": "Kimi K3.1 Pro"
         },
         {
@@ -172,7 +172,7 @@
         {
           "agent": "goat",
           "mode": "review",
-          "model": "moonshotai/kimi-k3.1-pro",
+          "model": "moonshotai/Kimi-K3.1-Pro",
           "model_name": "Kimi K3.1 Pro"
         },
         {
