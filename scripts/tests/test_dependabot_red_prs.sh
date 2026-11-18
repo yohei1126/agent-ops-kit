@@ -106,6 +106,14 @@ expect_empty_err() {
   fi
 }
 
+expect_err_eq() {
+  if [ "$err" = "$2" ]; then
+    ok "$1"
+  else
+    bad "$1" "stderr is '$err'"
+  fi
+}
+
 expect_argv_has() {
   if grep -Fq -- "$2" "$argv_file"; then
     ok "$1"
@@ -133,6 +141,7 @@ expect_argv_calls() {
 }
 
 fixture=no-prs
+fixture_dir="$fixtures"
 gh_fail=0
 
 # The PATH the check runs with. Tests that hide a tool replace it.
@@ -143,7 +152,7 @@ run_check() {
   : > "$err_file"
   out="$(env HOME="$home_tmp" \
     DEPENDABOT_RED_NOW="$now_epoch" \
-    DEPENDABOT_RED_FIXTURE_DIR="$fixtures" \
+    DEPENDABOT_RED_FIXTURE_DIR="$fixture_dir" \
     DEPENDABOT_RED_FIXTURE="$fixture" \
     DEPENDABOT_RED_GH_FAIL="$gh_fail" \
     DEPENDABOT_RED_ARGV_FILE="$argv_file" \
@@ -431,6 +440,58 @@ expect_err "18: missing jq is named" "jq is required"
 expect_argv_calls "18: missing jq never calls gh" 0
 
 check_path="$fake_bin:$PATH"
+
+printf '== truncation warning at the gh --limit ==\n'
+
+truncation_dir="$work_tmp/truncation-fixtures"
+mkdir -p "$truncation_dir"
+
+make_green_prs() {
+  local count="$1" target="$2"
+
+  jq -n --argjson n "$count" '
+    [range(0; $n) as $i
+      | {number: (200 + $i),
+         title: "Bump example-package from 1.0.0 to 1.0.1",
+         url: "https://example.com/pulls/\(200 + $i)",
+         createdAt: "2026-01-09T00:00:00Z",
+         headRefOid: "0000000000000000000000000000000000000000",
+         statusCheckRollup: [{conclusion: "SUCCESS"}]}]
+  ' > "$target"
+}
+
+make_green_prs 100 "$truncation_dir/at-limit.json"
+make_green_prs 99 "$truncation_dir/under-limit.json"
+
+fixture_dir="$truncation_dir"
+fixture=at-limit
+gh_fail=0
+run_check --repo example-org/example-repo
+expect_status "19: exactly the limit exits 0" 0
+expect_err_eq "19: exactly the limit warns once" \
+  "dependabot-red-prs: example-org/example-repo returned 100 pull requests, the gh --limit; the list may be truncated"
+expect_last_line "19: exactly the limit keeps the summary" \
+  "summary: 100 open dependabot PRs, 0 flagged"
+
+fixture=under-limit
+gh_fail=0
+run_check --repo example-org/example-repo
+expect_status "20: under the limit exits 0" 0
+expect_empty_err "20: under the limit prints no warning"
+expect_last_line "20: under the limit keeps the summary" \
+  "summary: 99 open dependabot PRs, 0 flagged"
+
+fixture=at-limit
+gh_fail=0
+run_check --repo example-org/example-repo --repo example-org/second-repo
+expect_status "21: two full repositories exit 0" 0
+expect_err_eq "21: each full repository warns once" \
+  "dependabot-red-prs: example-org/example-repo returned 100 pull requests, the gh --limit; the list may be truncated
+dependabot-red-prs: example-org/second-repo returned 100 pull requests, the gh --limit; the list may be truncated"
+expect_last_line "21: two full repositories count every pull request" \
+  "summary: 200 open dependabot PRs, 0 flagged"
+
+fixture_dir="$fixtures"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then

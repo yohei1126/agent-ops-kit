@@ -15,6 +15,7 @@
 set -euo pipefail
 
 script="dependabot-red-prs"
+limit=100
 
 usage() {
   cat <<'USAGE'
@@ -182,7 +183,7 @@ while IFS= read -r repo; do
   [ -n "$repo" ] || continue
 
   if ! json="$(gh pr list -R "$repo" --author app/dependabot --state open \
-    --limit 100 \
+    --limit "$limit" \
     --json number,title,url,createdAt,headRefOid,statusCheckRollup \
     </dev/null 2>"$gh_err")"; then
     first_line=""
@@ -198,6 +199,15 @@ while IFS= read -r repo; do
       exit 2
       ;;
   esac
+
+  if ! count="$(printf '%s' "$json" | jq -r 'length' 2>/dev/null)"; then
+    printf '%s: could not read the gh JSON for %s\n' "$script" "$repo" >&2
+    exit 2
+  fi
+  if [ "$count" -eq "$limit" ]; then
+    printf '%s: %s returned %s pull requests, the gh --limit; the list may be truncated\n' \
+      "$script" "$repo" "$limit" >&2
+  fi
 
   if ! rows="$(printf '%s' "$json" |
     jq -r --arg now "$now" --arg days "$days" "$jq_program" 2>/dev/null)"; then
