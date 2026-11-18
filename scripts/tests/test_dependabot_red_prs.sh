@@ -6,6 +6,9 @@ set -u
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 check="$repo_root/scripts/dependabot-red-prs.sh"
 fixtures="$repo_root/scripts/tests/fixtures/dependabot-red-prs"
+# run_check reads its fixture from fixture_dir; tests that generate fixtures
+# at run time point it at a temporary directory instead.
+fixture_dir="$fixtures"
 
 pass=0
 fail=0
@@ -84,6 +87,14 @@ expect_last_line() {
   fi
 }
 
+expect_no_line() {
+  if printf '%s\n' "$out" | grep -Fq -- "$2"; then
+    bad "$1" "stdout should not contain: $2"
+  else
+    ok "$1"
+  fi
+}
+
 expect_err() {
   case "$err" in
     *"$2"*) ok "$1" ;;
@@ -103,6 +114,17 @@ expect_empty_err() {
     ok "$1"
   else
     bad "$1" "stderr should be empty: $err"
+  fi
+}
+
+# Count the stderr lines that exactly equal $2 and compare with $3.
+expect_err_count() {
+  local count
+  count="$(printf '%s\n' "$err" | grep -Fxc -- "$2")"
+  if [ "$count" -eq "$3" ]; then
+    ok "$1"
+  else
+    bad "$1" "expected $3 exact lines on stderr, got $count"
   fi
 }
 
@@ -143,7 +165,7 @@ run_check() {
   : > "$err_file"
   out="$(env HOME="$home_tmp" \
     DEPENDABOT_RED_NOW="$now_epoch" \
-    DEPENDABOT_RED_FIXTURE_DIR="$fixtures" \
+    DEPENDABOT_RED_FIXTURE_DIR="$fixture_dir" \
     DEPENDABOT_RED_FIXTURE="$fixture" \
     DEPENDABOT_RED_GH_FAIL="$gh_fail" \
     DEPENDABOT_RED_ARGV_FILE="$argv_file" \
@@ -176,6 +198,30 @@ expect_no_tab() {
   else
     ok "$1"
   fi
+}
+
+# Write $1 green, one-day-old pull requests to $2 as gh-shaped JSON. Generated
+# at test time into a temporary directory so scripts/tests/fixtures/ gains no
+# new file.
+gen_green_fixture() {
+  jq -n --argjson n "$1" '
+    [range(1; $n + 1) as $i |
+      {
+        "number": $i,
+        "title": "Bump example-package from 1.0.0 to 1.0.1",
+        "url": ("https://example.com/pulls/" + ($i | tostring)),
+        "createdAt": "2026-01-09T00:00:00Z",
+        "headRefOid": "1111111111111111111111111111111111111111",
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS"
+          }
+        ]
+      }]
+  ' > "$2"
 }
 
 printf '== no pull requests ==\n'
@@ -431,6 +477,52 @@ expect_err "18: missing jq is named" "jq is required"
 expect_argv_calls "18: missing jq never calls gh" 0
 
 check_path="$fake_bin:$PATH"
+
+printf '== truncation warning at the gh --limit ==\n'
+
+# Generate the two limit fixtures in the test's temporary directory: 100
+# pull requests fill one gh page exactly, 99 stay under it.
+gen_dir="$work_tmp/gen"
+mkdir -p "$gen_dir"
+gen_green_fixture 100 "$gen_dir/green-young-100.json"
+gen_green_fixture 99 "$gen_dir/green-young-99.json"
+warn_first="dependabot-red-prs: example-org/example-repo returned 100 pull requests, the gh --limit; the list may be truncated"
+warn_second="dependabot-red-prs: example-org/second-repo returned 100 pull requests, the gh --limit; the list may be truncated"
+
+fixture_dir="$gen_dir"
+fixture=green-young-100
+gh_fail=0
+run_check --repo example-org/example-repo
+expect_status "19: 100 pull requests at the limit exit 0" 0
+expect_err_count "19: the limit warns once on stderr" "$warn_first" 1
+expect_no_line "19: the warning stays off stdout" "the list may be truncated"
+expect_line "19: the 100th row still prints" \
+  "ok  example-org/example-repo#100  green  1d  https://example.com/pulls/100  Bump example-package from 1.0.0 to 1.0.1"
+expect_last_line "19: the summary counts all 100" \
+  "summary: 100 open dependabot PRs, 0 flagged"
+
+fixture_dir="$gen_dir"
+fixture=green-young-99
+gh_fail=0
+run_check --repo example-org/example-repo
+expect_status "20: 99 pull requests exit 0" 0
+expect_no_err "20: 99 pull requests print no warning" \
+  "the list may be truncated"
+expect_last_line "20: 99 pull requests keep the summary" \
+  "summary: 99 open dependabot PRs, 0 flagged"
+
+fixture_dir="$gen_dir"
+fixture=green-young-100
+gh_fail=0
+run_check --repo example-org/example-repo --repo example-org/second-repo
+expect_status "21: two repositories at the limit exit 0" 0
+expect_err_count "21: the first repository warns once" "$warn_first" 1
+expect_err_count "21: the second repository warns once" "$warn_second" 1
+expect_last_line "21: the summary aggregates both full pages" \
+  "summary: 200 open dependabot PRs, 0 flagged"
+expect_argv_calls "21: two full pages call gh twice" 2
+
+fixture_dir="$fixtures"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
