@@ -67,9 +67,16 @@ reset_ctl() {
   rm -f "$ctl"/*
 }
 
-# set_result <text file>: the stub prints one result event with that text.
+# set_result <text file> [model-id]: the stub prints model request events
+# with that id, then one result event. The default id matches the --model
+# the older tests pass.
 set_result() {
-  jq -cn --rawfile t "$1" '{type: "result", finalText: $t}' >"$ctl/out"
+  local id="${2:-example/model-1}"
+  {
+    jq -cn --arg m "$id" '{type: "event", event: {type: "model_request_start", model: $m}}'
+    jq -cn --arg m "$id" '{type: "event", event: {type: "model_request_end", model: $m}}'
+    jq -cn --rawfile t "$1" '{type: "result", finalText: $t}'
+  } >"$ctl/out"
 }
 
 run_adapter() {
@@ -403,6 +410,102 @@ ln -s "$work_tmp/elsewhere.md" "$work_tmp/review-link.md"
 run_adapter --mode review --model m -- "$wt" "$brief" "$work_tmp/review-link.md"
 expect_status "9: a symlinked result file exits 2" 2
 expect_no_text "9: review argv has no --yolo" "$(cat "$ctl/argv")" "--yolo"
+printf '== recorded model id ==\n'
+reset_ctl
+reset_wt
+printf 'VERDICT: PASS\n' >"$work_tmp/text-review-id"
+set_result "$work_tmp/text-review-id" "moonshotai/Kimi-K3.1-Pro"
+result="$work_tmp/review-id.md"
+rm -f "$result" "$result.model-id"
+run_adapter --mode review --model other/requested -- "$wt" "$brief" "$result"
+expect_status "23: a review with a recorded id exits 0" 0
+expect_text "23: the Model line uses the recorded id" "$(head -n 1 "$result")" \
+  "Model: moonshotai/Kimi-K3.1-Pro (Command Code / GOAT)"
+expect_text "23: the sidecar holds the exact id" "$(cat "$result.model-id")" "moonshotai/Kimi-K3.1-Pro"
+expect_text "23: stdout prints the exact MODEL line" "$out" "MODEL=moonshotai/Kimi-K3.1-Pro"
+expect_no_text "23: the id is not case folded" "$out$(cat "$result")" "moonshotai/kimi-k3.1-pro"
+
+reset_ctl
+reset_wt
+set_result "$work_tmp/text-ok" "moonshotai/Kimi-K3.1-Pro"
+GOAT_KEEP_RUN=1 run_adapter --mode patch --model other/requested -- "$wt" "$brief"
+expect_status "23: a patch with a recorded id exits 0" 0
+expect_text "23: patch prints the exact MODEL line" "$out" "MODEL=moonshotai/Kimi-K3.1-Pro"
+diff_out="$(printf '%s\n' "$out" | sed -n 's/^DIFF=//p')"
+kept_dir="$(dirname "$diff_out")"
+expect_text "23: the run folder records the exact id" "$(cat "$kept_dir/recorded-model-id")" "moonshotai/Kimi-K3.1-Pro"
+if [ -n "$diff_out" ]; then
+  rm -rf "$kept_dir"
+fi
+
+reset_ctl
+reset_wt
+jq -cn --rawfile t "$work_tmp/text-review-id" '{type: "result", finalText: $t}' >"$ctl/out"
+result="$work_tmp/review-noid.md"
+rm -f "$result" "$result.model-id"
+run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "24: no model id in the output exits 1" 1
+expect_text "24: says no single id" "$err" "no single model id"
+if [ -f "$result" ]; then
+  bad "24: no result is written without a model id" "result exists"
+else
+  ok "24: no result is written without a model id"
+fi
+
+reset_ctl
+reset_wt
+jq -cn --rawfile t "$work_tmp/text-ok" '{type: "result", finalText: $t}' >"$ctl/out"
+run_adapter --mode patch --model example/model-1 -- "$wt" "$brief"
+expect_status "24: a patch with no model id exits 1" 1
+expect_text "24: the patch tree is unchanged" "$(cat "$wt/docs/a.md")" "two"
+
+reset_ctl
+reset_wt
+{
+  jq -cn --arg m example/model-1 '{type: "event", event: {type: "model_request_start", model: $m}}'
+  jq -cn --arg m example/model-2 '{type: "event", event: {type: "model_request_end", model: $m}}'
+  jq -cn --rawfile t "$work_tmp/text-review-id" '{type: "result", finalText: $t}'
+} >"$ctl/out"
+result="$work_tmp/review-mixed.md"
+rm -f "$result" "$result.model-id"
+run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "24: two different ids exit 1" 1
+
+reset_ctl
+{
+  jq -cn --arg m "moonshotai/Kimi-K3.1-Pro" '{type: "event", event: {type: "model_request_start", model: $m}}'
+  jq -cn --arg m "moonshotai/kimi-k3.1-pro" '{type: "event", event: {type: "model_request_end", model: $m}}'
+  jq -cn --rawfile t "$work_tmp/text-review-id" '{type: "result", finalText: $t}'
+} >"$ctl/out"
+result="$work_tmp/review-case.md"
+rm -f "$result" "$result.model-id"
+run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "24: a case-only difference in ids exits 1" 1
+
+reset_ctl
+reset_wt
+set_result "$work_tmp/text-review-id" "moonshotai/Kimi-K3.1-Pro"
+result="$work_tmp/review-refuse.md"
+rm -f "$result" "$result.model-id"
+GOAT_MODEL_LINE="Example (other/model) (Example / Agent)" \
+  run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "25: GOAT_MODEL_LINE without the recorded id exits 2" 2
+expect_text "25: says what is missing" "$err" "recorded model id"
+if [ -f "$result" ]; then
+  bad "25: no result is written on a refused GOAT_MODEL_LINE" "result exists"
+else
+  ok "25: no result is written on a refused GOAT_MODEL_LINE"
+fi
+
+reset_ctl
+set_result "$work_tmp/text-review-id" "moonshotai/Kimi-K3.1-Pro"
+result="$work_tmp/review-line.md"
+rm -f "$result" "$result.model-id"
+GOAT_MODEL_LINE="Kimi (moonshotai/Kimi-K3.1-Pro) (Command Code / GOAT)" \
+  run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "25: GOAT_MODEL_LINE with the exact id exits 0" 0
+expect_text "25: the caller's label wins" "$(head -n 1 "$result")" \
+  "Model: Kimi (moonshotai/Kimi-K3.1-Pro) (Command Code / GOAT)"
 
 printf '== write mode refusals ==\n'
 reset_ctl

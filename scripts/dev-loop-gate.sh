@@ -22,6 +22,11 @@ usage() {
     '                   prose-dashes, md-links, model-ids, pr-state, review-ready,' \
     '                   review-citations, and deploy-hash are implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
+    '  --model-line-file <path>   With --check model-ids: a PR body or review' \
+    '                   comment. Every Model line must name the recorded id,' \
+    '                   or one configured id when no recorded id is given.' \
+    '  --recorded-id-file <path>  With --check model-ids: the first id line to' \
+    '                   compare, used exactly, letter case included.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
     '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
     '  --expect-head <sha> Expected head SHA prefix for pr-state, 7 or more' \
@@ -63,6 +68,10 @@ comment_arg=""
 test_log_arg=""
 evidence_out_arg=""
 review_flags_used=""
+model_line_file=""
+recorded_id_file=""
+have_model_line_flag=0
+have_recorded_id_flag=0
 have_pr_flag=0
 have_gh_repo_flag=0
 have_expect_head_flag=0
@@ -324,6 +333,42 @@ while [ $# -gt 0 ]; do
       review_flags_used="$review_flags_used evidence-out"
       shift
       ;;
+    --model-line-file)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        printf 'dev-loop-gate: --model-line-file needs a path\n' >&2
+        exit 2
+      fi
+      model_line_file="$2"
+      have_model_line_flag=1
+      shift 2
+      ;;
+    --model-line-file=*)
+      model_line_file="${1#--model-line-file=}"
+      if [ -z "$model_line_file" ]; then
+        printf 'dev-loop-gate: --model-line-file needs a path\n' >&2
+        exit 2
+      fi
+      have_model_line_flag=1
+      shift
+      ;;
+    --recorded-id-file)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        printf 'dev-loop-gate: --recorded-id-file needs a path\n' >&2
+        exit 2
+      fi
+      recorded_id_file="$2"
+      have_recorded_id_flag=1
+      shift 2
+      ;;
+    --recorded-id-file=*)
+      recorded_id_file="${1#--recorded-id-file=}"
+      if [ -z "$recorded_id_file" ]; then
+        printf 'dev-loop-gate: --recorded-id-file needs a path\n' >&2
+        exit 2
+      fi
+      have_recorded_id_flag=1
+      shift
+      ;;
     --pr)
       if [ $# -lt 2 ]; then
         printf 'dev-loop-gate: --pr needs a number\n' >&2
@@ -411,6 +456,17 @@ fi
 if [ "$have_deploy_hash_flag" = 1 ]; then
   if [ "$have_check" = 0 ] || [ "$check_id" != "deploy-hash" ]; then
     printf 'dev-loop-gate: deploy-hash flags need --check deploy-hash\n' >&2
+    exit 2
+  fi
+fi
+
+if [ "$have_recorded_id_flag" = 1 ] && [ "$have_model_line_flag" = 0 ]; then
+  printf 'dev-loop-gate: --recorded-id-file needs --model-line-file\n' >&2
+  exit 2
+fi
+if [ "$have_model_line_flag" = 1 ] || [ "$have_recorded_id_flag" = 1 ]; then
+  if [ "$have_check" = 0 ] || [ "$check_id" != "model-ids" ]; then
+    printf 'dev-loop-gate: --model-line-file and --recorded-id-file need --check model-ids\n' >&2
     exit 2
   fi
 fi
