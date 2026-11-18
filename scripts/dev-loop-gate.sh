@@ -19,8 +19,9 @@ usage() {
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
     '  --check <id>     Run one named check. line-cap, npm-ci, node-pin, docs-sweep,' \
-    '                   prose-dashes, md-links, model-ids, pr-state, review-ready,' \
-    '                   review-citations, and deploy-hash are implemented.' \
+    '                   prose-dashes, md-links, model-ids, model-check-required,' \
+    '                   pr-state, review-ready, review-citations, and deploy-hash' \
+    '                   are implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
     '  --model-line-file <path>   With --check model-ids: a PR body or review' \
     '                   comment. Every Model line must name the recorded id,' \
@@ -438,12 +439,17 @@ if [ "$want_help" = 1 ]; then
   . "$script_dir/lib/review-ready.sh"
   # shellcheck source=scripts/lib/review-citations.sh
   . "$script_dir/lib/review-citations.sh"
+  # shellcheck source=scripts/lib/model-check-required.sh
+  . "$script_dir/lib/model-check-required.sh"
   case "$check_id" in
     review-ready)
       usage_review_ready
       ;;
     review-citations)
       usage_review_citations
+      ;;
+    model-check-required)
+      usage_model_check_required
       ;;
     *)
       usage
@@ -550,6 +556,8 @@ row() { printf '%-4s %-30s %-6s %s\n' "$1" "$2" "$3" "$4"; }
 . "$script_dir/lib/npm-ci.sh"
 # shellcheck source=scripts/lib/node-pin.sh
 . "$script_dir/lib/node-pin.sh"
+# shellcheck source=scripts/lib/model-check-required.sh
+. "$script_dir/lib/model-check-required.sh"
 
 run_table() {
   local status=0 any_fail=0
@@ -912,6 +920,10 @@ case "$check_id" in
     run_model_ids
     exit $?
     ;;
+  model-check-required)
+    run_model_check_required
+    exit $?
+    ;;
   line-cap)
     run_line_cap
     exit $?
@@ -960,7 +972,7 @@ case "$check_id" in
     exit 2
     ;;
   *)
-    printf 'unknown check: %s (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash)\n' "$check_id" >&2
+    printf 'unknown check: %s (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash, model-check-required)\n' "$check_id" >&2
     exit 2
     ;;
 esac
