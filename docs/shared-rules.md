@@ -109,6 +109,10 @@ and draft pull request creation happen deterministically in the kit adapter or
 the calling script after the scope check passes. The one exception is the
 maintainer running `agy` interactively.
 
+The `agent-git` check fails in CI when an agent-facing kit doc tells a worker
+to run a mutating git command or to open a pull request. See
+`scripts/dev-loop-gate.sh --help` for its scope and exit behavior.
+
 The reasons:
 
 - Keep GitHub and push credentials out of the agent environment, so a prompt

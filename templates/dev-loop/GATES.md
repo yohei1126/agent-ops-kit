@@ -99,7 +99,7 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 ```
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
-  implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
+  implemented ids are `agent-git`, `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
   `prose-dashes`, `md-links`, `model-ids`, `pr-state`, `review-ready`,
   `review-citations`, and `deploy-hash`. Why the two review gates exist is
   in [`REVIEW-GATES.md`](REVIEW-GATES.md). Their flags, rows, and exit
@@ -162,9 +162,9 @@ even without `--strict`, the same hard-preflight spirit as G1. The default G1
 to G7 table runs this rule as an `NM` row on every run, with a root that falls
 back to the current directory when git cannot resolve a work tree. A FAIL there
 also exits 1 without `--strict`. The other named checks do not run it, so
-`line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `model-ids`, `pr-state`,
-`deploy-hash`, `review-ready`, and `review-citations` keep their own exit
-rules.
+`agent-git`, `line-cap`, `docs-sweep`, `prose-dashes`, `md-links`, `model-ids`,
+`pr-state`, `deploy-hash`, `review-ready`, and `review-citations` keep their
+own exit rules.
 
 ### node-pin
 
@@ -240,6 +240,19 @@ CI runs the check with `--strict` and no name list, so the name rule SKIPs. The
 implementation lives in
 [`../../scripts/lib/docs-sweep.sh`](../../scripts/lib/docs-sweep.sh) so the
 entry script stays small.
+
+### agent-git
+
+`--check agent-git` fails when an agent-facing kit doc tells a worker to run a
+mutating git command or to open a pull request. Docs can drift, so CI should
+fail when a leftover instruction reappears instead of relying on review.
+
+The scope is a narrow, explicit path list. Caller collect steps and the
+monthly-audit operator release example stay allowed because those paths are
+out of scope. See `scripts/dev-loop-gate.sh --help` for the four command
+strings, the path list, and the `--strict` exit, and
+[`../../scripts/lib/agent-git.sh`](../../scripts/lib/agent-git.sh) for the
+implementation.
 
 ### prose-dashes
 
