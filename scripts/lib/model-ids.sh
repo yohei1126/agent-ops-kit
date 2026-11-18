@@ -118,6 +118,7 @@ run_model_ids() {
   local entries lane index agent model has_todo where
   local checked=0 hits=0 state
   local model_lines model_line_seen expected_id mline
+  local model_line_failed=0
 
   if ! command -v jq >/dev/null 2>&1; then
     printf 'dev-loop-gate: jq is required for model-ids\n' >&2
@@ -204,10 +205,12 @@ EOF_ENTRIES
         if ! model_ids_has_token "$mline" "$expected_id"; then
           row MI "Model line" FAIL "Model line does not name the recorded id $expected_id; copy that id exactly, letter case included"
           hits=$((hits + 1))
+          model_line_failed=1
         fi
       elif ! model_ids_configured_matches "$mline" "$entries"; then
         row MI "Model line" FAIL "Model line matches no configured model id; copy one from templates/agent-config.example.json exactly, letter case included"
         hits=$((hits + 1))
+        model_line_failed=1
       fi
     done <<EOF_MODEL_LINES
 $model_lines
@@ -219,6 +222,7 @@ EOF_MODEL_LINES
         row MI "Model line" FAIL "no Model line found; add a Model line naming a configured model id"
       fi
       hits=$((hits + 1))
+      model_line_failed=1
     fi
   fi
 
@@ -229,6 +233,9 @@ EOF_MODEL_LINES
   fi
   row MI model-ids "$state" "$checked entries, $hits hits"
 
+  if [ "$model_line_failed" = 1 ]; then
+    return 1
+  fi
   if [ "$hits" -gt 0 ] && [ "$strict" = 1 ]; then
     return 1
   fi

@@ -25,6 +25,7 @@ usage() {
     '  --model-line-file <path>   With --check model-ids: a PR body or review' \
     '                   comment. Every Model line must name the recorded id,' \
     '                   or one configured id when no recorded id is given.' \
+    '                   A Model-line mismatch exits 1 with or without --strict.' \
     '  --recorded-id-file <path>  With --check model-ids: the first id line to' \
     '                   compare, used exactly, letter case included.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \

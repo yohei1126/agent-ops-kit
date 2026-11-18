@@ -167,7 +167,8 @@ lower() {
 }
 
 # has_model_token <text> <id>: true when id appears as a whole token,
-# bounded by start, end, whitespace, or parentheses. Letter case must match.
+# bounded by start, end, whitespace, parentheses, or backticks. Letter case
+# must match.
 has_model_token() {
   awk -v text="$1" -v id="$2" 'BEGIN {
     if (id == "") exit 1
@@ -176,8 +177,10 @@ has_model_token() {
       pos = start + i - 1
       before = (pos == 1) ? "" : substr(text, pos - 1, 1)
       after = substr(text, pos + length(id), 1)
-      if ((before == "" || before == " " || before == "\t" || before == "(") &&
-          (after == "" || after == " " || after == "\t" || after == ")")) exit 0
+      if ((before == "" || before == " " || before == "\t" || before == "(" ||
+           before == "`") &&
+          (after == "" || after == " " || after == "\t" || after == ")" ||
+           after == "`")) exit 0
       start = pos + 1
     }
     exit 1
@@ -649,9 +652,10 @@ if [ -f "$run_dir/out.jsonl" ]; then
       | .event
       | select(type == "object")
       | select(.type == "model_request_start" or .type == "model_request_end")
-      | if ((.model | type) == "string") and ((.model | length) > 0) then .model
-        elif has("model") then "goat-run-bad-model-id"
-        else empty end' "$run_dir/out.jsonl" 2>/dev/null)"; then
+      | if ((.model | type) == "string") and
+           (((.model | gsub("^\\s+|\\s+$"; "")) | length) > 0)
+        then (.model | gsub("^\\s+|\\s+$"; ""))
+        else "goat-run-bad-model-id" end' "$run_dir/out.jsonl" 2>/dev/null)"; then
     printf 'goat-run: could not parse the model id from the agent output\n' >&2
     exit 1
   fi

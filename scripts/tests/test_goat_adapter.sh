@@ -507,6 +507,50 @@ expect_status "25: GOAT_MODEL_LINE with the exact id exits 0" 0
 expect_text "25: the caller's label wins" "$(head -n 1 "$result")" \
   "Model: Kimi (moonshotai/Kimi-K3.1-Pro) (Command Code / GOAT)"
 
+reset_ctl
+set_result "$work_tmp/text-review-id" "moonshotai/Kimi-K3.1-Pro"
+result="$work_tmp/review-backtick.md"
+rm -f "$result" "$result.model-id"
+GOAT_MODEL_LINE='Name (`moonshotai/Kimi-K3.1-Pro`) (Command Code / GOAT)' \
+  run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "25: GOAT_MODEL_LINE with backticks exits 0" 0
+expect_text "25: the backtick label wins" "$(head -n 1 "$result")" \
+  'Model: Name (`moonshotai/Kimi-K3.1-Pro`) (Command Code / GOAT)'
+
+reset_ctl
+reset_wt
+{
+  jq -cn '{type: "event", event: {type: "model_request_start"}}'
+  jq -cn --arg m example/model-1 '{type: "event", event: {type: "model_request_end", model: $m}}'
+  jq -cn --rawfile t "$work_tmp/text-review-id" '{type: "result", finalText: $t}'
+} >"$ctl/out"
+result="$work_tmp/review-nokey.md"
+rm -f "$result" "$result.model-id"
+run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "26: a missing model key exits 1" 1
+if [ -f "$result" ]; then
+  bad "26: no result is written without a model key" "result exists"
+else
+  ok "26: no result is written without a model key"
+fi
+
+reset_ctl
+reset_wt
+{
+  jq -cn '{type: "event", event: {type: "model_request_start", model: "   "}}'
+  jq -cn --arg m example/model-1 '{type: "event", event: {type: "model_request_end", model: $m}}'
+  jq -cn --rawfile t "$work_tmp/text-review-id" '{type: "result", finalText: $t}'
+} >"$ctl/out"
+result="$work_tmp/review-blank.md"
+rm -f "$result" "$result.model-id"
+run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "26: a whitespace-only model id exits 1" 1
+if [ -f "$result" ]; then
+  bad "26: no result is written for a whitespace-only id" "result exists"
+else
+  ok "26: no result is written for a whitespace-only id"
+fi
+
 printf '== write mode refusals ==\n'
 reset_ctl
 reset_wt

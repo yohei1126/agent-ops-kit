@@ -272,9 +272,10 @@ string; until then the entry stays null. CI runs it with `--strict`. See
 
 The check also compares a PR Model line with the model id recorded from the
 agent run output, so a hand-typed or stale line fails instead of passing
-review. The recorded id is what actually ran, not the id the command
-requested. Flags and rows are in `scripts/dev-loop-gate.sh --help`; the
-adapter side is in [`../../docs/goat-adapter.md`](../../docs/goat-adapter.md).
+review. That comparison is a hard fail (exit 1) even without `--strict`. The
+recorded id is what actually ran, not the id the command requested. Flags and
+rows are in `scripts/dev-loop-gate.sh --help`; the adapter side is in
+[`../../docs/goat-adapter.md`](../../docs/goat-adapter.md).
 
 The launchers have a matching CI-only test,
 [`../../scripts/tests/test_arg_boundaries.sh`](../../scripts/tests/test_arg_boundaries.sh).

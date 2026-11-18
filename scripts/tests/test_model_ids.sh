@@ -176,6 +176,11 @@ expect_status "12: a Model line that differs from the recorded id fails --strict
 expect_out "12: the FAIL row names the recorded id" "recorded id model-a"
 expect_out "12: the FAIL row is educational" "copy that id exactly"
 
+run_gate --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-mismatch" --recorded-id-file "$work_tmp/recorded-a"
+expect_status "12: a Model line that differs from the recorded id fails without --strict" 1
+expect_out "12: the FAIL row shows without --strict" "FAIL"
+
 printf 'Model: Name (model-a) (Command Code / GOAT)\n' >"$work_tmp/body-ok"
 run_gate --strict --check model-ids --repo "$r" \
   --model-line-file "$work_tmp/body-ok" --recorded-id-file "$work_tmp/recorded-a"
@@ -225,6 +230,7 @@ expect_status "15: the flags with another check exit 2" 2
 run_gate --check model-ids --repo "$r" \
   --model-line-file "$work_tmp/missing-body" --recorded-id-file "$work_tmp/recorded-a"
 expect_status "15: a missing model-line file exits 2" 2
+expect_err "15: names the missing model-line file" "model-line file not found"
 
 # 16. A "Model / Authors:" line (spaces around the slash) is a Model line.
 printf 'Model / Authors: Name (`moonshotai/Kimi-K3.1-Pro`) (Command Code / GOAT).\n' >"$work_tmp/body-slash-ok"
