@@ -11,8 +11,8 @@ set -u
 repo="${repo:-}"
 
 mcr_line_cap=150
-mcr_deny_patterns=".github/* *auth* *secret* *token* *credential* *permission* *launch* *settings* *security* .env* */.env* scripts/agents/* scripts/templates/* scripts/quota/* scripts/dev-loop-gate.sh scripts/lib/model-check-required.sh scripts/lib/review-* scripts/tests/test_model_check_required.sh templates/dev-loop/* prompts/* *agent-config* *model-ids*"
-mcr_allow_patterns="docs/*.md README.md scripts/README.md scripts/tests/test_*.sh scripts/tests/fixtures/*"
+mcr_deny_patterns=".github/* *auth* *secret* *token* *credential* *permission* *launch* *settings* *security* .env* */.env* scripts/agents/* scripts/templates/* scripts/quota/* scripts/dev-loop-gate.sh scripts/lib/* scripts/tests/test_model_check_required.sh scripts/tests/test_dev_loop_gate.sh templates/dev-loop/* prompts/* *agent-config* *model-ids*"
+mcr_allow_patterns="docs/*.md README.md scripts/README.md"
 
 # Prints the one decision row and removes the temporary diff file.
 mcr_finish() {
@@ -25,9 +25,10 @@ mcr_finish() {
 
 # True when the lowercased path matches one deny pattern.
 mcr_deny_path() {
+  local LC_ALL=C
   local lower pat
 
-  lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  lower="$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
   set -f
   # shellcheck disable=SC2086
   for pat in $mcr_deny_patterns; do
@@ -42,9 +43,11 @@ mcr_deny_path() {
 
 # True when the path is on the allow list, including the script rule.
 mcr_allow_path() {
-  local path name rest test_rel pat
+  local LC_ALL=C
+  local path mb name rest test_rel pat
 
   path="$1"
+  mb="$2"
   set -f
   # shellcheck disable=SC2086
   for pat in $mcr_allow_patterns; do
@@ -56,8 +59,19 @@ mcr_allow_path() {
   set +f
 
   case "$path" in
-    scripts/lib/*.sh) rest="${path#scripts/lib/}" ;;
-    scripts/*.sh) rest="${path#scripts/}" ;;
+    scripts/tests/test_*.sh)
+      rest="${path#scripts/tests/}"
+      case "$rest" in
+        */*) return 1 ;;
+      esac
+      if ! git -C "$repo" cat-file -e "$mb:$path" 2>/dev/null; then
+        return 1
+      fi
+      return 0
+      ;;
+    scripts/*.sh)
+      rest="${path#scripts/}"
+      ;;
     *) return 1 ;;
   esac
   case "$rest" in
@@ -66,6 +80,8 @@ mcr_allow_path() {
   name="${rest%.sh}"
   [ -n "$name" ] || return 1
   test_rel="scripts/tests/test_${name//-/_}.sh"
+  git -C "$repo" cat-file -e "$mb:$path" 2>/dev/null || return 1
+  git -C "$repo" cat-file -e "$mb:$test_rel" 2>/dev/null || return 1
   git -C "$repo" cat-file -e "HEAD:$test_rel" 2>/dev/null
 }
 
@@ -85,9 +101,11 @@ The first failing rule decides REQUIRED, in this order:
  4. the diff cannot be read, or the diff is empty
  5. a path has a character outside A-Za-z0-9._/-
  6. a path is on the deny list, matched on the lowercased path
- 7. a path is not on the allow list
- 8. a path is a symlink, a submodule, or has another mode change
- 9. a change is binary, or the added plus deleted lines exceed the cap
+ 7. a path is a symlink, a submodule, has another mode change, or is
+    a deleted path outside docs/
+ 8. a path is not on the allow list
+ 9. a change is binary, a test loses lines, or the added plus deleted
+    lines exceed the cap
 10. the default G1 to G7 table fails under strict
 
 Exit codes: 0 whenever a decision row is printed, 2 when the path is not a
@@ -97,9 +115,11 @@ EOF
   printf 'Deny list: %s\n' "$mcr_deny_patterns"
   printf 'Allow list: %s\n' "$mcr_allow_patterns"
   cat <<'EOF'
-A script scripts/<name>.sh or scripts/lib/<name>.sh is allowed only when
-scripts/tests/test_<name>.sh exists at HEAD, with every - in <name> replaced
-by _.
+A script scripts/<name>.sh is allowed only when both the script and
+scripts/tests/test_<name>.sh exist at the merge base and the test still
+exists at HEAD, with every - in <name> replaced by _. A test
+scripts/tests/test_<name>.sh is allowed only when it exists at the merge
+base and the change adds lines without deleting any.
 EOF
 }
 
@@ -117,6 +137,7 @@ mcr_run_table_strict() {
 }
 
 run_model_check_required() {
+  local LC_ALL=C
   local base mb status_out raw_out numstat_out line rest tab
   local old_mode new_mode raw_path added deleted npath path
   local i npaths files total
@@ -162,6 +183,9 @@ run_model_check_required() {
     npaths=$((npaths + 1))
   done <"$mcr_tmp"
 
+  rm -f "$mcr_tmp"
+  mcr_tmp=""
+
   i=0
   while [ "$i" -lt "$npaths" ]; do
     path="${mcr_paths[$i]}"
@@ -184,16 +208,6 @@ run_model_check_required() {
     i=$((i + 1))
   done
 
-  i=0
-  while [ "$i" -lt "$npaths" ]; do
-    path="${mcr_paths[$i]}"
-    if ! mcr_allow_path "$path"; then
-      mcr_finish REQUIRED "not on allow list: $path"
-      return 0
-    fi
-    i=$((i + 1))
-  done
-
   if ! raw_out="$(git -C "$repo" diff --raw --no-renames "$mb" HEAD 2>/dev/null)"; then
     mcr_finish REQUIRED "cannot read diff"
     return 0
@@ -209,6 +223,15 @@ run_model_check_required() {
     rest="${rest#* }"
     rest="${rest#* }"
     raw_path="${rest#*"$tab"}"
+    if [ "$new_mode" = 000000 ]; then
+      case "$raw_path" in
+        docs/*) ;;
+        *)
+          mcr_finish REQUIRED "deleted file: $raw_path"
+          return 0
+          ;;
+      esac
+    fi
     if [ "$old_mode" = 120000 ] || [ "$new_mode" = 120000 ] ||
       [ "$old_mode" = 160000 ] || [ "$new_mode" = 160000 ]; then
       mcr_finish REQUIRED "mode change: $raw_path"
@@ -223,6 +246,16 @@ run_model_check_required() {
 $raw_out
 EOF_RAW
 
+  i=0
+  while [ "$i" -lt "$npaths" ]; do
+    path="${mcr_paths[$i]}"
+    if ! mcr_allow_path "$path" "$mb"; then
+      mcr_finish REQUIRED "not on allow list: $path"
+      return 0
+    fi
+    i=$((i + 1))
+  done
+
   if ! numstat_out="$(git -C "$repo" diff --numstat --no-renames "$mb" HEAD 2>/dev/null)"; then
     mcr_finish REQUIRED "cannot read diff"
     return 0
@@ -235,6 +268,14 @@ EOF_RAW
       mcr_finish REQUIRED "binary change: $npath"
       return 0
     fi
+    case "$npath" in
+      scripts/tests/*)
+        if [ "$deleted" -gt 0 ]; then
+          mcr_finish REQUIRED "test lines removed: $npath"
+          return 0
+        fi
+        ;;
+    esac
     files=$((files + 1))
     total=$((total + added + deleted))
   done <<EOF_NUMSTAT
@@ -246,7 +287,7 @@ EOF_NUMSTAT
     return 0
   fi
 
-  if ! mcr_run_table_strict >/dev/null 2>&1; then
+  if ! ( mcr_run_table_strict ) >/dev/null 2>&1; then
     mcr_finish REQUIRED "default gate table has a FAIL"
     return 0
   fi

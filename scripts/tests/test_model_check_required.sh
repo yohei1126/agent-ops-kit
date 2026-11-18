@@ -78,6 +78,17 @@ expect_decision() {
   esac
 }
 
+expect_required() {
+  local name="$1"
+  local line=""
+
+  line="$(printf '%s\n' "$out" | grep '^MC ' | head -n 1)"
+  case "$line" in
+    *REQUIRED*) ok "$name" ;;
+    *) bad "$name" "MC row is not REQUIRED: $line" ;;
+  esac
+}
+
 # rgit <dir> <git args...>: test identity, temp HOME, no system config.
 rgit() {
   local dir="$1"
@@ -120,11 +131,13 @@ run_case() {
 new_work() {
   local dir="$1"
 
-  mkdir -p "$dir/docs" "$dir/scripts/tests" "$dir/.github/workflows"
+  mkdir -p "$dir/docs" "$dir/scripts/tests" "$dir/scripts/lib" "$dir/.github/workflows"
   printf '# Guide\nShort guide text.\nKeep it brief.\n' > "$dir/docs/guide.md"
   printf '# Project\nA fixture repository.\n' > "$dir/README.md"
   printf '#!/usr/bin/env bash\n# Foo bar entry point.\nprintf foo-bar\n' > "$dir/scripts/foo-bar.sh"
   printf '#!/usr/bin/env bash\n# Foo bar test.\n' > "$dir/scripts/tests/test_foo_bar.sh"
+  printf '#!/usr/bin/env bash\n# Thing helper.\n' > "$dir/scripts/lib/thing.sh"
+  printf '#!/usr/bin/env bash\n# Thing test.\n' > "$dir/scripts/tests/test_thing.sh"
   printf '#!/usr/bin/env bash\n# No test file for this one.\nprintf nolib\n' > "$dir/scripts/nolib.sh"
   printf '#!/usr/bin/env bash\n# Agent launcher.\n' > "$dir/scripts/agent-launch.sh"
   printf 'name: ci\non: push\njobs: {}\n' > "$dir/.github/workflows/ci.yml"
@@ -325,6 +338,7 @@ expect_status "21: help exits 0" 0
 expect_out "21: help prints the line cap" "Line cap: 150"
 expect_out "21: help prints the deny list heading" "Deny list:"
 expect_out "21: help prints the workflow deny pattern" ".github/*"
+expect_out "21: help prints the library deny pattern" "scripts/lib/*"
 expect_out "21: help prints the allow list heading" "Allow list:"
 expect_out "21: help prints the docs allow pattern" "docs/*.md"
 
@@ -334,6 +348,51 @@ commit_all "$r" "test change"
 run_case "$r"
 expect_status "22: test-only change exits 0" 0
 expect_decision "22: test-only change is SKIP" SKIP "allow list"
+
+r="$(case_repo c23)"
+printf '#!/usr/bin/env bash\n# New tool.\n' > "$r/scripts/newtool.sh"
+printf '#!/usr/bin/env bash\n# New tool test.\n' > "$r/scripts/tests/test_newtool.sh"
+commit_all "$r" "new script"
+run_case "$r"
+expect_status "23: new script with a test exits 0" 0
+expect_decision "23: new script is REQUIRED" REQUIRED "not on allow list: scripts/newtool.sh"
+
+r="$(case_repo c24)"
+printf '#!/usr/bin/env bash\n' > "$r/scripts/tests/test_foo_bar.sh"
+commit_all "$r" "test line removed"
+run_case "$r"
+expect_status "24: removed test line exits 0" 0
+expect_decision "24: removed test line is REQUIRED" REQUIRED "test lines removed: scripts/tests/test_foo_bar.sh"
+
+r="$(case_repo c25)"
+rm -f "$r/scripts/nolib.sh"
+commit_all "$r" "delete script"
+run_case "$r"
+expect_status "25: deleted script exits 0" 0
+expect_required "25: deleted script is REQUIRED"
+
+r="$(case_repo c26)"
+printf 'printf extra\n' >> "$r/scripts/lib/thing.sh"
+commit_all "$r" "lib change"
+run_case "$r"
+expect_status "26: library change exits 0" 0
+expect_decision "26: library change is REQUIRED" REQUIRED "deny-listed path: scripts/lib/thing.sh"
+
+r="$(case_repo c27)"
+rgit "$r" checkout -q --orphan orphan
+printf 'Orphan guide.\n' > "$r/docs/orphan.md"
+commit_all "$r" "orphan"
+run_case "$r"
+expect_status "27: orphan branch exits 0" 0
+expect_decision "27: orphan branch is REQUIRED" REQUIRED "no merge base"
+
+r="$(case_repo c28)"
+mkdir -p "$r/docs/sub"
+rgit "$r" update-index --add --cacheinfo "160000,$base_sha,docs/sub"
+rgit "$r" commit -q -m "submodule"
+run_case "$r"
+expect_status "28: gitlink exits 0" 0
+expect_decision "28: gitlink is REQUIRED" REQUIRED "mode change: docs/sub"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
