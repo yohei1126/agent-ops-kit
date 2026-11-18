@@ -21,6 +21,9 @@ ignore case. Named checks run from a copy of the kit taken before the diff
 is applied, under a throwaway `HOME` and a `PATH` of system folders plus the
 git and jq found before the run, so a diff cannot rewrite the code that
 judges it or put a tool on `PATH`.
+Rename and copy targets are marked intent-to-add like new files, and the
+run fails if one is still untracked, so the named checks cannot miss a
+moved file.
 
 ## Why write mode needs a permission bypass
 
@@ -64,9 +67,10 @@ The maintainer approved write-enabled headless GOAT only under all of these:
    were already ignored are compared by content hash; a path outside the
    scope, a sibling prefix such as `docsx` for scope `docs`, anything under
    `.git`, a changed git config, hook, info, index, ref, or worktree link
-   file, a moved git directory, or a moved `HEAD` is a FAIL (exit 1), and
-   the tree is left for inspection. After the run the adapter uses only
-   system tools and calls git with fsmonitor and hooks off.
+   file, a new file directly in a git directory or in objects/info, a moved
+   git directory, or a moved `HEAD` is a FAIL (exit 1), and the tree is
+   left for inspection. After the run the adapter uses only system tools and
+   calls git with fsmonitor and hooks off.
 5. The adapter never stages, commits, pushes, or opens a pull request. The
    operator does that after the gate passes.
 

@@ -683,6 +683,123 @@ else
   bad "13: the adapter holds the write-mode --yolo" "$yolo_lines lines"
 fi
 
+printf '== rename and copy intent-to-add ==\n'
+reset_ctl
+reset_wt
+{
+  printf '```diff\n'
+  cat <<'DIFF'
+diff --git a/docs/a.md b/docs/moved.md
+similarity index 100%
+rename from docs/a.md
+rename to docs/moved.md
+DIFF
+  printf '```\n'
+} >"$work_tmp/text-rename"
+set_result "$work_tmp/text-rename"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "21: a rename applies" 0
+moved="$(git -C "$wt" ls-files -- docs/moved.md)"
+if [ "$moved" = "docs/moved.md" ]; then
+  ok "21: the rename target is tracked"
+else
+  bad "21: the rename target is tracked" "got: $moved"
+fi
+
+reset_ctl
+reset_wt
+{
+  printf '```diff\n'
+  cat <<'DIFF'
+diff --git a/src/b.txt b/src/copied.txt
+similarity index 100%
+copy from src/b.txt
+copy to src/copied.txt
+DIFF
+  printf '```\n'
+} >"$work_tmp/text-copy"
+set_result "$work_tmp/text-copy"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "21: a copy applies" 0
+copied="$(git -C "$wt" ls-files -- src/copied.txt)"
+if [ "$copied" = "src/copied.txt" ]; then
+  ok "21: the copy target is tracked"
+else
+  bad "21: the copy target is tracked" "got: $copied"
+fi
+
+reset_ctl
+reset_wt
+{
+  printf '```diff\n'
+  cat <<'DIFF'
+diff --git a/docs/a.md b/docs/edited.md
+similarity index 66%
+rename from docs/a.md
+rename to docs/edited.md
+--- a/docs/a.md
++++ b/docs/edited.md
+@@ -1,3 +1,3 @@
+ one
+-two
++TWO
+ three
+DIFF
+  printf '```\n'
+} >"$work_tmp/text-rename-edit"
+set_result "$work_tmp/text-rename-edit"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "21: a rename with a change applies" 0
+edited="$(git -C "$wt" ls-files -- docs/edited.md)"
+if [ "$edited" = "docs/edited.md" ]; then
+  ok "21: the changed rename target is tracked"
+else
+  bad "21: the changed rename target is tracked" "got: $edited"
+fi
+
+reset_ctl
+reset_wt
+{
+  printf '```diff\n'
+  cat <<'DIFF'
+diff --git a/docs/a*.md b/docs/a*.md
+new file mode 100644
+--- /dev/null
++++ b/docs/a*.md
+@@ -0,0 +1 @@
++x
+DIFF
+  printf '```\n'
+} >"$work_tmp/text-glob"
+set_result "$work_tmp/text-glob"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "21: a new file with a glob character applies" 0
+glob_path="$(git -C "$wt" ls-files -- ':(literal)docs/a*.md')"
+if [ "$glob_path" = "docs/a*.md" ]; then
+  ok "21: a new file with a glob character is tracked"
+else
+  bad "21: a new file with a glob character is tracked" "got: $glob_path"
+fi
+
+printf '== new files in the git directories ==\n'
+git_abs="$(cd "$wt" && cd "$(git rev-parse --git-dir)" && pwd -P)"
+for planted in "$common_abs/planted-top" "$git_abs/MERGE_HEAD" "$common_abs/objects/info/alternates"; do
+  reset_ctl
+  reset_wt
+  printf 'docs/ok.md\n%s\n' "$planted" >"$ctl/write"
+  set_result "$work_tmp/text-review"
+  run_adapter --mode write --model m -- "$wt" "$brief" docs
+  expect_status "22: a new file $(basename "$planted") in a git directory exits 1" 1
+  expect_text "22: a new file $(basename "$planted") names the changed git directory" "$out$err" "git directory changed"
+  rm -f "$planted"
+done
+reset_ctl
+reset_wt
+printf 'docs/ok.md\n' >"$ctl/write"
+set_result "$work_tmp/text-review"
+run_adapter --mode write --model m -- "$wt" "$brief" docs
+expect_status "22: a clean write run still exits 0" 0
+
 printf '== through agent-launch ==\n'
 reset_ctl
 out="$(AGENT_OPS_KIT_CONFIG="$repo_root/templates/agent-config.example.json" \

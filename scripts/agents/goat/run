@@ -518,7 +518,9 @@ file_hash() {
 
 # git_dir_digest prints one hash line per file in the git directories that
 # can make git run code or change what it reports: config, hooks, info,
-# index, and refs, plus the worktree link files.
+# index, and refs, plus the worktree link files. It also covers new files
+# created directly in the git directories or in objects/info, and any
+# symlink planted at depth one, so the before and after runs differ.
 git_dir_digest() {
   local f
   for f in "$worktree/.git" "$physical_common/config" \
@@ -529,10 +531,19 @@ git_dir_digest() {
       printf '%s %s\n' "$(file_hash "$f")" "$f"
     fi
   done
-  find "$physical_common/hooks" "$physical_common/info" \
-    "$physical_common/refs" "$physical_git/refs" -type f 2>/dev/null |
-    LC_ALL=C sort | while IFS= read -r f; do
-      printf '%s %s\n' "$(file_hash "$f")" "$f"
+  {
+    find "$physical_common/hooks" "$physical_common/info" \
+      "$physical_common/refs" "$physical_git/refs" -type f 2>/dev/null
+    find "$physical_common" "$physical_git" -mindepth 1 -maxdepth 1 \
+      -type f 2>/dev/null
+    find "$physical_common/objects/info" -type f 2>/dev/null
+  } | LC_ALL=C sort -u | while IFS= read -r f; do
+    printf '%s %s\n' "$(file_hash "$f")" "$f"
+  done
+  find "$physical_common" "$physical_git" -mindepth 1 -maxdepth 1 \
+    -type l 2>/dev/null | LC_ALL=C sort -u |
+    while IFS= read -r f; do
+      printf 'link %s\n' "$f"
     done
 }
 
@@ -862,12 +873,17 @@ if ! git -C "$worktree" apply --numstat -z "$run_dir/change.diff" >"$run_dir/num
   printf 'goat-run: git apply --check failed; nothing applied\n' >&2
   exit 2
 fi
+: >"$run_dir/touched"
 applied_count=0
 pending_names=0
 record=""
 while IFS= read -r -d '' record || [ -n "$record" ]; do
   if [ "$pending_names" -gt 0 ]; then
     check_path "$record"
+    if [ "$pending_names" = 1 ]; then
+      # The second name record of a rename or copy is the new path.
+      printf '%s\n' "$record" >>"$run_dir/touched"
+    fi
     pending_names=$((pending_names - 1))
     continue
   fi
@@ -880,6 +896,7 @@ while IFS= read -r -d '' record || [ -n "$record" ]; do
     continue
   fi
   check_path "$numstat_path"
+  printf '%s\n' "$numstat_path" >>"$run_dir/touched"
 done <"$run_dir/numstat"
 
 if ! apply_error="$(git -C "$worktree" apply --check "$run_dir/change.diff" 2>&1)"; then
@@ -907,17 +924,35 @@ if ! git -C "$worktree" apply "$run_dir/change.diff"; then
   printf 'goat-run: git apply failed\n' >&2
   exit 2
 fi
-# New files are marked intent-to-add (the path only; no content is staged)
-# so the named checks, which read tracked files, see them too. This is not
+# Every path the diff creates, renames to, or copies to is marked
+# intent-to-add (the path only; no content is staged) so the named checks,
+# which read tracked files, see it too. This is not
 # `git apply --intent-to-add`, which some git versions mishandle for
-# modified files.
-while IFS= read -r new_path; do
-  [ -n "$new_path" ] || continue
-  if ! git -C "$worktree" add -N -- "$new_path"; then
-    printf 'goat-run: could not mark %s intent-to-add; the applied diff is left for inspection\n' "$new_path" >&2
+# modified files. The run fails closed if one path stays untracked.
+while IFS= read -r touched_path; do
+  [ -n "$touched_path" ] || continue
+  if [ ! -e "$worktree/$touched_path" ] && [ ! -L "$worktree/$touched_path" ]; then
+    continue
+  fi
+  if git --literal-pathspecs -C "$worktree" ls-files --error-unmatch -- "$touched_path" >/dev/null 2>&1; then
+    continue
+  fi
+  if ! git --literal-pathspecs -C "$worktree" add -N -- "$touched_path"; then
+    printf 'goat-run: could not mark %s intent-to-add; the applied diff is left for inspection\n' "$touched_path" >&2
     exit 1
   fi
-done < <(sed -n 's/^ create mode [0-7]* //p' "$run_dir/summary")
+done <"$run_dir/touched"
+# Fail closed: every touched path that exists must be seen as tracked.
+while IFS= read -r touched_path; do
+  [ -n "$touched_path" ] || continue
+  if [ ! -e "$worktree/$touched_path" ] && [ ! -L "$worktree/$touched_path" ]; then
+    continue
+  fi
+  if [ -z "$(git --literal-pathspecs -C "$worktree" ls-files -- "$touched_path")" ]; then
+    printf 'goat-run: %s is not tracked after the apply; the applied diff is left for inspection\n' "$touched_path" >&2
+    exit 1
+  fi
+done <"$run_dir/touched"
 
 gate_failed=0
 gate_index=2
