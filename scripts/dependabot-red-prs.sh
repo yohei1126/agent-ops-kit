@@ -200,7 +200,8 @@ while IFS= read -r repo; do
       ;;
   esac
 
-  if ! count="$(printf '%s' "$json" | jq -r 'length' 2>/dev/null)"; then
+  if ! count="$(printf '%s' "$json" |
+    jq -r 'if type == "array" then length else -1 end' 2>/dev/null)"; then
     printf '%s: could not read the gh JSON for %s\n' "$script" "$repo" >&2
     exit 2
   fi

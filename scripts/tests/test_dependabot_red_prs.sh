@@ -460,8 +460,17 @@ make_green_prs() {
   ' > "$target"
 }
 
+make_keyed_object() {
+  local count="$1" target="$2"
+
+  jq -n --argjson n "$count" '
+    reduce range(0; $n) as $i ({}; .["key\($i)"] = $i)
+  ' > "$target"
+}
+
 make_green_prs 100 "$truncation_dir/at-limit.json"
 make_green_prs 99 "$truncation_dir/under-limit.json"
+make_keyed_object 100 "$truncation_dir/object-limit.json"
 
 fixture_dir="$truncation_dir"
 fixture=at-limit
@@ -490,6 +499,15 @@ expect_err_eq "21: each full repository warns once" \
 dependabot-red-prs: example-org/second-repo returned 100 pull requests, the gh --limit; the list may be truncated"
 expect_last_line "21: two full repositories count every pull request" \
   "summary: 200 open dependabot PRs, 0 flagged"
+
+fixture=object-limit
+gh_fail=0
+run_check --repo example-org/example-repo
+expect_status "22: a 100 key object exits 2" 2
+expect_err "22: a 100 key object names the JSON" \
+  "could not read the gh JSON for example-org/example-repo"
+expect_no_err "22: a 100 key object prints no truncation warning" \
+  "the list may be truncated"
 
 fixture_dir="$fixtures"
 
