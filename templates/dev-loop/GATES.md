@@ -100,8 +100,9 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `line-cap`, `npm-ci`, `node-pin`, `docs-sweep`,
-  `prose-dashes`, `md-links`, `model-ids`, `pr-state`, `review-ready`,
-  `review-citations`, and `deploy-hash`. Why the two review gates exist is
+  `prose-dashes`, `md-links`, `model-ids`, `model-check-required`, `pr-state`,
+  `review-ready`, `review-citations`, and `deploy-hash`. Why the two review
+  gates exist is
   in [`REVIEW-GATES.md`](REVIEW-GATES.md). Their flags, rows, and exit
   codes are in `scripts/dev-loop-gate.sh --check review-ready --help` and
   `--check review-citations --help`. Other ids, including `all`, exit 2
@@ -276,6 +277,17 @@ It runs each `--dry-run` surface with literal arguments after `--`, paths with
 spaces, empty strings, and leading-dash values, and fails when one is dropped,
 split, or reinterpreted. Add a row there when a launcher gains a new argument
 path.
+
+### model-check-required
+
+`--check model-check-required` decides whether a model review may be skipped.
+Skip the model check only for small, low-risk diffs that the deterministic
+gates fully cover; anything else keeps a model check. The check fails closed:
+an unreadable diff, an unusual path, or a missing base is REQUIRED, never a
+silent SKIP. The gate only prints the decision, so a caller that ignores the
+row never skips by accident. Run
+`scripts/dev-loop-gate.sh --check model-check-required --help` for the rules
+and the lists.
 
 ### pr-state
 
