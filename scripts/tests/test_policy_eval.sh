@@ -172,6 +172,135 @@ expect_status "list-forbids exits 0" 0
 expect_out "list-forbids names git add" "agent-git.forbid.git-add"
 expect_out "list-forbids carries the label" "git add"
 
+printf '== sourced decision after a failed load ==\n'
+
+cat > "$work_tmp/truncated" <<'POL'
+id=allow.docs
+effect=permit
+action=skip-model-check
+resource=docs/*.md
+principal=*
+
+this line is not key=value
+POL
+
+run_sourced_decide() {
+  (
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=../lib/policy-eval.sh
+    . "$repo_root/scripts/lib/policy-eval.sh"
+    if [ -n "$2" ]; then
+      export POLICY_RULES="$2"
+    else
+      unset POLICY_RULES
+    fi
+    load_status=0
+    if [ "$1" != "-" ]; then
+      policy_eval_load "$1" 2>/dev/null || load_status=$?
+    fi
+    decide_status=0
+    policy_eval_decide "$3" "$4" 2>/dev/null || decide_status=$?
+    printf '%s|%s|%s|%s|%s\n' "$load_status" "$decide_status" \
+      "$policy_eval_effect" "$policy_eval_rule" "$policy_eval_loaded"
+  )
+}
+
+sourced_result="$(run_sourced_decide "$work_tmp/truncated" "" skip-model-check docs/guide.md)"
+IFS='|' read -r sourced_load sourced_decide sourced_effect sourced_rule sourced_loaded <<EOF
+$sourced_result
+EOF
+
+if [ "$sourced_load" -ne 0 ]; then
+  ok "truncated policy load fails"
+else
+  bad "truncated policy load fails" "expected a non-zero load exit, got $sourced_load"
+fi
+status="$sourced_decide"
+expect_status "truncated policy decide exits 3" 3
+out="$sourced_effect"
+expect_line "truncated policy effect is DENY" "DENY"
+out="$sourced_rule"
+expect_line "truncated policy rule is default.deny" "default.deny"
+out="$sourced_loaded"
+expect_line "truncated policy is not left loaded" "0"
+
+sourced_result="$(run_sourced_decide "-" "$work_tmp/no-such-policy" skip-model-check docs/guide.md)"
+IFS='|' read -r sourced_load sourced_decide sourced_effect sourced_rule sourced_loaded <<EOF
+$sourced_result
+EOF
+
+status="$sourced_decide"
+expect_status "sourced missing policy decide exits 3" 3
+out="$sourced_effect"
+expect_line "sourced missing policy effect is DENY" "DENY"
+out="$sourced_rule"
+expect_line "sourced missing policy rule is default.deny" "default.deny"
+
+printf '== empty policy ==\n'
+
+: > "$work_tmp/empty-policy"
+run_eval --policy "$work_tmp/empty-policy" --action skip-model-check --resource docs/guide.md
+expect_status "empty policy file exits 3" 3
+expect_err "empty policy file has no rules" "no rules"
+
+printf '# only a comment\n' > "$work_tmp/comments-policy"
+run_eval --policy "$work_tmp/comments-policy" --action skip-model-check --resource docs/guide.md
+expect_status "comments-only policy file exits 3" 3
+expect_err "comments-only policy file has no rules" "no rules"
+
+printf '== invalid policy values ==\n'
+
+cat > "$work_tmp/bad-case" <<'POL'
+id=forbid.token
+effect=forbid
+action=skip-model-check
+resource=*token*
+match=glob
+case=lowercase
+
+id=allow.docs
+effect=permit
+action=skip-model-check
+resource=docs/*.md
+principal=*
+POL
+run_eval --policy "$work_tmp/bad-case" --action skip-model-check --resource docs/TOKEN-notes.md
+expect_status "lowercase case exits 3" 3
+expect_err "lowercase case is named" "invalid case"
+
+cat > "$work_tmp/bad-match" <<'POL'
+id=bad.match
+effect=permit
+action=skip-model-check
+resource=docs/*.md
+match=exact
+POL
+run_eval --policy "$work_tmp/bad-match" --action skip-model-check --resource docs/guide.md
+expect_status "bad match exits 3" 3
+expect_err "bad match is named" "invalid match"
+
+cat > "$work_tmp/bad-principal" <<'POL'
+id=bad.principal
+effect=permit
+action=skip-model-check
+resource=docs/*.md
+principal=bot
+POL
+run_eval --policy "$work_tmp/bad-principal" --action skip-model-check --resource docs/guide.md
+expect_status "bad principal exits 3" 3
+expect_err "bad principal is named" "invalid principal"
+
+cat > "$work_tmp/bad-key" <<'POL'
+id=bad.key
+effect=permit
+action=skip-model-check
+resource=docs/*.md
+foo=bar
+POL
+run_eval --policy "$work_tmp/bad-key" --action skip-model-check --resource docs/guide.md
+expect_status "unknown key exits 3" 3
+expect_err "unknown key is named" "unknown key"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
   exit 1

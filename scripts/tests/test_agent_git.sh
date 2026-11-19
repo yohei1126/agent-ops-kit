@@ -64,6 +64,13 @@ expect_no_out() {
   esac
 }
 
+expect_err() {
+  case "$err" in
+    *"$2"*) ok "$1" ;;
+    *) bad "$1" "stderr missing: $2" ;;
+  esac
+}
+
 expect_no_quote() {
   if printf '%s\n' "$out" | grep -q '"'; then
     bad "$1" "stdout contains a double quote"
@@ -191,6 +198,34 @@ printf '== kit self-check ==\n'
 run_gate "$repo_root" bash "$gate" --repo "$repo_root" --strict --check agent-git
 expect_status "A8: kit passes strict agent-git" 0
 expect_regex "A8: kit summary passes" "^AG +agent-git +PASS +[0-9]+ files, 0 hits$"
+
+printf '== missing and malformed policy ==\n'
+
+policy_repo="$(make_repo)"
+printf '# Handoffs\nRun the tests and report the branch.\n' > "$policy_repo/docs/workstation-handoffs.md"
+track "$policy_repo" docs/workstation-handoffs.md
+
+run_gate "$repo_root" env POLICY_RULES="$work_tmp/no-such-policy" bash "$gate" \
+  --repo "$policy_repo" --check agent-git
+expect_status "P1: missing policy fails closed without strict" 3
+expect_err "P1: missing policy error is clear" "cannot load the agent-git policy"
+expect_no_out "P1: missing policy does not print PASS" "PASS"
+
+cat > "$work_tmp/malformed-policy" <<'POL'
+id=allow.docs
+effect=permit
+action=agent-git.scan
+resource=docs/*.md
+principal=*
+
+this line is not key=value
+POL
+
+run_gate "$repo_root" env POLICY_RULES="$work_tmp/malformed-policy" bash "$gate" \
+  --repo "$policy_repo" --check agent-git
+expect_status "P2: malformed policy fails closed without strict" 3
+expect_err "P2: malformed policy error is clear" "cannot load the agent-git policy"
+expect_no_out "P2: malformed policy does not print PASS" "PASS"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then

@@ -23,7 +23,11 @@ agent_git_load_policy() {
   # shellcheck source-path=SCRIPTDIR
   # shellcheck source=policy-eval.sh
   . "$agent_git_lib_dir/policy-eval.sh"
+  if ! policy_eval_ensure_loaded; then
+    return 1
+  fi
   agent_git_policy_loaded=1
+  return 0
 }
 
 # agent_git_in_scope <path>
@@ -57,6 +61,11 @@ run_agent_git() {
 
   agent_git_tab="$(printf '\t')"
   agent_git_hits=0
+
+  if ! agent_git_load_policy; then
+    printf 'dev-loop-gate: cannot load the agent-git policy\n' >&2
+    return 3
+  fi
 
   row Gate Name Status Action
   row ---- ------------------------------ ------ ------

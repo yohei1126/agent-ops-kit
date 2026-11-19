@@ -20,6 +20,7 @@ policy_eval_when_eres=()
 policy_eval_labels=()
 
 policy_eval_loaded=0
+policy_eval_load_failed=0
 policy_eval_attr_list=()
 policy_eval_attrs=""
 policy_eval_attr_value=""
@@ -43,7 +44,7 @@ policy_eval_fail() {
 policy_eval_append_rule() {
   local id="$1" effect="$2" principal="$3" action="$4" resource="$5"
   local rmatch="$6" rcase="$7" whens="$8" ere="$9" label="${10}"
-  local i count cond
+  local i count cond ere_status
 
   if [ -z "$id" ]; then
     policy_eval_fail "policy record is missing id"
@@ -64,6 +65,21 @@ policy_eval_append_rule() {
       return 1
       ;;
   esac
+  if [ -n "$principal" ] && [ "$principal" != "*" ]; then
+    policy_eval_fail "policy rule $id has an invalid principal: $principal"
+    return 1
+  fi
+  if [ -n "$rmatch" ] && [ "$rmatch" != glob ]; then
+    policy_eval_fail "policy rule $id has an invalid match: $rmatch"
+    return 1
+  fi
+  case "$rcase" in
+    '' | sensitive | lower) ;;
+    *)
+      policy_eval_fail "policy rule $id has an invalid case: $rcase"
+      return 1
+      ;;
+  esac
   i=0
   while [ "$i" -lt "${#policy_eval_ids[@]}" ]; do
     if [ "${policy_eval_ids[$i]}" = "$id" ]; then
@@ -76,10 +92,25 @@ policy_eval_append_rule() {
   if [ -n "$whens" ]; then
     while IFS= read -r cond; do
       [ -n "$cond" ] || continue
+      case "$cond" in
+        *'>='* | *'<='* | *'!='* | *'>'* | *'<'* | *'='*) ;;
+        *)
+          policy_eval_fail "policy rule $id has an invalid when condition: $cond"
+          return 1
+          ;;
+      esac
       count=$((count + 1))
     done <<EOF
 $whens
 EOF
+  fi
+  if [ -n "$ere" ]; then
+    ere_status=0
+    printf '' | LC_ALL=C grep -Eq -- "$ere" || ere_status=$?
+    if [ "$ere_status" -eq 2 ]; then
+      policy_eval_fail "policy rule $id has an invalid when_ere: $ere"
+      return 1
+    fi
   fi
   i=${#policy_eval_ids[@]}
   policy_eval_ids[i]="$id"
@@ -95,25 +126,7 @@ EOF
   policy_eval_labels[i]="$label"
 }
 
-policy_eval_load() {
-  local file="${1:-}"
-  local line key value lineno=0
-  local cur_id="" cur_effect="" cur_principal="" cur_action="" cur_resource=""
-  local cur_match="" cur_case="" cur_ere="" cur_label="" cur_whens=""
-  local have=0
-
-  if [ -z "$file" ]; then
-    if [ -n "${POLICY_RULES:-}" ]; then
-      file="$POLICY_RULES"
-    else
-      file="$policy_eval_default_file"
-    fi
-  fi
-  if [ ! -f "$file" ] || [ ! -r "$file" ]; then
-    policy_eval_fail "cannot read policy file: $file"
-    return 1
-  fi
-
+policy_eval_reset_rules() {
   policy_eval_ids=()
   policy_eval_effects=()
   policy_eval_principals=()
@@ -125,7 +138,15 @@ policy_eval_load() {
   policy_eval_when_counts=()
   policy_eval_when_eres=()
   policy_eval_labels=()
-  policy_eval_loaded=1
+  policy_eval_loaded=0
+}
+
+policy_eval_parse_file() {
+  local file="$1"
+  local line key value lineno=0
+  local cur_id="" cur_effect="" cur_principal="" cur_action="" cur_resource=""
+  local cur_match="" cur_case="" cur_ere="" cur_label="" cur_whens=""
+  local have=0
 
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
@@ -188,7 +209,44 @@ $value"
   fi
 }
 
+policy_eval_load() {
+  local file="${1:-}"
+
+  if [ -z "$file" ]; then
+    if [ -n "${POLICY_RULES:-}" ]; then
+      file="$POLICY_RULES"
+    else
+      file="$policy_eval_default_file"
+    fi
+  fi
+  if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+    policy_eval_reset_rules
+    policy_eval_load_failed=1
+    policy_eval_fail "cannot read policy file: $file"
+    return 1
+  fi
+
+  policy_eval_reset_rules
+  if ! policy_eval_parse_file "$file"; then
+    policy_eval_reset_rules
+    policy_eval_load_failed=1
+    return 1
+  fi
+  if [ "${#policy_eval_ids[@]}" -eq 0 ]; then
+    policy_eval_reset_rules
+    policy_eval_load_failed=1
+    policy_eval_fail "policy file has no rules: $file"
+    return 1
+  fi
+  policy_eval_loaded=1
+  policy_eval_load_failed=0
+  return 0
+}
+
 policy_eval_ensure_loaded() {
+  if [ "${policy_eval_load_failed:-0}" = 1 ]; then
+    return 1
+  fi
   if [ "${policy_eval_loaded:-0}" = 1 ]; then
     return 0
   fi
@@ -313,7 +371,11 @@ EOF
 policy_eval_decide() {
   local action="$1" resource="$2" i first_forbid first_permit
 
-  policy_eval_ensure_loaded || return 1
+  # shellcheck disable=SC2034
+  policy_eval_effect=DENY
+  # shellcheck disable=SC2034
+  policy_eval_rule=default.deny
+  policy_eval_ensure_loaded || return 3
   first_forbid=""
   first_permit=""
   i=0
