@@ -12,26 +12,26 @@ set -u
 repo="${repo:-}"
 strict="${strict:-0}"
 
-# Each command needs end of line or a non-identifier character after its last
-# word, so git additional and git committing are not hits. This is a portable
-# POSIX ERE; do not use grep -P.
-agent_git_add_re='(^|[^[:alnum:]_])git[[:space:]]+add([^[:alnum:]_]|$)'
-agent_git_commit_re='(^|[^[:alnum:]_])git[[:space:]]+commit([^[:alnum:]_]|$)'
-agent_git_push_re='(^|[^[:alnum:]_])git[[:space:]]+push([^[:alnum:]_]|$)'
-agent_git_pr_re='(^|[^[:alnum:]_])gh[[:space:]]+pr[[:space:]]+create([^[:alnum:]_]|$)'
-
+agent_git_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agent_git_hits=0
+agent_git_policy_loaded=0
+
+agent_git_load_policy() {
+  if [ "$agent_git_policy_loaded" = 1 ]; then
+    return 0
+  fi
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=policy-eval.sh
+  . "$agent_git_lib_dir/policy-eval.sh"
+  agent_git_policy_loaded=1
+}
 
 # agent_git_in_scope <path>
-# True only for the narrow, explicit agent-facing paths. Caller collect and
-# monthly-audit operator examples stay out of scope by omission.
+# True when the evaluator allows an agent-git.scan decision for the path.
 agent_git_in_scope() {
-  case "$1" in
-    docs/workstation-handoffs.md | templates/agent-task-issue.md) return 0 ;;
-    prompts/*.md) return 0 ;;
-    templates/agent-task*.md) return 0 ;;
-  esac
-  return 1
+  agent_git_load_policy
+  policy_eval_attrs=""
+  policy_eval_decide agent-git.scan "$1"
 }
 
 # agent_git_scan <path> <regex> <label>
@@ -53,7 +53,9 @@ agent_git_scan() {
 run_agent_git() {
   local checked=0
   local path state action
+  local agent_git_tab forbid_id forbid_ere forbid_label
 
+  agent_git_tab="$(printf '\t')"
   agent_git_hits=0
 
   row Gate Name Status Action
@@ -67,10 +69,10 @@ run_agent_git() {
       continue
     fi
     checked=$((checked + 1))
-    agent_git_scan "$path" "$agent_git_add_re" "git add"
-    agent_git_scan "$path" "$agent_git_commit_re" "git commit"
-    agent_git_scan "$path" "$agent_git_push_re" "git push"
-    agent_git_scan "$path" "$agent_git_pr_re" "gh pr create"
+    while IFS="$agent_git_tab" read -r forbid_id forbid_ere forbid_label; do
+      [ -n "$forbid_id" ] || continue
+      agent_git_scan "$path" "$forbid_ere" "$forbid_label"
+    done < <(policy_eval_list_forbids agent-git.instruct)
   done < <(git -C "$repo" ls-files -z)
 
   if [ "$agent_git_hits" -gt 0 ]; then

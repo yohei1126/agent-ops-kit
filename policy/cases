@@ -1,0 +1,54 @@
+name	action	resource	attrs	expected	rule_id
+docs-md	skip-model-check	docs/guide.md	-	ALLOW	mcr.allow.docs
+docs-subfolder	skip-model-check	docs/sub/nested.md	-	ALLOW	mcr.allow.docs
+readme	skip-model-check	README.md	-	ALLOW	mcr.allow.readme
+scripts-readme	skip-model-check	scripts/README.md	-	ALLOW	mcr.allow.scripts-readme
+token-in-docs	skip-model-check	docs/TOKEN-notes.md	-	DENY	mcr.deny.token
+auth-in-docs	skip-model-check	docs/auth-guide.md	-	DENY	mcr.deny.auth
+secret-in-docs	skip-model-check	docs/secret-notes.md	-	DENY	mcr.deny.secret
+credential-in-docs	skip-model-check	docs/credential-notes.md	-	DENY	mcr.deny.credential
+permission-in-docs	skip-model-check	docs/permission-notes.md	-	DENY	mcr.deny.permission
+launch-script	skip-model-check	scripts/agent-launch.sh	-	DENY	mcr.deny.launch
+settings-in-docs	skip-model-check	docs/settings.md	-	DENY	mcr.deny.settings
+security-in-docs	skip-model-check	docs/security.md	-	DENY	mcr.deny.security
+security-letter-case	skip-model-check	docs/Security.md	-	DENY	mcr.deny.security
+github-workflow	skip-model-check	.github/workflows/ci.yml	-	DENY	mcr.deny.github
+env-root	skip-model-check	.env.example	-	DENY	mcr.deny.env
+env-nested-in-docs	skip-model-check	docs/.env.local	-	DENY	mcr.deny.env-nested
+scripts-agents	skip-model-check	scripts/agents/run.sh	-	DENY	mcr.deny.scripts-agents
+scripts-templates	skip-model-check	scripts/templates/note.md	-	DENY	mcr.deny.scripts-templates
+scripts-quota	skip-model-check	scripts/quota/dump.sh	-	DENY	mcr.deny.scripts-quota
+dev-loop-gate	skip-model-check	scripts/dev-loop-gate.sh	-	DENY	mcr.deny.dev-loop-gate
+scripts-lib	skip-model-check	scripts/lib/thing.sh	-	DENY	mcr.deny.scripts-lib
+test-mcr	skip-model-check	scripts/tests/test_model_check_required.sh	-	DENY	mcr.deny.test-mcr
+test-dev-loop-gate	skip-model-check	scripts/tests/test_dev_loop_gate.sh	-	DENY	mcr.deny.test-dev-loop-gate
+templates-dev-loop	skip-model-check	templates/dev-loop/GATES.md	-	DENY	mcr.deny.templates-dev-loop
+prompts	skip-model-check	prompts/task.md	-	DENY	mcr.deny.prompts
+agent-config-in-docs	skip-model-check	docs/agent-config-notes.md	-	DENY	mcr.deny.agent-config
+model-ids-in-docs	skip-model-check	docs/model-ids-notes.md	-	DENY	mcr.deny.model-ids
+src-not-allowed	skip-model-check	src/app.js	-	DENY	default.deny
+line-cap-eq	skip-model-check	docs/guide.md	changed_lines=150	ALLOW	mcr.allow.docs
+line-cap-over	skip-model-check	docs/guide.md	changed_lines=151	DENY	mcr.line-cap
+line-cap-unrelated-path	skip-model-check	src/app.js	changed_lines=151	DENY	mcr.line-cap
+script-allowed	skip-model-check	scripts/foo-bar.sh	slash_count=1,exists_at_mb=1,paired_test_at_mb=1,paired_test_at_head=1	ALLOW	mcr.allow.script
+script-without-test	skip-model-check	scripts/nolib.sh	slash_count=1,exists_at_mb=1,paired_test_at_mb=0,paired_test_at_head=0	DENY	default.deny
+script-new	skip-model-check	scripts/newtool.sh	slash_count=1,exists_at_mb=0,paired_test_at_mb=1,paired_test_at_head=1	DENY	default.deny
+script-and-test-together	skip-model-check	scripts/foo-bar.sh	slash_count=1,exists_at_mb=1,paired_test_at_mb=1,paired_test_at_head=1,paired_in_diff=1	DENY	mcr.script-and-test
+script-subdir-not-allow	skip-model-check	scripts/extra/foo.sh	slash_count=2,exists_at_mb=1,paired_test_at_mb=1,paired_test_at_head=1	DENY	default.deny
+test-allowed	skip-model-check	scripts/tests/test_foo_bar.sh	slash_count=2,exists_at_mb=1	ALLOW	mcr.allow.test
+test-new	skip-model-check	scripts/tests/test_newtool.sh	slash_count=2,exists_at_mb=0	DENY	default.deny
+test-deeper	skip-model-check	scripts/tests/sub/test_foo.sh	slash_count=3,exists_at_mb=1	DENY	default.deny
+deny-wins-over-script-attrs	skip-model-check	scripts/lib/thing.sh	slash_count=2,exists_at_mb=1,paired_test_at_mb=1,paired_test_at_head=1	DENY	mcr.deny.scripts-lib
+ag-scope-handoffs	agent-git.scan	docs/workstation-handoffs.md	-	ALLOW	agent-git.scope.handoffs
+ag-scope-task-issue	agent-git.scan	templates/agent-task-issue.md	-	ALLOW	agent-git.scope.task-issue
+ag-scope-prompts	agent-git.scan	prompts/clean.md	-	ALLOW	agent-git.scope.prompts
+ag-scope-prompts-sub	agent-git.scan	prompts/sub/nested.md	-	ALLOW	agent-git.scope.prompts
+ag-scope-agent-task-glob	agent-git.scan	templates/agent-task-extra.md	-	ALLOW	agent-git.scope.agent-task
+ag-scope-collect-out	agent-git.scan	docs/launch-approvals-and-collection.md	-	DENY	default.deny
+ag-scope-audit-out	agent-git.scan	docs/monthly-audit.md	-	DENY	default.deny
+ag-instruct-git-add	agent-git.instruct	templates/agent-task-issue.md	text=Run git add .	DENY	agent-git.forbid.git-add
+ag-instruct-git-commit	agent-git.instruct	templates/agent-task-issue.md	text=Run git commit -m change.	DENY	agent-git.forbid.git-commit
+ag-instruct-git-push	agent-git.instruct	templates/agent-task-issue.md	text=Run git push origin HEAD.	DENY	agent-git.forbid.git-push
+ag-instruct-gh-pr	agent-git.instruct	templates/agent-task-issue.md	text=Run gh pr create --draft.	DENY	agent-git.forbid.gh-pr-create
+ag-instruct-status-no-hit	agent-git.instruct	prompts/allowed.md	text=Run git status and git diff before reporting.	DENY	default.deny
+ag-instruct-prefix-no-hit	agent-git.instruct	prompts/prefix.md	text=This git additional note is harmless.	DENY	default.deny

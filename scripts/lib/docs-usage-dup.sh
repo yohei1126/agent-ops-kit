@@ -34,6 +34,7 @@ scripts/dependabot-red-prs.sh
 scripts/rate-limit-check.sh
 scripts/work-graph.sh
 scripts/worker-deploy.sh
+scripts/policy-eval.sh
 EOF
 }
 

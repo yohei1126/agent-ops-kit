@@ -211,6 +211,12 @@ using the wrapper scripts:
 
 ## Local gate checks
 
+The `agent-git` and `model-check-required` checks read their scope, allow and
+deny lists, line cap, and command patterns from
+[`../policy/rules`](../policy/rules). Keeping the policy as data in one place
+lets a single evaluator apply one rule order, so the two checks cannot drift
+apart. Run `scripts/policy-eval.sh --help` for the flags.
+
 [`dev-loop-gate.sh`](dev-loop-gate.sh) prints the G1 to G7 table and runs the
 `line-cap` and `docs-sweep` checks. The table also runs an `npm-ci` preflight
 that fails when `package-lock.json` sits beside a missing `node_modules`;

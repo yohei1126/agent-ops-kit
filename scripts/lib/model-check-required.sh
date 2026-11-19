@@ -10,9 +10,29 @@ set -u
 
 repo="${repo:-}"
 
-mcr_line_cap=150
-mcr_deny_patterns=".github/* *auth* *secret* *token* *credential* *permission* *launch* *settings* *security* .env* */.env* scripts/agents/* scripts/templates/* scripts/quota/* scripts/dev-loop-gate.sh scripts/lib/* scripts/tests/test_model_check_required.sh scripts/tests/test_dev_loop_gate.sh templates/dev-loop/* prompts/* *agent-config* *model-ids*"
-mcr_allow_patterns="docs/*.md README.md scripts/README.md"
+mcr_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mcr_line_cap=""
+mcr_deny_patterns=""
+mcr_allow_patterns=""
+mcr_policy_lib_loaded=0
+
+# Load policy when a decision or --help needs the lists. Do not source the
+# evaluator at file load time: the gate sources this file from --help.
+mcr_load_policy() {
+  if [ "$mcr_policy_lib_loaded" != 1 ]; then
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=policy-eval.sh
+    . "$mcr_lib_dir/policy-eval.sh"
+    mcr_policy_lib_loaded=1
+  fi
+  if ! policy_eval_print_mcr_meta >/dev/null; then
+    printf 'dev-loop-gate: cannot load the model-check-required policy\n' >&2
+    return 3
+  fi
+  mcr_line_cap="$policy_eval_mcr_line_cap"
+  mcr_deny_patterns="$policy_eval_mcr_deny_patterns"
+  mcr_allow_patterns="$policy_eval_mcr_allow_patterns"
+}
 
 # Prints the one decision row and removes the temporary diff file.
 mcr_finish() {
@@ -23,69 +43,82 @@ mcr_finish() {
   return 0
 }
 
-# True when the lowercased path matches one deny pattern.
+# True when the evaluator denies the path.
 mcr_deny_path() {
-  local LC_ALL=C
-  local lower pat
-
-  lower="$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
-  set -f
-  # shellcheck disable=SC2086
-  for pat in $mcr_deny_patterns; do
-    # shellcheck disable=SC2254
-    case "$lower" in
-      $pat) set +f; return 0 ;;
-    esac
-  done
-  set +f
+  policy_eval_attrs=""
+  if policy_eval_decide skip-model-check "$1"; then
+    return 1
+  fi
+  case "$policy_eval_rule" in
+    mcr.deny.*) return 0 ;;
+  esac
   return 1
 }
 
-# True when the path is on the allow list, including the script rule.
+# True when the evaluator allows the path, including the script rule.
 mcr_allow_path() {
-  local LC_ALL=C
-  local path mb name rest test_rel pat
+  local path="$1"
+  local mb="$2"
+  local slash_count name rest test_rel exists_at_mb
+  local paired_test_at_mb paired_test_at_head
 
-  path="$1"
-  mb="$2"
-  set -f
-  # shellcheck disable=SC2086
-  for pat in $mcr_allow_patterns; do
-    # shellcheck disable=SC2254
-    case "$path" in
-      $pat) set +f; return 0 ;;
-    esac
-  done
-  set +f
-
+  slash_count="$(printf '%s' "$path" | LC_ALL=C tr -cd '/' | wc -c | tr -d ' ')"
   case "$path" in
     scripts/tests/test_*.sh)
       rest="${path#scripts/tests/}"
       case "$rest" in
-        */*) return 1 ;;
+        */*) ;;
+        *)
+          if git -C "$repo" cat-file -e "$mb:$path" 2>/dev/null; then
+            exists_at_mb=1
+          else
+            exists_at_mb=0
+          fi
+          policy_eval_attrs="slash_count=$slash_count exists_at_mb=$exists_at_mb"
+          policy_eval_decide skip-model-check "$path"
+          return $?
+          ;;
       esac
-      if ! git -C "$repo" cat-file -e "$mb:$path" 2>/dev/null; then
-        return 1
-      fi
-      return 0
       ;;
     scripts/*.sh)
       rest="${path#scripts/}"
+      case "$rest" in
+        */*) ;;
+        *)
+          name="${rest%.sh}"
+          if [ -n "$name" ]; then
+            test_rel="scripts/tests/test_${name//-/_}.sh"
+            if git -C "$repo" cat-file -e "$mb:$path" 2>/dev/null; then
+              exists_at_mb=1
+            else
+              exists_at_mb=0
+            fi
+            if git -C "$repo" cat-file -e "$mb:$test_rel" 2>/dev/null; then
+              paired_test_at_mb=1
+            else
+              paired_test_at_mb=0
+            fi
+            if git -C "$repo" cat-file -e "HEAD:$test_rel" 2>/dev/null; then
+              paired_test_at_head=1
+            else
+              paired_test_at_head=0
+            fi
+            policy_eval_attrs="slash_count=$slash_count exists_at_mb=$exists_at_mb paired_test_at_mb=$paired_test_at_mb paired_test_at_head=$paired_test_at_head"
+            policy_eval_decide skip-model-check "$path"
+            return $?
+          fi
+          ;;
+      esac
       ;;
-    *) return 1 ;;
   esac
-  case "$rest" in
-    */*) return 1 ;;
-  esac
-  name="${rest%.sh}"
-  [ -n "$name" ] || return 1
-  test_rel="scripts/tests/test_${name//-/_}.sh"
-  git -C "$repo" cat-file -e "$mb:$path" 2>/dev/null || return 1
-  git -C "$repo" cat-file -e "$mb:$test_rel" 2>/dev/null || return 1
-  git -C "$repo" cat-file -e "HEAD:$test_rel" 2>/dev/null
+
+  policy_eval_attrs="slash_count=$slash_count"
+  policy_eval_decide skip-model-check "$path"
+  return $?
 }
 
 usage_model_check_required() {
+  mcr_load_policy || return 3
   cat <<'EOF'
 usage: dev-loop-gate.sh --check model-check-required [--repo <root>] [--strict]
 
@@ -154,6 +187,7 @@ mcr_path_listed() {
 }
 
 run_model_check_required() {
+  mcr_load_policy || return 3
   local LC_ALL=C
   local base mb status_out raw_out numstat_out line rest tab
   local old_mode new_mode raw_path added deleted npath path
@@ -286,8 +320,15 @@ EOF_RAW
         name="${rest%.sh}"
         if [ -n "$name" ] &&
           mcr_path_listed "scripts/tests/test_${name//-/_}.sh" "$npaths"; then
-          mcr_finish REQUIRED "script and its test changed together: $path"
-          return 0
+          policy_eval_attrs="slash_count=1 paired_in_diff=1"
+          if ! policy_eval_decide skip-model-check "$path"; then
+            case "$policy_eval_rule" in
+              mcr.script-and-test)
+                mcr_finish REQUIRED "script and its test changed together: $path"
+                return 0
+                ;;
+            esac
+          fi
         fi
         ;;
     esac
@@ -320,9 +361,14 @@ EOF_RAW
 $numstat_out
 EOF_NUMSTAT
 
-  if [ "$total" -gt "$mcr_line_cap" ]; then
-    mcr_finish REQUIRED "$total changed lines over cap $mcr_line_cap"
-    return 0
+  policy_eval_attrs="changed_lines=$total"
+  if ! policy_eval_decide skip-model-check "*"; then
+    case "$policy_eval_rule" in
+      mcr.line-cap)
+        mcr_finish REQUIRED "$total changed lines over cap $mcr_line_cap"
+        return 0
+        ;;
+    esac
   fi
 
   if ! ( mcr_run_table_strict ) >/dev/null 2>&1; then
