@@ -1205,6 +1205,58 @@ if [ -n "$diff_out" ]; then
 fi
 reset_wt
 
+reset_ctl
+reset_wt
+printf 'one\nTWO\nthree\nfour\nfive\nsix\nseven\n' >"$wt/docs/seven.txt"
+cp "$wt/docs/seven.txt" "$work_tmp/seven-applied"
+{
+  printf '```diff\n'
+  cat <<'DIFF'
+diff --git a/docs/seven.txt b/docs/seven.txt
+--- a/docs/seven.txt
++++ b/docs/seven.txt
+@@ -1,7 +1,7 @@
+ one
+-two
++TWO
+ three
+ four
+ five
+ six
+ seven
+DIFF
+  printf '```\n'
+} >"$work_tmp/text-applied"
+mkdir -p "$work_tmp/gnu-noop-bin"
+for shadow in patch gpatch; do
+  cat >"$work_tmp/gnu-noop-bin/$shadow" <<'SH'
+#!/bin/sh
+printf 'GNU patch 2.7.6\n'
+exit 0
+SH
+  chmod +x "$work_tmp/gnu-noop-bin/$shadow"
+done
+set_result "$work_tmp/text-applied"
+run_extra_path="$work_tmp/gnu-noop-bin"
+GOAT_KEEP_RUN=1 run_adapter --mode patch --model m -- "$wt" "$brief"
+run_extra_path=""
+expect_status "35: a GNU patch no-op exits 1" 1
+expect_text "35: reports patch_failed" "$out" "STATUS=patch_failed"
+if cmp -s "$work_tmp/seven-applied" "$wt/docs/seven.txt"; then
+  ok "35: the already-applied bytes are unchanged"
+else
+  bad "35: the already-applied bytes are unchanged" "content changed"
+fi
+diff_out="$(printf '%s\n' "$out" | sed -n 's/^DIFF=//p')"
+kept_dir="$(dirname "$diff_out")"
+expect_text "35: the run folder records patch_failed" "$(cat "$kept_dir/status")" "patch_failed"
+expect_text "35: the run folder records a coding-model failure" "$(cat "$kept_dir/coding-model-failure")" "1"
+expect_no_text "35: no GNU patch success is recorded" "$out" "APPLY_METHOD=gnu-patch-fuzz2"
+if [ -n "$diff_out" ]; then
+  rm -rf "$kept_dir"
+fi
+reset_wt
+
 printf '== through agent-launch ==\n'
 reset_ctl
 out="$(AGENT_OPS_KIT_CONFIG="$repo_root/templates/agent-config.example.json" \

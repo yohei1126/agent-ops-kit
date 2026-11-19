@@ -51,8 +51,12 @@ patch with `--fuzz=2`.
 GNU patch is last because fuzz can pick a nearby location. It runs as a
 dry run first, only on paths already checked, with `--batch --forward` so
 a reversed apply is refused rather than assumed, and its `.rej` and
-`.orig` files are removed. A `--3way` result that reports conflicts or
-leaves conflict markers or unmerged entries is not a clean apply: the
+`.orig` files are removed. A GNU patch run that exits 0 without changing
+a single touched path is not counted as an apply either, since
+`--forward` can skip a reversed or already-applied patch;
+`scripts/agents/goat/run --help` describes the check. A `--3way` result
+that reports conflicts or leaves conflict markers or unmerged entries is
+not a clean apply: the
 adapter restores the bytes and index it snapshotted before the attempt and
 continues. Each failed step leaves the tree as it was, which matters
 because patch mode may start on a dirty worktree; the adapter snapshots

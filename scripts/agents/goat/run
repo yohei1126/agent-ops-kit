@@ -126,7 +126,10 @@ Patch apply chain:
   git-apply-recount, and gnu-patch-fuzz2. GNU patch is found as patch
   or gpatch only when its --version reports GNU; the step runs with
   -p1 --dry-run --fuzz=2 --batch --forward, dry run first, and its
-  .rej and .orig files are removed. A --3way result that reports
+  .rej and .orig files are removed. A GNU patch run that exits 0 but
+  leaves every touched path identical to the pre-apply snapshot is a
+  failed step, not a success, so a skipped reversed or already-applied
+  patch does not count. A --3way result that reports
   conflicts, leaves conflict markers, or leaves unmerged entries is a
   failed step: the adapter restores the pre-attempt bytes and index and
   continues. A clean --3way apply is unstaged; a failed step leaves no
@@ -1142,6 +1145,48 @@ remove_patch_leftovers() {
   done <"$run_dir/touched"
 }
 
+# A GNU patch step counts only when the tree actually changed: --forward
+# skips a reversed or already-applied patch and still exits 0, so the
+# touched paths are compared with the snapshot taken before the chain,
+# using the manifest the restore already reads.
+snapshot_unchanged() {
+  local kind
+  local rel
+  local backup
+  while IFS=$'\t' read -r kind rel backup; do
+    [ -n "$rel" ] || continue
+    case "$kind" in
+      absent)
+        if [ -e "$worktree/$rel" ] || [ -L "$worktree/$rel" ]; then
+          return 1
+        fi
+        ;;
+      file)
+        if [ -L "$worktree/$rel" ] || [ ! -f "$worktree/$rel" ]; then
+          return 1
+        fi
+        if [ -n "$backup" ] && ! cmp -s "$backup" "$worktree/$rel"; then
+          return 1
+        fi
+        ;;
+      link)
+        if [ ! -L "$worktree/$rel" ]; then
+          return 1
+        fi
+        if [ -n "$backup" ] && [ "$(readlink "$worktree/$rel")" != "$(cat "$backup")" ]; then
+          return 1
+        fi
+        ;;
+      dir)
+        if [ ! -d "$worktree/$rel" ] || [ -L "$worktree/$rel" ]; then
+          return 1
+        fi
+        ;;
+    esac
+  done <"$run_dir/snapshot-manifest"
+  return 0
+}
+
 # A --3way result is clean only with no unmerged index entries and no
 # conflict markers in any touched file.
 has_conflict_state() {
@@ -1199,7 +1244,9 @@ if [ -z "$apply_method" ] && [ "$diff_rename" = 0 ] && [ -n "$gnu_patch_bin" ]; 
     if "$gnu_patch_bin" -p1 --fuzz=2 --batch --forward -d "$worktree" \
       <"$run_dir/change.diff" >"$run_dir/patch.out" 2>"$run_dir/patch.err"; then
       remove_patch_leftovers
-      apply_method="gnu-patch-fuzz2"
+      if ! snapshot_unchanged; then
+        apply_method="gnu-patch-fuzz2"
+      fi
     else
       restore_snapshot
     fi
