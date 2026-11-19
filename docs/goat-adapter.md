@@ -9,6 +9,17 @@ This page records why it works the way it does.
 The example config uses `patch` for the coding and docs lanes and `review` for
 the review lanes. `write` is opt-in per lane entry.
 
+## Why the Model line comes from the run
+
+The PR and review Model line was typed by hand, so it could be wrong or stale.
+The run output already carries the id that actually ran, so the adapter records
+that exact id, prints it for the caller, and the dev-loop `model-ids` check
+compares the Model line with it. An id that is missing, empty, non-string, or
+mixed across request events fails the run closed. Agents without an adapter
+that records an id fall back to the configured id. See
+`scripts/agents/goat/run --help` and `scripts/dev-loop-gate.sh --help` for the
+flags, output fields, and rows.
+
 ## Why patch is the default
 
 `patch` and `review` run the agent read-only, so a change is a diff the

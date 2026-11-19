@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/dev-loop-gate.sh --check model-ids.
 # Local temp git repos only, no network. Bash 3.2 compatible.
+# shellcheck disable=SC2016 # literal backticks in the sample Model lines
 set -u
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -164,6 +165,89 @@ expect_no_out "10: no FAIL rows on the kit" "FAIL"
 # 11. --help lists the check.
 run_gate --help
 expect_out "11: --help lists model-ids" "model-ids"
+
+# 12. A PR body Model line is compared with the recorded id.
+r="$(new_repo modelline "$good_config" "$list_text")"
+printf 'model-a\n' >"$work_tmp/recorded-a"
+printf 'Model: model-z (Command Code / GOAT)\n' >"$work_tmp/body-mismatch"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-mismatch" --recorded-id-file "$work_tmp/recorded-a"
+expect_status "12: a Model line that differs from the recorded id fails --strict" 1
+expect_out "12: the FAIL row names the recorded id" "recorded id model-a"
+expect_out "12: the FAIL row is educational" "copy that id exactly"
+
+run_gate --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-mismatch" --recorded-id-file "$work_tmp/recorded-a"
+expect_status "12: a Model line that differs from the recorded id fails without --strict" 1
+expect_out "12: the FAIL row shows without --strict" "FAIL"
+
+printf 'Model: Name (model-a) (Command Code / GOAT)\n' >"$work_tmp/body-ok"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-ok" --recorded-id-file "$work_tmp/recorded-a"
+expect_status "12: a Model line with the recorded id passes --strict" 0
+
+printf 'moonshotai/Kimi-K3.1-Pro\n' >"$work_tmp/recorded-mixed"
+printf 'Model: Name (moonshotai/Kimi-K3.1-Pro) (Command Code / GOAT)\n' >"$work_tmp/body-mixed"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-mixed" --recorded-id-file "$work_tmp/recorded-mixed"
+expect_status "12: a mixed-case recorded id passes exactly" 0
+
+printf 'Model: Name (moonshotai/kimi-k3.1-pro) (Command Code / GOAT)\n' >"$work_tmp/body-lower"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-lower" --recorded-id-file "$work_tmp/recorded-mixed"
+expect_status "12: a case-only mismatch fails" 1
+
+printf 'Model: Name (moonshotai/Kimi-K3) (Command Code / GOAT)\n' >"$work_tmp/body-prefix"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-prefix" --recorded-id-file "$work_tmp/recorded-mixed"
+expect_status "12: a prefix of the recorded id does not match" 1
+
+# 13. Without a recorded id, a Model line must name a configured id.
+printf 'Model: Name (model-a) (Command Code / GOAT)\n' >"$work_tmp/body-fallback-ok"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-fallback-ok"
+expect_status "13: a configured id in the Model line passes --strict" 0
+
+printf 'Model: Name (model-z) (Command Code / GOAT)\n' >"$work_tmp/body-fallback-bad"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-fallback-bad"
+expect_status "13: a Model line matching no configured id fails --strict" 1
+
+# 14. A body with no Model line fails closed.
+printf 'No Model line here.\n' >"$work_tmp/body-noline"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-noline" --recorded-id-file "$work_tmp/recorded-a"
+expect_status "14: a body with no Model line fails --strict" 1
+expect_out "14: says no Model line was found" "no Model line"
+
+# 15. Flag use and missing files.
+run_gate --check model-ids --repo "$r" --recorded-id-file "$work_tmp/recorded-a"
+expect_status "15: --recorded-id-file without --model-line-file exits 2" 2
+run_gate --model-line-file "$work_tmp/body-ok" --repo "$r"
+expect_status "15: --model-line-file without --check model-ids exits 2" 2
+run_gate --model-line-file "$work_tmp/body-ok" --check line-cap --repo "$r"
+expect_status "15: the flags with another check exit 2" 2
+run_gate --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/missing-body" --recorded-id-file "$work_tmp/recorded-a"
+expect_status "15: a missing model-line file exits 2" 2
+expect_err "15: names the missing model-line file" "model-line file not found"
+
+# 16. A "Model / Authors:" line (spaces around the slash) is a Model line.
+printf 'Model / Authors: Name (`moonshotai/Kimi-K3.1-Pro`) (Command Code / GOAT).\n' >"$work_tmp/body-slash-ok"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-slash-ok" --recorded-id-file "$work_tmp/recorded-mixed"
+expect_status "16: a Model / Authors line with the recorded id passes --strict" 0
+
+printf 'Model / Authors: Name (`moonshotai/kimi-k3.1-pro`) (Command Code / GOAT).\n' >"$work_tmp/body-slash-lower"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-slash-lower" --recorded-id-file "$work_tmp/recorded-mixed"
+expect_status "16: a Model / Authors line with a case-only mismatch fails --strict" 1
+
+printf 'Model / Authors: Name (`moonshotai/Kimi-K2.5`) (Command Code / GOAT).\n' >"$work_tmp/body-slash-other"
+run_gate --strict --check model-ids --repo "$r" \
+  --model-line-file "$work_tmp/body-slash-other" --recorded-id-file "$work_tmp/recorded-mixed"
+expect_status "16: a Model / Authors line with another id fails --strict" 1
+expect_out "16: the FAIL row names the recorded id" "recorded id moonshotai/Kimi-K3.1-Pro"
 
 printf 'model-ids tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
