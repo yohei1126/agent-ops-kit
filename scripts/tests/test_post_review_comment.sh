@@ -37,10 +37,18 @@ if [ "${PRC_FAIL_COMMENT:-0}" = 1 ] && [ "${1:-}" = "pr" ] && [ "${2:-}" = "comm
 fi
 case "${1:-} ${2:-}" in
   'pr view')
-    printf '{"isDraft":%s}\n' "${PRC_IS_DRAFT:-true}"
+    if [ -n "${PRC_VIEW_JSON:-}" ]; then
+      printf '%s\n' "$PRC_VIEW_JSON"
+    else
+      printf '{"isDraft":%s,"state":"%s"}\n' "${PRC_IS_DRAFT:-true}" "${PRC_STATE:-OPEN}"
+    fi
     exit 0
     ;;
   'pr comment')
+    if [ "${PRC_COMMENT_NO_URL:-0}" = 1 ]; then
+      printf 'posted with no URL\n'
+      exit 0
+    fi
     printf 'https://github.example/pr/1#comment-1\n'
     exit 0
     ;;
@@ -87,8 +95,11 @@ run_check() {
   out="$(env HOME="$home_tmp" \
     PRC_ARGV_FILE="$argv_file" \
     PRC_IS_DRAFT="${PRC_IS_DRAFT:-true}" \
+    PRC_STATE="${PRC_STATE:-OPEN}" \
+    PRC_VIEW_JSON="${PRC_VIEW_JSON:-}" \
     PRC_FAIL_VIEW="${PRC_FAIL_VIEW:-0}" \
     PRC_FAIL_COMMENT="${PRC_FAIL_COMMENT:-0}" \
+    PRC_COMMENT_NO_URL="${PRC_COMMENT_NO_URL:-0}" \
     PATH="$check_path" \
     bash "$check" "$@" 2>"$err_file")"
   status=$?
@@ -110,8 +121,11 @@ reset_run() {
   rm -rf "$run"
   mkdir -p "$run"
   PRC_IS_DRAFT=true
+  PRC_STATE=OPEN
+  PRC_VIEW_JSON=""
   PRC_FAIL_VIEW=0
   PRC_FAIL_COMMENT=0
+  PRC_COMMENT_NO_URL=0
 }
 
 good_body() {
@@ -187,7 +201,7 @@ expect_status "4: a valid draft post exits 0" 0
 expect_out_has "4: prints the comment URL" "https://github.example/pr/1#comment-1"
 expect_post_once "4: gh pr comment runs once"
 expect_argv_has "4: posts the run body file" "--body-file $run/COMMENT.md"
-expect_argv_has "4: reads isDraft" "--json isDraft"
+expect_argv_has "4: reads isDraft and state" "--json isDraft,state"
 if record_has_url; then ok "4: the record holds the comment URL"; else bad "4: the record holds the comment URL" "record missing the URL"; fi
 
 printf '== first line ==\n'
@@ -299,7 +313,7 @@ printf '== gh failures ==\n'
 reset_run
 good_body
 check_path="$work_tmp/no-gh"
-make_tool_path "$check_path" bash sh cat wc grep tr mktemp rm mkdir
+make_tool_path "$check_path" bash sh cat wc grep tr mktemp rm mkdir rmdir
 run_check --run "$run" --repo "$repo" --pr 7
 expect_status "13: missing gh exits 3" 3
 expect_argv_calls "13: missing gh never calls gh" 0
@@ -318,6 +332,185 @@ PRC_FAIL_COMMENT=1
 run_check --run "$run" --repo "$repo" --pr 7
 expect_status "13: gh pr comment failure exits 3" 3
 if record_has_url; then bad "13: a failed post records no URL" "record holds a URL"; else ok "13: a failed post records no URL"; fi
+
+printf '== symlinked run and record ==\n'
+reset_run
+good_body
+real_run="$work_tmp/real-run"
+rm -rf "$real_run"
+mkdir -p "$real_run"
+printf 'Model: example-model\nReviewed the change.\n' > "$real_run/COMMENT.md"
+link_run="$work_tmp/link-run"
+rm -rf "$link_run"
+ln -s "$real_run" "$link_run"
+run_check --run "$link_run" --repo "$repo" --pr 7
+expect_status "14: a symlinked --run exits 1" 1
+expect_no_post "14: a symlinked --run posts nothing"
+expect_argv_calls "14: a symlinked --run never calls gh" 0
+
+reset_run
+good_body
+ln -s "$work_tmp/missing-record" "$run/post-review-comment.record"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "14: a dangling record symlink exits 1" 1
+expect_no_post "14: a dangling record symlink posts nothing"
+expect_argv_calls "14: a dangling record symlink never calls gh" 0
+
+reset_run
+good_body
+printf 'posted\t%s\t%s\t%s\n' "$repo" 7 "https://github.example/pr/7#comment-7" > "$work_tmp/outside.record"
+ln -s "$work_tmp/outside.record" "$run/post-review-comment.record"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "14: a record symlink exits 1" 1
+expect_no_post "14: a record symlink posts nothing"
+expect_argv_calls "14: a record symlink never calls gh" 0
+
+printf '== open draft and state ==\n'
+for state in CLOSED MERGED; do
+  reset_run
+  good_body
+  PRC_STATE="$state"
+  run_check --run "$run" --repo "$repo" --pr 7
+  expect_status "15: isDraft true with state $state exits 1" 1
+  expect_no_post "15: isDraft true with state $state posts nothing"
+done
+
+reset_run
+good_body
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "15: isDraft true with state OPEN exits 0" 0
+expect_post_once "15: an open draft posts once"
+
+printf '== model line and body ==\n'
+for fixture in 'Model: ' 'Model:     '; do
+  reset_run
+  printf '%s\nbody text\n' "$fixture" > "$run/COMMENT.md"
+  run_check --run "$run" --repo "$repo" --pr 7
+  expect_status "16: '$fixture' exits 1" 1
+  expect_no_post "16: '$fixture' posts nothing"
+done
+
+reset_run
+printf 'Model: example-model\n' > "$run/COMMENT.md"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "16: a one-line Model file exits 1" 1
+expect_no_post "16: a one-line Model file posts nothing"
+
+reset_run
+printf 'Model: example-model\r\nbody text\r\n' > "$run/COMMENT.md"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "16: a CRLF body exits 0" 0
+expect_post_once "16: a CRLF body posts once"
+
+printf '== env defaults and flags ==\n'
+reset_run
+good_body
+POST_REVIEW_COMMENT_OWNERS=someoneelse
+export POST_REVIEW_COMMENT_OWNERS
+run_check --run "$run" --repo someoneelse/example-repo --pr 7
+expect_status "17: POST_REVIEW_COMMENT_OWNERS allows an owner" 0
+expect_post_once "17: the env allowed owner posts once"
+unset POST_REVIEW_COMMENT_OWNERS
+
+reset_run
+good_body
+POST_REVIEW_COMMENT_MAX_BYTES=10
+export POST_REVIEW_COMMENT_MAX_BYTES
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "17: POST_REVIEW_COMMENT_MAX_BYTES caps the body" 1
+expect_no_post "17: the env byte cap posts nothing"
+unset POST_REVIEW_COMMENT_MAX_BYTES
+
+reset_run
+good_body
+POST_REVIEW_COMMENT_OWNERS=other
+POST_REVIEW_COMMENT_MAX_BYTES=10
+export POST_REVIEW_COMMENT_OWNERS POST_REVIEW_COMMENT_MAX_BYTES
+run_check --run "$run" --repo someoneelse/example-repo --pr 7 --owners someoneelse --max-bytes 65536
+expect_status "17: CLI flags win over the env vars" 0
+expect_post_once "17: the CLI override posts once"
+unset POST_REVIEW_COMMENT_OWNERS POST_REVIEW_COMMENT_MAX_BYTES
+
+reset_run
+good_body
+run_check --run="$run" --repo=someoneelse/example-repo --pr=7 --owners=someoneelse --max-bytes=65536
+expect_status "17: equals-delimited flags exit 0" 0
+expect_post_once "17: equals-delimited flags post once"
+
+printf '== second default owner ==\n'
+reset_run
+good_body
+run_check --run "$run" --repo edgesentry/example-repo --pr 7
+expect_status "18: the second default owner passes" 0
+expect_post_once "18: the second default owner posts once"
+
+printf '== record repo case ==\n'
+reset_run
+good_body
+run_check --run "$run" --repo yohei1126/agent-ops-kit --pr 7
+expect_status "19: the first repo spelling posts" 0
+expect_post_once "19: the first repo spelling posts once"
+run_check --run "$run" --repo yohei1126/Agent-Ops-Kit --pr 7
+expect_status "19: a case variant fails closed" 1
+expect_no_post "19: a case variant posts nothing"
+expect_argv_calls "19: a case variant never calls gh" 0
+expect_err "19: the case variant finds the record" "already posted"
+
+printf '== multi-line record ==\n'
+reset_run
+good_body
+printf 'posted\t%s\t%s\t%s\n' "yohei1126/other-repo" 9 "https://github.example/pr/9#comment-9" > "$run/post-review-comment.record"
+run_check --run "$run" --repo yohei1126/agent-ops-kit --pr 7
+expect_status "20: a record for another PR still posts" 0
+expect_post_once "20: a record for another PR posts once"
+
+reset_run
+good_body
+printf 'pending\t%s\t%s\t\n' "yohei1126/agent-ops-kit" 7 > "$run/post-review-comment.record"
+printf 'posted\t%s\t%s\t%s\n' "yohei1126/agent-ops-kit" 7 "https://github.example/pr/7#comment-7" >> "$run/post-review-comment.record"
+run_check --run "$run" --repo yohei1126/agent-ops-kit --pr 7
+expect_status "20: pending then posted fails closed" 1
+expect_no_post "20: pending then posted posts nothing"
+expect_err "20: pending then posted names the post" "already posted"
+
+reset_run
+good_body
+printf 'posted\t%s\t%s\t\n' "yohei1126/agent-ops-kit" 7 > "$run/post-review-comment.record"
+run_check --run "$run" --repo yohei1126/agent-ops-kit --pr 7
+expect_status "20: posted with an empty URL fails closed" 1
+expect_no_post "20: posted with an empty URL posts nothing"
+expect_err "20: posted with an empty URL names the attempt" "did not finish"
+
+printf '== gh read and post shapes ==\n'
+reset_run
+good_body
+PRC_COMMENT_NO_URL=1
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "21: a comment with no URL exits 3" 3
+if grep -Fq "posted" "$run/post-review-comment.record" 2>/dev/null; then bad "21: no URL records no success" "record holds a posted line"; else ok "21: no URL records no success"; fi
+
+reset_run
+good_body
+PRC_VIEW_JSON='not json'
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "21: malformed view JSON exits 3" 3
+expect_no_post "21: malformed view JSON posts nothing"
+if [ -f "$run/post-review-comment.record" ] && grep -Fq "pending" "$run/post-review-comment.record"; then bad "21: malformed view JSON leaves no pending" "record holds a pending line"; else ok "21: malformed view JSON leaves no pending"; fi
+
+printf '== concurrent lock ==\n'
+reset_run
+good_body
+mkdir "$run/post-review-comment.lock"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "22: an existing lock exits 1" 1
+expect_no_post "22: an existing lock posts nothing"
+if [ -d "$run/post-review-comment.lock" ]; then ok "22: a foreign lock is left in place"; else bad "22: a foreign lock is left in place" "the lock was removed"; fi
+
+reset_run
+good_body
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "22: a clean run exits 0" 0
+if [ -e "$run/post-review-comment.lock" ]; then bad "22: a clean run removes the lock" "lock left behind"; else ok "22: a clean run removes the lock"; fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
