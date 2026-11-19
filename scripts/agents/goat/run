@@ -23,7 +23,8 @@
 #                   with timeout when on PATH, else gtimeout, else run with
 #                   no timeout and print a note on stderr
 #   GOAT_KEEP_RUN   1 keeps the temporary run folder and prints the diff path
-#   GOAT_MODEL_LINE optional full model label for the review header
+#   GOAT_MODEL_LINE optional full model label for the review header; it
+#                   must contain the recorded model id as a whole token
 #   COMMAND_CODE_API_KEY  required for a real run, never for --dry-run; its
 #                   value is never printed
 #
@@ -36,7 +37,12 @@
 #   intent-to-add (the path only, no content staged), and the run exits 1
 #   if one stays untracked; it never stages content, commits, pushes, or
 #   opens a PR.
-# - review mode writes only the caller's result file.
+# - review mode writes only the caller's result file and its .model-id
+#   sidecar.
+# - The model id that actually ran is read from the run output, written to
+#   the run folder (and the review sidecar), and printed as MODEL=<id> on
+#   success; a missing, empty, non-string, or mixed id fails closed before
+#   any apply or write.
 # - write mode needs a linked, clean worktree on a non-default branch with
 #   no .commandcode directory, installs a settings file that denies shell,
 #   web, MCP, and .git edits, and is the only mode that passes --yolo.
@@ -65,7 +71,7 @@ Modes and positionals after --:
             runs each check id through dev-loop-gate.sh --strict.
   review   <worktree> <brief-file> <result-file>
             Writes "Model: ...", a blank line, and the review text to
-            the result file.
+            the result file, plus a <result-file>.model-id sidecar.
   write    <worktree> <brief-file> <scope> [<scope> ...]
             The only mode that edits the worktree and passes --yolo. It
             requires a linked, clean worktree on a non-default branch.
@@ -77,6 +83,15 @@ Options:
   --dry-run                    Validate, print GOAT_ENV and GOAT_COMMAND,
                                and start nothing
   --help                       Print this help and exit
+
+Recorded model id:
+  After the agent stops, the adapter reads the id that actually ran from
+  the request events in the JSONL output. It writes recorded-model-id in
+  the run folder, writes <result-file>.model-id in review mode, and
+  prints MODEL=<id> on success. A missing, non-string, empty, or mixed id
+  fails closed before any apply or result write. The review Model line
+  uses the recorded id, not --model. GOAT_MODEL_LINE, when set, must
+  contain the recorded id as a whole token or the run exits 2.
 
 Environment:
   GOAT_CMD        binary name or path (default: cmd)
@@ -123,8 +138,9 @@ On an agent failure, a redacted stderr tail is printed (the key value
 is replaced by <redacted>). Patch or review output that contains the
 key is refused without being printed.
 
-GOAT_MODEL_LINE, when unset, becomes "<model-id> (Command Code / GOAT)".
-The adapter reads it from the environment and does not export it.
+GOAT_MODEL_LINE, when unset, becomes "<recorded model id> (Command Code /
+GOAT)". When set, it must contain the recorded id as a whole token. The
+adapter reads it from the environment and does not export it.
 EOF
 }
 
@@ -148,6 +164,27 @@ die_diff_header() {
 # whatever case the caller or the agent uses.
 lower() {
   printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+}
+
+# has_model_token <text> <id>: true when id appears as a whole token,
+# bounded by start, end, whitespace, parentheses, or backticks. Letter case
+# must match.
+has_model_token() {
+  awk -v text="$1" -v id="$2" 'BEGIN {
+    if (id == "") exit 1
+    start = 1
+    while ((i = index(substr(text, start), id)) > 0) {
+      pos = start + i - 1
+      before = (pos == 1) ? "" : substr(text, pos - 1, 1)
+      after = substr(text, pos + length(id), 1)
+      if ((before == "" || before == " " || before == "\t" || before == "(" ||
+           before == "`") &&
+          (after == "" || after == " " || after == "\t" || after == ")" ||
+           after == "`")) exit 0
+      start = pos + 1
+    }
+    exit 1
+  }'
 }
 
 # redact drops the API key from text read on stdin. The key comes from the
@@ -290,6 +327,9 @@ if [ "$mode" = review ]; then
   result_file="${positionals[2]}"
   if [ -L "$result_file" ]; then
     die_usage "result-file is a symlink: $result_file"
+  fi
+  if [ -L "$result_file.model-id" ]; then
+    die_usage "result-file sidecar is a symlink: $result_file.model-id"
   fi
   result_parent="$(dirname "$result_file")"
   if [ ! -d "$result_parent" ]; then
@@ -497,6 +537,7 @@ if node_abs="$(command -v node 2>/dev/null)"; then
   child_path="$(dirname "$node_abs"):$child_path"
 fi
 git_bin="$(command -v git)"
+jq_bin="$(command -v jq)"
 child_env=(env -i
   "PATH=$child_path"
   "HOME=$run_dir/home"
@@ -595,6 +636,51 @@ else
   printf 'goat-run: no timeout or gtimeout on PATH; running without a timeout\n' >&2
   (cd "$worktree" && exec "${child_env[@]}" "${goat_argv[@]}") >"$run_dir/out.jsonl" 2>"$run_dir/err.txt" || agent_status=$?
 fi
+
+# The id that actually ran is on the request events, not on the result
+# event. Every extracted id must be one string, used exactly as it
+# appears, letter case included. A missing, non-string, empty, or mixed id
+# fails closed before anything is applied or written.
+recorded_model_id=""
+model_id_lines=""
+model_id_seen=0
+model_id_bad=0
+model_id_mixed=0
+if [ -f "$run_dir/out.jsonl" ]; then
+  if ! model_id_lines="$("$jq_bin" -r '
+      select(.type == "event")
+      | .event
+      | select(type == "object")
+      | select(.type == "model_request_start" or .type == "model_request_end")
+      | if ((.model | type) == "string") and
+           (((.model | gsub("^\\s+|\\s+$"; "")) | length) > 0)
+        then (.model | gsub("^\\s+|\\s+$"; ""))
+        else "goat-run-bad-model-id" end' "$run_dir/out.jsonl" 2>/dev/null)"; then
+    printf 'goat-run: could not parse the model id from the agent output\n' >&2
+    exit 1
+  fi
+fi
+while IFS= read -r model_id_line; do
+  [ -n "$model_id_line" ] || continue
+  model_id_seen=$((model_id_seen + 1))
+  if [ "$model_id_line" = "goat-run-bad-model-id" ]; then
+    model_id_bad=1
+    continue
+  fi
+  if [ -z "$recorded_model_id" ]; then
+    recorded_model_id="$model_id_line"
+  elif [ "$model_id_line" != "$recorded_model_id" ]; then
+    model_id_mixed=1
+  fi
+done <<EOF_MODEL_ID
+$model_id_lines
+EOF_MODEL_ID
+if [ "$model_id_seen" -eq 0 ] || [ -z "$recorded_model_id" ] ||
+  [ "$model_id_bad" = 1 ] || [ "$model_id_mixed" = 1 ]; then
+  printf 'goat-run: the agent output has no single model id; refusing to record one\n' >&2
+  exit 1
+fi
+printf '%s\n' "$recorded_model_id" >"$run_dir/recorded-model-id"
 
 if [ "$mode" = write ]; then
   # From here on, use only system tools: the agent could write to folders
@@ -748,6 +834,7 @@ if [ "$mode" = write ]; then
     exit 1
   fi
   printf 'CHANGED %s paths in scope\n' "$changed_count"
+  printf 'MODEL=%s\n' "$recorded_model_id"
   exit 0
 fi
 
@@ -775,13 +862,19 @@ fi
 
 if [ "$mode" = review ]; then
   if [ -n "${GOAT_MODEL_LINE:-}" ]; then
+    if ! has_model_token "$GOAT_MODEL_LINE" "$recorded_model_id"; then
+      printf 'goat-run: GOAT_MODEL_LINE must contain the recorded model id %s as a whole token\n' "$recorded_model_id" >&2
+      exit 2
+    fi
     model_line="$GOAT_MODEL_LINE"
   else
-    model_line="$model (Command Code / GOAT)"
+    model_line="$recorded_model_id (Command Code / GOAT)"
   fi
   printf 'Model: %s\n\n' "$model_line" >"$result_file"
   printf '%s\n' "$final_text" >>"$result_file"
+  printf '%s\n' "$recorded_model_id" >"$result_file.model-id"
   printf 'REVIEW=%s\n' "$result_file"
+  printf 'MODEL=%s\n' "$recorded_model_id"
   exit 0
 fi
 
@@ -981,4 +1074,5 @@ if [ "${GOAT_KEEP_RUN:-0}" = 1 ]; then
   printf 'DIFF=%s\n' "$run_dir/change.diff"
 fi
 printf 'APPLIED %s files\n' "$applied_count"
+printf 'MODEL=%s\n' "$recorded_model_id"
 exit 0
