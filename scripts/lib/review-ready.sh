@@ -21,7 +21,7 @@ evidence_out_arg="${evidence_out_arg:-}"
 # not implement yet is a SKIP row, so the list can name checks that land in
 # other changes. An id set through DEV_LOOP_REVIEW_READY_CHECKS must exist:
 # a typo there is a FAIL, never a silent skip.
-review_ready_default_checks="line-cap docs-sweep prose-dashes md-links model-ids"
+review_ready_default_checks="agent-git line-cap docs-sweep prose-dashes md-links model-ids"
 review_ready_checks="${DEV_LOOP_REVIEW_READY_CHECKS:-$review_ready_default_checks}"
 
 usage_review_ready() {

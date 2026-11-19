@@ -69,8 +69,8 @@ an audit recommendation:
 
 1. The operator commissions a fresh Cursor cloud coding agent with a focused
    remediation brief.
-2. The coding agent implements the fix, verifies CI tests, and opens a
-   remediation pull request for operator review.
+2. The coding agent implements the fix and verifies CI tests. The kit adapter
+   or the calling script opens a remediation pull request for operator review.
 3. If remediation requires workstation validation or Mac runtime checks, route
    the verification to local `agent -p` under `~/agent-work/<repo>` (see
    [`workstation-handoffs.md`](workstation-handoffs.md)). Do not use `agy` for
