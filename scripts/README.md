@@ -235,6 +235,16 @@ never comments, closes, rebases, or merges. See
 [`work-graph.sh`](work-graph.sh) prints two read-only views of stuck work; run
 `scripts/work-graph.sh --help` for its output and options.
 
+[`post-review-comment.sh`](post-review-comment.sh) is the mechanical
+pre-post gate for a model-review comment. A caller that wants to post a
+comment runs this script first; it reads only the run folder's `COMMENT.md`,
+checks the body, the owner allowlist, and that the pull request is still a
+draft, and posts one issue comment only when every check passes. Any failure
+exits non-zero, so the caller can fall back to a manual approval path. The
+script never approves, requests changes, merges, labels, or edits an existing
+comment. Run `scripts/post-review-comment.sh --help` for flags, defaults,
+checks, and exit codes.
+
 ## Prepare a coding-agent task issue
 
 Use [`agent-task-issue.sh`](agent-task-issue.sh) when a bot must write a
