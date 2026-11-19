@@ -100,21 +100,20 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `agent-git`, `line-cap`, `npm-ci`, `node-pin`,
-  `docs-sweep`, `prose-dashes`, `md-links`, `model-ids`, `model-check-required`,
-  `pr-state`, `review-ready`, `review-citations`, and `deploy-hash`. Why the two
-  review gates exist is in [`REVIEW-GATES.md`](REVIEW-GATES.md). Their flags,
-  rows, and exit
+  `docs-sweep`, `docs-usage-dup`, `prose-dashes`, `md-links`, `model-ids`,
+  `model-check-required`, `pr-state`, `review-ready`, `review-citations`, and
+  `deploy-hash`. Why the two review gates exist is in
+  [`REVIEW-GATES.md`](REVIEW-GATES.md). Their flags, rows, and exit
   codes are in `scripts/dev-loop-gate.sh --check review-ready --help` and
   `--check review-citations --help`. Other ids, including `all`, exit 2
   with a message that the check is not implemented. Later checks will be
   added under the same flag.
-- `--strict` turns advisory FAIL rows into a non-zero exit. Without it, a FAIL
-  row is printed but the exit code stays 0, the same advisory spirit as G2 to
-  G7. `npm-ci`, `node-pin`, `review-ready`, and `review-citations` are the
-  exceptions: their FAIL always exits 1.
+- `--strict` turns advisory FAIL rows into a non-zero exit. Without it the
+  rows stay advisory. Run `scripts/dev-loop-gate.sh --help` for the exception
+  checks and the full result-to-exit mapping.
 - `--repo <root>` points the check at any git work tree. The default is the
-  work tree of the current directory. All git calls run with `git -C`. Passing
-  `--repo` with something that is not a git work tree exits 2.
+  work tree of the current directory. All git calls run with `git -C`. A path
+  that is not a git work tree is a usage error; see `--help`.
 - `--config <path>` reads a gate config. The default is
   [`gate.config.json`](gate.config.json) next to this file, resolved from the
   script location, so `--repo` can point at another checkout. A missing default
@@ -124,14 +123,10 @@ The default table needs neither a git work tree nor an installed `git`: outside
 one it prints the usual G1 to G7 rows and reports the branch as `unknown`. Only
 a named check requires both.
 
-Exit codes:
+### Exit behavior
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Pass, or an advisory FAIL without `--strict` (npm-ci, node-pin, review-ready, and review-citations are never advisory) |
-| 1 | FAIL under `--strict`, a hard preflight miss: G1, npm-ci, or node-pin, including `--check npm-ci` and `--check node-pin`, or any FAIL from `review-ready` or `review-citations` |
-| 2 | Usage error, unknown check, invalid config, or a `--repo` that is not a git work tree |
-| 3 | A required command is missing (`git`, `jq`, `gh`, or `curl`), `gh` fails or its output is not pull request JSON, or the deploy-hash library cannot be read |
+Run `scripts/dev-loop-gate.sh --help` for the flags, the checks that always
+fail a run, and the complete result-to-exit mapping.
 
 ### line-cap
 
@@ -271,6 +266,23 @@ in tracked files, not external URLs, so it needs no network. CI runs it with
 `--strict`. See `scripts/dev-loop-gate.sh --help` and
 [`../../scripts/lib/md-hygiene.sh`](../../scripts/lib/md-hygiene.sh).
 
+### docs-usage-dup
+
+`--check docs-usage-dup` stops a doc from copying a script's `--help`: pasted
+help blocks, usage lines, and exit-code tables. Docs carry WHY and a pointer;
+HOW stays in each script's `--help`. The check reads help from an explicit
+script list in
+[`../../scripts/lib/docs-usage-dup.sh`](../../scripts/lib/docs-usage-dup.sh).
+
+A narrow opt-out exists. Put `<!-- docs-usage-dup:allow -->` on its own line
+before a fenced code block to excuse that block; add
+`<!-- docs-usage-dup:end -->` on its own line to excuse a region instead. Do
+not use it to keep copied help.
+
+The match rules, the script list, and the strict exit behavior are in
+`scripts/dev-loop-gate.sh --help` and the library. CI runs the check with
+`--strict`.
+
 ### model-ids
 
 `--check model-ids` keeps unverified model ids out of
@@ -372,19 +384,9 @@ scripts/dev-loop-gate.sh --check deploy-hash \
   --url https://example.com/ --baseline "$baseline"
 ```
 
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `--url <URL>` | Required. Must start with `https://` or `http://`. |
-| `--source html\|etag` | Value source. Default `html`. |
-| `--baseline <value>` | Value recorded before the deploy. Required unless `--print-current` is used. |
-| `--timeout-sec <n>` | Wait limit in seconds. Default 600. |
-| `--interval-sec <n>` | Poll interval in seconds. Default 15. |
-| `--bundle-pattern <ERE>` | Asset pattern for the `html` source. The default matches a hashed asset such as `assets/app-1a2b3c4d.js`. |
-| `--print-current` | Fetch once, print the value on stdout, and exit. |
-
-These flags work only with `--check deploy-hash`. Any other use exits 2.
+Run `scripts/dev-loop-gate.sh --help` for the deploy-hash flags, their
+defaults, and the bundle pattern. These flags work only with
+`--check deploy-hash`; any other use exits 2.
 
 `--print-current` exits 0 and prints one value. It exits 3 when the value
 cannot be read. Wait mode prints one PASS row when the value differs from the
