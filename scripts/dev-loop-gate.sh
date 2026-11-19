@@ -18,10 +18,11 @@ usage() {
     '  --config <path>  Gate config JSON. Default: templates/dev-loop/gate.config.json' \
     '                   next to this script. A missing default uses a 500-line cap.' \
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
-    '  --check <id>     Run one named check. line-cap, npm-ci, node-pin, docs-sweep,' \
-    '                   prose-dashes, md-links, model-ids, model-check-required,' \
-    '                   pr-state, review-ready, review-citations, and deploy-hash' \
-    '                   are implemented.' \
+    '  --check <id>     Run one named check. agent-git, line-cap, npm-ci,' \
+    '                   node-pin, docs-sweep, prose-dashes, md-links,' \
+    '                   model-ids, model-check-required, pr-state,' \
+    '                   review-ready, review-citations, and deploy-hash are' \
+    '                   implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
     '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
@@ -33,6 +34,15 @@ usage() {
     '  --check review-ready --help' \
     '  --check review-citations --help' \
     '                   Flags, rows, accepted citation forms, and exit codes.' \
+    '' \
+    'agent-git check (only with --check agent-git):' \
+    '  Command strings: git add, git commit, git push, and gh pr create.' \
+    '  Exact path scope: docs/workstation-handoffs.md, templates/agent-task-issue.md,' \
+    '  prompts/*.md, and templates/agent-task*.md. Caller collect and' \
+    '  monthly-audit operator examples stay allowed because those paths are' \
+    '  out of scope. --strict exits 1 on a hit; without it a hit is advisory' \
+    '  and the exit is 0, the same as docs-sweep.' \
+    '  See templates/dev-loop/GATES.md and scripts/lib/agent-git.sh.' \
     '' \
     'deploy-hash options (only with --check deploy-hash):' \
     '  --url <URL>             Page URL. Must start with https:// or http://.' \
@@ -487,6 +497,8 @@ row() { printf '%-4s %-30s %-6s %s\n' "$1" "$2" "$3" "$4"; }
 
 # shellcheck source=scripts/lib/docs-sweep.sh
 . "$script_dir/lib/docs-sweep.sh"
+# shellcheck source=scripts/lib/agent-git.sh
+. "$script_dir/lib/agent-git.sh"
 # shellcheck source=scripts/lib/md-hygiene.sh
 . "$script_dir/lib/md-hygiene.sh"
 # shellcheck source=scripts/lib/model-ids.sh
@@ -883,6 +895,10 @@ case "$check_id" in
     run_docs_sweep
     exit $?
     ;;
+  agent-git)
+    run_agent_git
+    exit $?
+    ;;
   prose-dashes)
     run_prose_dashes
     exit $?
@@ -915,7 +931,7 @@ case "$check_id" in
     exit 2
     ;;
   *)
-    printf 'unknown check: %s (implemented: line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash, model-check-required)\n' "$check_id" >&2
+    printf 'unknown check: %s (implemented: agent-git, line-cap, npm-ci, node-pin, docs-sweep, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash, model-check-required)\n' "$check_id" >&2
     exit 2
     ;;
 esac
