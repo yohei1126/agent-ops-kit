@@ -37,6 +37,11 @@
 #   intent-to-add (the path only, no content staged), and the run exits 1
 #   if one stays untracked; it never stages content, commits, pushes, or
 #   opens a PR.
+# - patch mode applies the diff with git apply; when that fails it tries
+#   git apply --3way, then git apply --recount, then GNU patch with fuzz 2
+#   (dry run first). The step that worked is recorded as APPLY_METHOD.
+#   A failed chain restores the tree, records a coding-model failure, and
+#   exits 1 with STATUS=patch_failed.
 # - review mode writes only the caller's result file and its .model-id
 #   sidecar.
 # - The model id that actually ran is read from the run output, written to
@@ -51,7 +56,7 @@
 #   and a moved HEAD or git directory fails the run; the tree is left for
 #   inspection. See docs/goat-adapter.md for the residual risk.
 #
-# Exit codes: 0 ok, 1 agent, apply-gate, or scope failure, 2 usage,
+# Exit codes: 0 ok, 1 agent, patch, apply-gate, or scope failure, 2 usage,
 # validation, or refusal.
 set -euo pipefail
 
@@ -67,8 +72,8 @@ Usage:
 Modes and positionals after --:
   patch    <worktree> <brief-file> [check-id ...]
             The agent returns one fenced diff block. The adapter checks
-            every path, runs git apply --check, applies the diff, then
-            runs each check id through dev-loop-gate.sh --strict.
+            every path, applies the diff with the chain below, then runs
+            each check id through dev-loop-gate.sh --strict.
   review   <worktree> <brief-file> <result-file>
             Writes "Model: ...", a blank line, and the review text to
             the result file, plus a <result-file>.model-id sidecar.
@@ -105,15 +110,34 @@ A timeout wrapper is used only when timeout or gtimeout is on PATH;
 otherwise the agent runs without a timeout and a note goes to stderr.
 
 Patch checks:
-  Paths come from git apply --numstat after prefix stripping. Headers
-  must use plain a/ and b/ prefixes with no quoted paths. The adapter
-  refuses an absolute path, a . or .. component, .git or .commandcode
-  in any letter case, a symlink, or a submodule, then runs git apply
-  --check before git apply. New, renamed, and copied files are marked
-  intent-to-add (the path only, no content staged), and the run exits 1
-  if one stays untracked. Named checks run from a copy of the kit taken
-  before the apply, under a throwaway HOME and a PATH of system folders
-  plus the git and jq found before the run.
+  Paths come from git apply --numstat after prefix stripping, retried
+  with --recount when the hunk headers are wrong. Headers must use plain
+  a/ and b/ prefixes with no quoted paths. The adapter refuses an
+  absolute path, a . or .. component, .git or .commandcode in any letter
+  case, a symlink, or a submodule. New, renamed, and copied files are
+  marked intent-to-add (the path only, no content staged), and the run
+  exits 1 if one stays untracked. Named checks run from a copy of the
+  kit taken before the apply, under a throwaway HOME and a PATH of
+  system folders plus the git and jq found before the run.
+
+Patch apply chain:
+  The adapter tries these steps in order and stops at the first clean
+  apply: git-apply (git apply --check, then git apply), git-apply-3way,
+  git-apply-recount, and gnu-patch-fuzz2. GNU patch is found as patch
+  or gpatch only when its --version reports GNU; the step runs with
+  -p1 --dry-run --fuzz=2 --batch --forward, dry run first, and its
+  .rej and .orig files are removed. A GNU patch run that exits 0 but
+  leaves every touched path identical to the pre-apply snapshot is a
+  failed step, not a success, so a skipped reversed or already-applied
+  patch does not count. A --3way result that reports
+  conflicts, leaves conflict markers, or leaves unmerged entries is a
+  failed step: the adapter restores the pre-attempt bytes and index and
+  continues. A clean --3way apply is unstaged; a failed step leaves no
+  markers, .rej, .orig, or unmerged entries. On success the step id is
+  written to apply-method in the run folder and printed as
+  APPLY_METHOD=<id>. If no step applies, the adapter writes status as
+  patch_failed and coding-model-failure as 1, prints STATUS=patch_failed,
+  leaves the tree unchanged, and exits 1.
 
 Write mode:
   Scopes are literal repository-relative paths (glob characters are
@@ -130,7 +154,7 @@ Write mode:
 
 Exit codes:
   0  ok
-  1  agent, apply-gate, or scope failure
+  1  agent, patch_failed, apply-gate, or scope failure
   2  usage, validation, or refusal (nothing is applied)
 
 The API key is never printed. --dry-run shows it as <set> or <missing>.
@@ -909,6 +933,7 @@ if [ "$block_count" -gt 1 ]; then
 fi
 
 has_diff=0
+diff_rename=0
 line=""
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
@@ -923,6 +948,7 @@ while IFS= read -r line || [ -n "$line" ]; do
       esac
       ;;
     'rename from '* | 'copy from '*)
+      diff_rename=1
       check_path "${line#* from }"
       ;;
     'rename to '* | 'copy to '*)
@@ -953,6 +979,42 @@ for tool_abs in "$git_bin" "$(command -v jq)"; do
   esac
   gate_path="$tool_dir:$gate_path"
 done
+
+# GNU patch is resolved before PATH narrows: Homebrew installs it as
+# gpatch outside the system folders. Only a binary whose --version says
+# GNU counts, and one inside the worktree is ignored.
+gnu_patch_bin=""
+for patch_candidate in patch gpatch; do
+  if patch_abs="$(command -v "$patch_candidate" 2>/dev/null)"; then
+    patch_version="$("$patch_abs" --version 2>/dev/null || true)"
+    case "$patch_version" in
+      *"GNU patch"*)
+        gnu_patch_bin="$patch_abs"
+        break
+        ;;
+    esac
+  fi
+done
+if [ -n "$gnu_patch_bin" ]; then
+  patch_dir="$(cd "$(dirname "$gnu_patch_bin")" && pwd -P)"
+  case "$patch_dir/" in
+    "$worktree"/*) gnu_patch_bin="" ;;
+  esac
+fi
+
+# A failed apply chain is a coding-model failure, not an adapter success:
+# record it in the run folder, print STATUS=patch_failed, and exit 1.
+patch_failed() {
+  printf 'patch_failed\n' >"$run_dir/status"
+  printf '1\n' >"$run_dir/coding-model-failure"
+  if [ "${GOAT_KEEP_RUN:-0}" = 1 ]; then
+    printf 'DIFF=%s\n' "$run_dir/change.diff"
+  fi
+  printf 'STATUS=patch_failed\n'
+  printf 'goat-run: %s; nothing applied\n' "$1" >&2
+  exit 1
+}
+
 PATH="$gate_path"
 export PATH
 git() {
@@ -960,11 +1022,12 @@ git() {
 }
 
 # The paths git itself will touch, after prefix stripping and unquoting,
-# are the authority for the worktree check.
+# are the authority for the worktree check. Wrong hunk headers make plain
+# --numstat fail, so retry with --recount before refusing the diff.
 if ! git -C "$worktree" apply --numstat -z "$run_dir/change.diff" >"$run_dir/numstat" 2>"$run_dir/numstat.err"; then
-  redact <"$run_dir/numstat.err" >&2
-  printf 'goat-run: git apply --check failed; nothing applied\n' >&2
-  exit 2
+  if ! git -C "$worktree" apply --numstat -z --recount "$run_dir/change.diff" >"$run_dir/numstat" 2>"$run_dir/numstat.err"; then
+    patch_failed "the diff paths could not be read"
+  fi
 fi
 : >"$run_dir/touched"
 applied_count=0
@@ -973,10 +1036,7 @@ record=""
 while IFS= read -r -d '' record || [ -n "$record" ]; do
   if [ "$pending_names" -gt 0 ]; then
     check_path "$record"
-    if [ "$pending_names" = 1 ]; then
-      # The second name record of a rename or copy is the new path.
-      printf '%s\n' "$record" >>"$run_dir/touched"
-    fi
+    printf '%s\n' "$record" >>"$run_dir/touched"
     pending_names=$((pending_names - 1))
     continue
   fi
@@ -992,18 +1052,6 @@ while IFS= read -r -d '' record || [ -n "$record" ]; do
   printf '%s\n' "$numstat_path" >>"$run_dir/touched"
 done <"$run_dir/numstat"
 
-if ! apply_error="$(git -C "$worktree" apply --check "$run_dir/change.diff" 2>&1)"; then
-  if [ -n "$apply_error" ]; then
-    printf '%s\n' "$apply_error" | redact >&2
-  fi
-  printf 'goat-run: git apply --check failed; nothing applied\n' >&2
-  exit 2
-fi
-if ! git -C "$worktree" apply --summary "$run_dir/change.diff" >"$run_dir/summary"; then
-  printf 'goat-run: git apply --summary failed; nothing applied\n' >&2
-  exit 2
-fi
-
 # The diff may change the gate scripts themselves, so the gate runs from a
 # copy of this kit taken before the diff is applied, with a minimal env.
 mkdir -p "$run_dir/kit/templates"
@@ -1013,10 +1061,205 @@ if [ -d "$kit_dir/../templates/dev-loop" ]; then
 fi
 gate="$run_dir/kit/scripts/dev-loop-gate.sh"
 
-if ! git -C "$worktree" apply "$run_dir/change.diff"; then
-  printf 'goat-run: git apply failed\n' >&2
-  exit 2
+# Snapshot every touched path and the index before a mutating attempt, so a
+# failed step can put back exactly what was there. This works on a dirty
+# worktree and avoids git reset --hard.
+index_file="$(git -C "$worktree" rev-parse --git-path index)"
+case "$index_file" in
+  /*) ;;
+  *) index_file="$worktree/$index_file" ;;
+esac
+mkdir -p "$run_dir/snapshot"
+snapshot_index="$run_dir/snapshot/index"
+index_snapshot_ready=0
+if [ -f "$index_file" ]; then
+  cp -p "$index_file" "$snapshot_index"
+  index_snapshot_ready=1
 fi
+: >"$run_dir/snapshot-manifest"
+snapshot_n=0
+while IFS= read -r snapshot_rel; do
+  [ -n "$snapshot_rel" ] || continue
+  snapshot_n=$((snapshot_n + 1))
+  snapshot_path="$worktree/$snapshot_rel"
+  if [ -L "$snapshot_path" ]; then
+    snapshot_target="$run_dir/snapshot/$snapshot_n.target"
+    readlink "$snapshot_path" >"$snapshot_target"
+    printf 'link\t%s\t%s\n' "$snapshot_rel" "$snapshot_target" >>"$run_dir/snapshot-manifest"
+  elif [ -f "$snapshot_path" ]; then
+    snapshot_copy="$run_dir/snapshot/$snapshot_n"
+    cp -p "$snapshot_path" "$snapshot_copy"
+    printf 'file\t%s\t%s\n' "$snapshot_rel" "$snapshot_copy" >>"$run_dir/snapshot-manifest"
+  elif [ -d "$snapshot_path" ]; then
+    printf 'dir\t%s\t\n' "$snapshot_rel" >>"$run_dir/snapshot-manifest"
+  else
+    printf 'absent\t%s\t\n' "$snapshot_rel" >>"$run_dir/snapshot-manifest"
+  fi
+done <"$run_dir/touched"
+
+reset_index_entries() {
+  local rel
+  if [ "$index_snapshot_ready" = 1 ]; then
+    cp -p "$snapshot_index" "$index_file"
+    return 0
+  fi
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    git -C "$worktree" reset -q HEAD -- "$rel" 2>/dev/null || true
+  done <"$run_dir/touched"
+}
+
+restore_snapshot() {
+  local kind
+  local rel
+  local backup
+  while IFS=$'\t' read -r kind rel backup; do
+    [ -n "$rel" ] || continue
+    case "$kind" in
+      absent)
+        rm -f "$worktree/$rel"
+        ;;
+      file)
+        if [ -n "$backup" ]; then
+          rm -f "$worktree/$rel"
+          cp -p "$backup" "$worktree/$rel"
+        fi
+        ;;
+      link)
+        rm -f "$worktree/$rel"
+        if [ -n "$backup" ] && [ -f "$backup" ]; then
+          ln -s "$(cat "$backup")" "$worktree/$rel"
+        fi
+        ;;
+    esac
+  done <"$run_dir/snapshot-manifest"
+  reset_index_entries
+}
+
+# GNU patch may leave .orig and .rej next to a path; they never stay.
+remove_patch_leftovers() {
+  local rel
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    rm -f "$worktree/$rel.orig" "$worktree/$rel.rej"
+  done <"$run_dir/touched"
+}
+
+# A GNU patch step counts only when the tree actually changed: --forward
+# skips a reversed or already-applied patch and still exits 0, so the
+# touched paths are compared with the snapshot taken before the chain,
+# using the manifest the restore already reads.
+snapshot_unchanged() {
+  local kind
+  local rel
+  local backup
+  while IFS=$'\t' read -r kind rel backup; do
+    [ -n "$rel" ] || continue
+    case "$kind" in
+      absent)
+        if [ -e "$worktree/$rel" ] || [ -L "$worktree/$rel" ]; then
+          return 1
+        fi
+        ;;
+      file)
+        if [ -L "$worktree/$rel" ] || [ ! -f "$worktree/$rel" ]; then
+          return 1
+        fi
+        if [ -n "$backup" ] && ! cmp -s "$backup" "$worktree/$rel"; then
+          return 1
+        fi
+        ;;
+      link)
+        if [ ! -L "$worktree/$rel" ]; then
+          return 1
+        fi
+        if [ -n "$backup" ] && [ "$(readlink "$worktree/$rel")" != "$(cat "$backup")" ]; then
+          return 1
+        fi
+        ;;
+      dir)
+        if [ ! -d "$worktree/$rel" ] || [ -L "$worktree/$rel" ]; then
+          return 1
+        fi
+        ;;
+    esac
+  done <"$run_dir/snapshot-manifest"
+  return 0
+}
+
+# A --3way result is clean only with no unmerged index entries and no
+# conflict markers in any touched file.
+has_conflict_state() {
+  local rel
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if [ -n "$(git -C "$worktree" ls-files -u -- "$rel")" ]; then
+      return 0
+    fi
+    if [ -f "$worktree/$rel" ] && grep -q '^<<<<<<< ' "$worktree/$rel" 2>/dev/null; then
+      return 0
+    fi
+  done <"$run_dir/touched"
+  return 1
+}
+
+apply_method=""
+if git -C "$worktree" apply --check "$run_dir/change.diff" >"$run_dir/check-git.out" 2>"$run_dir/check-git.err"; then
+  if git -C "$worktree" apply "$run_dir/change.diff" >"$run_dir/apply-git.out" 2>"$run_dir/apply-git.err"; then
+    apply_method="git-apply"
+  else
+    restore_snapshot
+  fi
+fi
+
+if [ -z "$apply_method" ]; then
+  if git -C "$worktree" apply --3way --check "$run_dir/change.diff" >"$run_dir/check-3way.out" 2>"$run_dir/check-3way.err" &&
+    ! grep -q 'with conflicts' "$run_dir/check-3way.err"; then
+    if git -C "$worktree" apply --3way "$run_dir/change.diff" >"$run_dir/apply-3way.out" 2>"$run_dir/apply-3way.err" &&
+      ! grep -q 'with conflicts' "$run_dir/apply-3way.err" &&
+      ! has_conflict_state; then
+      # --3way stages what it applied; putting the snapshot index back
+      # leaves the content unstaged, like plain git apply.
+      reset_index_entries
+      apply_method="git-apply-3way"
+    else
+      restore_snapshot
+    fi
+  fi
+fi
+
+if [ -z "$apply_method" ]; then
+  if git -C "$worktree" apply --recount --check "$run_dir/change.diff" >"$run_dir/check-recount.out" 2>"$run_dir/check-recount.err"; then
+    if git -C "$worktree" apply --recount "$run_dir/change.diff" >"$run_dir/apply-recount.out" 2>"$run_dir/apply-recount.err"; then
+      apply_method="git-apply-recount"
+    else
+      restore_snapshot
+    fi
+  fi
+fi
+
+if [ -z "$apply_method" ] && [ "$diff_rename" = 0 ] && [ -n "$gnu_patch_bin" ]; then
+  if "$gnu_patch_bin" -p1 --dry-run --fuzz=2 --batch --forward -d "$worktree" \
+    <"$run_dir/change.diff" >"$run_dir/patch-dry.out" 2>"$run_dir/patch-dry.err"; then
+    if "$gnu_patch_bin" -p1 --fuzz=2 --batch --forward -d "$worktree" \
+      <"$run_dir/change.diff" >"$run_dir/patch.out" 2>"$run_dir/patch.err"; then
+      remove_patch_leftovers
+      if ! snapshot_unchanged; then
+        apply_method="gnu-patch-fuzz2"
+      fi
+    else
+      restore_snapshot
+    fi
+  fi
+  remove_patch_leftovers
+fi
+
+if [ -z "$apply_method" ]; then
+  restore_snapshot
+  remove_patch_leftovers
+  patch_failed "no apply step accepted the diff"
+fi
+printf '%s\n' "$apply_method" >"$run_dir/apply-method"
 # Every path the diff creates, renames to, or copies to is marked
 # intent-to-add (the path only; no content is staged) so the named checks,
 # which read tracked files, see it too. This is not
@@ -1074,5 +1317,6 @@ if [ "${GOAT_KEEP_RUN:-0}" = 1 ]; then
   printf 'DIFF=%s\n' "$run_dir/change.diff"
 fi
 printf 'APPLIED %s files\n' "$applied_count"
+printf 'APPLY_METHOD=%s\n' "$apply_method"
 printf 'MODEL=%s\n' "$recorded_model_id"
 exit 0

@@ -1,0 +1,12 @@
+diff --git a/docs/seven.txt b/docs/seven.txt
+--- a/docs/seven.txt
++++ b/docs/seven.txt
+@@ -1,9 +1,9 @@
+ one
+-two
++TWO
+ three
+ four
+ five
+ six
+ seven

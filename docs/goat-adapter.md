@@ -36,6 +36,64 @@ Rename and copy targets are marked intent-to-add like new files, and the
 run fails if one is still untracked, so the named checks cannot miss a
 moved file.
 
+## Why patch apply has a fallback chain
+
+A patch-mode diff can fail to apply for reasons that say nothing about the
+change itself. The adapter classifies them as wrong hunk headers (the
+counts in `@@` overstate or understate the body), stale context (a later
+line moved or was edited), whitespace or line endings (a CRLF file with an
+LF patch), and a missing trailing newline (the file ends without one and
+the patch does not mark it). `git apply` is strict about the first two, so
+the adapter retries path extraction with `--recount`, then tries plain
+`git apply`, `git apply --3way`, `git apply --recount`, and only then GNU
+patch with `--fuzz=2`.
+
+GNU patch is last because fuzz can pick a nearby location. It runs as a
+dry run first, only on paths already checked, with `--batch --forward` so
+a reversed apply is refused rather than assumed, and its `.rej` and
+`.orig` files are removed. A GNU patch run that exits 0 without changing
+a single touched path is not counted as an apply either, since
+`--forward` can skip a reversed or already-applied patch;
+`scripts/agents/goat/run --help` describes the check. A `--3way` result
+that reports conflicts or leaves conflict markers or unmerged entries is
+not a clean apply: the
+adapter restores the bytes and index it snapshotted before the attempt and
+continues. Each failed step leaves the tree as it was, which matters
+because patch mode may start on a dirty worktree; the adapter snapshots
+the touched files and the index instead of using `git reset --hard`. The
+step that worked is kept in the run folder and printed as
+`APPLY_METHOD=<id>`. A CRLF file with an LF patch is the one class above
+that the chain does not recover, because GNU patch refuses different line
+endings. Run `scripts/agents/goat/run --help` for the step names, flags,
+run-state files, and exit codes.
+
+## Why a failed chain is a coding-model failure
+
+The model is asked for a diff the adapter can apply. A diff that no step
+accepts is a bad answer from the coding model, not an adapter success and
+not an operator error. The adapter therefore leaves the tree unchanged,
+records `patch_failed` and a coding-model failure in the run folder,
+prints `STATUS=patch_failed`, and exits 1 so the caller can count the run
+as a model failure. Nothing is half applied, and no `.rej`, `.orig`,
+conflict marker, or unmerged index entry is left behind.
+
+## Patch mode plus this fallback compared with write mode
+
+Patch mode keeps the agent read-only: the adapter inspects the diff and
+the paths, then applies it. The fallback recovers wrong hunk headers and
+some stale-context and missing-newline cases. The residual risk is an
+apply that is too fuzzy, which is why GNU patch is last, dry-run first,
+path-checked, and forward-only, and why a 3-way conflict is rejected.
+
+Write mode already exists and is opt-in. The model edits files directly,
+so hunk headers are not involved; it already requires `--yolo`, a
+disposable linked worktree, and a post-run scope gate. Its residual risk,
+a write to an absolute path the caller can write, is described above.
+Write mode as the default was already rejected because the gate would
+then judge a tree the agent already changed. The coding lane therefore
+keeps patch mode with this fallback chain, and write mode stays opt-in;
+this change does not switch lanes.
+
 ## Why write mode needs a permission bypass
 
 Headless print mode (`-p`) withholds file writes and shell commands unless

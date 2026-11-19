@@ -41,6 +41,11 @@ jobs:
         # v5.1.0. The repository requires a full commit SHA.
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
+      - name: Install GNU patch
+        run: |
+          brew install gpatch
+          echo "$(brew --prefix gpatch)/bin" >> "$GITHUB_PATH"
+
       - name: Check shell syntax with bash 3.2
         run: |
           for f in scripts/agents/goat/run scripts/tests/test_goat_adapter.sh; do
