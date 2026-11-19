@@ -90,9 +90,17 @@ expect_post_once() {
 check_path="$fake_bin:$PATH"
 
 run_check() {
+  run_check_mode plain "$@"
+}
+
+run_check_xtrace() {
+  run_check_mode xtrace "$@"
+}
+
+run_check_env() {
   : > "$argv_file"
   : > "$err_file"
-  out="$(env HOME="$home_tmp" \
+  env HOME="$home_tmp" \
     PRC_ARGV_FILE="$argv_file" \
     PRC_IS_DRAFT="${PRC_IS_DRAFT:-true}" \
     PRC_STATE="${PRC_STATE:-OPEN}" \
@@ -101,7 +109,17 @@ run_check() {
     PRC_FAIL_COMMENT="${PRC_FAIL_COMMENT:-0}" \
     PRC_COMMENT_NO_URL="${PRC_COMMENT_NO_URL:-0}" \
     PATH="$check_path" \
-    bash "$check" "$@" 2>"$err_file")"
+    "$@"
+}
+
+run_check_mode() {
+  local mode="$1"
+  shift
+  if [ "$mode" = xtrace ]; then
+    out="$(run_check_env bash -x "$check" "$@" 2>"$err_file")"
+  else
+    out="$(run_check_env bash "$check" "$@" 2>"$err_file")"
+  fi
   status=$?
   err="$(cat "$err_file")"
 }
@@ -511,6 +529,15 @@ good_body
 run_check --run "$run" --repo "$repo" --pr 7
 expect_status "22: a clean run exits 0" 0
 if [ -e "$run/post-review-comment.lock" ]; then bad "22: a clean run removes the lock" "lock left behind"; else ok "22: a clean run removes the lock"; fi
+
+printf '== xtrace refusal ==\n'
+reset_run
+good_body
+run_check_xtrace --run "$run" --repo "$repo" --pr 7
+expect_status "23: bash -x exits 2" 2
+expect_no_post "23: bash -x posts nothing"
+expect_argv_calls "23: bash -x never calls gh" 0
+expect_err "23: bash -x names xtrace" "xtrace"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then

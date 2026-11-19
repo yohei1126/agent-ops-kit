@@ -13,6 +13,20 @@ script="post-review-comment"
 default_owners="yohei1126,edgesentry"
 default_max_bytes=65536
 
+# xtrace would print expanded values, so refuse before any argument is read.
+case "$-" in
+  *x*)
+    printf '%s: refusing to run with shell xtrace on; it would print values\n' "$script" >&2
+    exit 2
+    ;;
+esac
+case "${SHELLOPTS:-}" in
+  *xtrace*)
+    printf '%s: refusing to run with shell xtrace on; it would print values\n' "$script" >&2
+    exit 2
+    ;;
+esac
+
 usage() {
   cat <<'USAGE'
 Usage: scripts/post-review-comment.sh --run <dir> --repo OWNER/REPO --pr N
@@ -23,6 +37,9 @@ mechanical checks pass. The body is read only from <run>/COMMENT.md; the
 same run folder records the post, so one run posts at most one comment per
 pull request. Any failure exits non-zero and posts nothing, so the caller
 can fall back to a manual approval path.
+
+The script refuses to run when shell xtrace is on (set -x or bash -x),
+because xtrace would print expanded values.
 
 Options:
   --run DIR          Run folder holding COMMENT.md and the record file.
