@@ -259,6 +259,51 @@ for token in ghp_ gho_ ghs_ github_pat_ xai- sk-; do
   expect_no_post "7: token prefix $token posts nothing"
 done
 
+for word in desk-fan task-runner risk-free whisk-; do
+  reset_run
+  printf 'Model: example-model\n%s\n' "$word" > "$run/COMMENT.md"
+  run_check --run "$run" --repo "$repo" --pr 7
+  expect_status "7: token-like word $word exits 0" 0
+  expect_post_once "7: token-like word $word posts once"
+done
+
+reset_run
+printf 'Model: example-model\nsk-abc\n' > "$run/COMMENT.md"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "7: sk- at a line start exits 1" 1
+expect_no_post "7: sk- at a line start posts nothing"
+
+reset_run
+# shellcheck disable=SC2016 # literal backticks in the fixture
+printf 'Model: example-model\n`sk-abc`\n' > "$run/COMMENT.md"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "7: sk- inside backticks exits 1" 1
+expect_no_post "7: sk- inside backticks posts nothing"
+
+reset_run
+printf 'Model: example-model\nkey=sk-abc\n' > "$run/COMMENT.md"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "7: sk- after = exits 1" 1
+expect_no_post "7: sk- after = posts nothing"
+
+reset_run
+printf 'Model: example-model\n(ghp_abc\n' > "$run/COMMENT.md"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "7: ghp_ after ( exits 1" 1
+expect_no_post "7: ghp_ after ( posts nothing"
+
+reset_run
+printf 'Model: example-model\n"github_pat_abc\n' > "$run/COMMENT.md"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "7: github_pat_ after a quote exits 1" 1
+expect_no_post "7: github_pat_ after a quote posts nothing"
+
+reset_run
+printf 'Model: example-model\nxai-abc\n' > "$run/COMMENT.md"
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "7: xai- at a line start exits 1" 1
+expect_no_post "7: xai- at a line start posts nothing"
+
 reset_run
 printf 'Model: example-model\n-----BEGIN RSA PRIVATE KEY-----\ndummy body\n' > "$run/COMMENT.md"
 run_check --run "$run" --repo "$repo" --pr 7

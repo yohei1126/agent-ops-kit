@@ -378,7 +378,11 @@ scan_content() {
   esac
 }
 
-scan_content "a secret-like token prefix" -Fq -e 'ghp_' -e 'gho_' -e 'ghs_' -e 'github_pat_' -e 'xai-' -e 'sk-'
+# A prefix counts only at the start of a token: the start of a line, or a
+# character outside [A-Za-z0-9_-]. A word boundary would not do, because
+# grep treats a hyphen as a non-word character, so \bsk- would still match
+# the sk- inside desk-fan.
+scan_content "a secret-like token prefix" -Eq -e '(^|[^A-Za-z0-9_-])(ghp_|gho_|ghs_|github_pat_|xai-|sk-)'
 scan_content "a PEM private-key header" -Eq -e '-----BEGIN [A-Za-z0-9 ]*PRIVATE KEY-----'
 scan_content "an external URL" -Eqi -e 'https?://'
 scan_content "an at sign" -Fq -e '@'
