@@ -46,8 +46,8 @@ surface before assigning work:
 - **Cursor toolchain**:
   - **Cursor IDE**: interactive local editor for hands-on development.
   - **Cursor cloud coding agents**: fresh remote workers that clone a
-    repository, implement changes on a branch, and open or update a pull
-    request.
+    repository and implement changes on a branch. The kit adapter or the
+    calling script opens or updates the pull request.
   - **Local Cursor Agent CLI (`agent` or `cursor-agent`)**: local terminal or
     headless worker (`agent -p`) that executes repository coding briefs on the
     registered workstation.
@@ -60,8 +60,9 @@ surface before assigning work:
 - **Document worker versus coding agent**: as defined in
   [Code and documents](shared-rules.md#5-code-and-documents-use-different-workers),
   a document worker drafts prose, long-form articles, and decks, while a coding
-  agent (`agent`, `agy`, or a cloud coding agent) implements code changes or
-  commits approved text into a repository.
+  agent (`agent`, `agy`, or a cloud coding agent) implements code changes. The
+  kit adapter or the calling script commits approved text (see
+  [Coding agents change files only](shared-rules.md#coding-agents-change-files-only)).
 - **Routines and schedules (automated assigners)**: scheduled Grok routines and
   local workstation file watchers (`LaunchAgent` or `cron`) that trigger
   recurring passes or dispatch queued inbox briefs. They are automated triggers
@@ -404,8 +405,9 @@ Verify every item before launching a handoff:
   Use separate clones, git worktrees, or sequential runs when two tasks touch
   the same repository.
 - [ ] **Harden goal, constraints, success criteria, and merge policy**: confirm
-  the brief specifies all four fields, including whether to open a draft PR or
-  stop before merging. Reject vague asks before dispatching heavy workers.
+  the brief specifies all four fields, including the collect-step policy
+  (whether the calling script should open a draft PR or stop before merging).
+  Reject vague asks before dispatching heavy workers.
 - [ ] **Restrict commander scope to assign and accept**: verify the commander
   sets up the brief, records the task, and waits for a completion signal. Leave
   the internal implement and review loop to the worker.
