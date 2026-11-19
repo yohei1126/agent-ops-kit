@@ -62,6 +62,7 @@ secret="fake-secret-value-123"
 out=""
 err=""
 status=0
+run_extra_path=""
 
 reset_ctl() {
   rm -f "$ctl"/*
@@ -80,7 +81,7 @@ set_result() {
 }
 
 run_adapter() {
-  out="$(PATH="$work_tmp/bin:$work_tmp/sentinel-bin:$PATH" GOAT_CMD=fake-goat COMMAND_CODE_API_KEY="$secret" \
+  out="$(PATH="$work_tmp/bin${run_extra_path:+:$run_extra_path}:$work_tmp/sentinel-bin:$PATH" GOAT_CMD=fake-goat COMMAND_CODE_API_KEY="$secret" \
     GH_TOKEN=gh-should-not-pass "$adapter" "$@" 2>"$work_tmp/stderr")"
   status=$?
   err="$(cat "$work_tmp/stderr")"
@@ -120,6 +121,29 @@ git_c() {
   git -c user.name=t -c user.email=t@example.invalid "$@"
 }
 
+fixture_dir="$repo_root/scripts/tests/fixtures/goat-adapter"
+
+make_diff_text() {
+  {
+    printf 'Apply the fixture.\n\n```diff\n'
+    cat "$1"
+    printf '```\n'
+  } >"$2"
+}
+
+gnu_patch_cmd=""
+for candidate in patch gpatch; do
+  if candidate_abs="$(command -v "$candidate" 2>/dev/null)"; then
+    candidate_version="$("$candidate_abs" --version 2>/dev/null || true)"
+    case "$candidate_version" in
+      *"GNU patch"*)
+        gnu_patch_cmd="$candidate_abs"
+        break
+        ;;
+    esac
+  fi
+done
+
 main_repo="$work_tmp/main"
 mkdir -p "$main_repo/docs" "$main_repo/src"
 git -C "$main_repo" init -q -b main 2>/dev/null || {
@@ -127,6 +151,7 @@ git -C "$main_repo" init -q -b main 2>/dev/null || {
   git -C "$main_repo" symbolic-ref HEAD refs/heads/main
 }
 printf 'one\ntwo\nthree\n' >"$main_repo/docs/a.md"
+printf 'one\ntwo\nthree\nfour\nfive\nsix\nseven\n' >"$main_repo/docs/seven.txt"
 printf 'x\n' >"$main_repo/src/b.txt"
 git -C "$main_repo" add .
 git_c -C "$main_repo" commit -q -m init
@@ -251,6 +276,7 @@ set_result "$work_tmp/text-ok"
 run_adapter --mode patch --model example/model-1 -- "$wt" "$brief" docs-sweep
 expect_status "4: a clean diff applies and the gate passes" 0
 expect_text "4: reports the applied files" "$out" "APPLIED 1"
+expect_text "4: records the git-apply step" "$out" "APPLY_METHOD=git-apply"
 expect_text "4: the change is in the tree" "$(cat "$wt/docs/a.md")" "TWO"
 if [ "$(git -C "$wt" rev-parse HEAD)" = "$head0" ] && [ -z "$(git -C "$wt" diff --cached --name-only)" ]; then
   ok "4: nothing is committed or staged"
@@ -357,10 +383,18 @@ reset_ctl
 reset_wt
 sed 's/^-two$/-zwei/' "$work_tmp/text-ok" >"$work_tmp/text-stale"
 set_result "$work_tmp/text-stale"
-run_adapter --mode patch --model m -- "$wt" "$brief"
-expect_status "6: git apply --check failure exits 2" 2
+GOAT_KEEP_RUN=1 run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "6: an unapplyable patch exits 1" 1
+expect_text "6: reports patch_failed" "$out" "STATUS=patch_failed"
 expect_text "6: says nothing was applied" "$err" "nothing applied"
 expect_text "6: the file is unchanged" "$(cat "$wt/docs/a.md")" "two"
+diff_out="$(printf '%s\n' "$out" | sed -n 's/^DIFF=//p')"
+kept_dir="$(dirname "$diff_out")"
+expect_text "6: the run folder records patch_failed" "$(cat "$kept_dir/status")" "patch_failed"
+expect_text "6: the run folder records a coding-model failure" "$(cat "$kept_dir/coding-model-failure")" "1"
+if [ -n "$diff_out" ]; then
+  rm -rf "$kept_dir"
+fi
 
 reset_ctl
 reset_wt
@@ -997,6 +1031,179 @@ printf 'docs/ok.md\n' >"$ctl/write"
 set_result "$work_tmp/text-review"
 run_adapter --mode write --model m -- "$wt" "$brief" docs
 expect_status "22: a clean write run still exits 0" 0
+
+printf '== patch apply fallback chain ==\n'
+
+reset_ctl
+reset_wt
+make_diff_text "$fixture_dir/wrong-hunk-header.diff" "$work_tmp/text-recount"
+set_result "$work_tmp/text-recount"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "27: overstated hunk counts apply with --recount" 0
+expect_text "27: records the recount step" "$out" "APPLY_METHOD=git-apply-recount"
+expect_text "27: applies the change" "$(cat "$wt/docs/seven.txt")" "TWO"
+
+reset_ctl
+reset_wt
+sed 's/^two$/TWO/' "$wt/docs/seven.txt" >"$work_tmp/seven-mod"
+mv "$work_tmp/seven-mod" "$wt/docs/seven.txt"
+git_c -C "$wt" commit -q -am "patch base"
+git -C "$wt" diff --full-index -U6 "$head0" HEAD -- docs/seven.txt >"$work_tmp/threeway.diff"
+git -C "$wt" reset -q --hard "$head0"
+sed 's/^seven$/SEVEN/' "$wt/docs/seven.txt" >"$work_tmp/seven-div"
+mv "$work_tmp/seven-div" "$wt/docs/seven.txt"
+git_c -C "$wt" commit -q -am "nearby divergence"
+make_diff_text "$work_tmp/threeway.diff" "$work_tmp/text-3way"
+set_result "$work_tmp/text-3way"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "28: a nearby divergence applies with --3way" 0
+expect_text "28: records the 3way step" "$out" "APPLY_METHOD=git-apply-3way"
+expect_text "28: keeps the patch change" "$(cat "$wt/docs/seven.txt")" "TWO"
+expect_text "28: keeps the nearby change" "$(cat "$wt/docs/seven.txt")" "SEVEN"
+if [ -z "$(git -C "$wt" diff --cached --name-only -- docs/seven.txt)" ]; then
+  ok "28: the 3way result is not staged"
+else
+  bad "28: the 3way result is not staged" "index holds docs/seven.txt"
+fi
+reset_wt
+
+reset_ctl
+reset_wt
+sed 's/^two$/TWO/' "$wt/docs/seven.txt" >"$work_tmp/seven-mod"
+mv "$work_tmp/seven-mod" "$wt/docs/seven.txt"
+git_c -C "$wt" commit -q -am "patch base"
+git -C "$wt" diff --full-index -U6 "$head0" HEAD -- docs/seven.txt >"$work_tmp/threeway.diff"
+git -C "$wt" reset -q --hard "$head0"
+sed 's/^two$/XXX/' "$wt/docs/seven.txt" >"$work_tmp/seven-xxx"
+mv "$work_tmp/seven-xxx" "$wt/docs/seven.txt"
+git_c -C "$wt" commit -q -am "conflicting change"
+make_diff_text "$work_tmp/threeway.diff" "$work_tmp/text-3way-conflict"
+set_result "$work_tmp/text-3way-conflict"
+GOAT_KEEP_RUN=1 run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "29: a 3way conflict fails closed" 1
+expect_text "29: reports patch_failed" "$out" "STATUS=patch_failed"
+expect_text "29: says nothing was applied" "$err" "nothing applied"
+expect_text "29: restores the pre-attempt bytes" "$(cat "$wt/docs/seven.txt")" "XXX"
+expect_no_text "29: leaves no conflict markers" "$(cat "$wt/docs/seven.txt")" "<<<<<<<"
+if [ -z "$(git -C "$wt" ls-files -u)" ]; then
+  ok "29: leaves no unmerged entries"
+else
+  bad "29: leaves no unmerged entries" "$(git -C "$wt" ls-files -u)"
+fi
+diff_out="$(printf '%s\n' "$out" | sed -n 's/^DIFF=//p')"
+kept_dir="$(dirname "$diff_out")"
+expect_text "29: the run folder records patch_failed" "$(cat "$kept_dir/status")" "patch_failed"
+expect_text "29: the run folder records a coding-model failure" "$(cat "$kept_dir/coding-model-failure")" "1"
+if [ -n "$diff_out" ]; then
+  rm -rf "$kept_dir"
+fi
+reset_wt
+
+reset_ctl
+reset_wt
+make_diff_text "$fixture_dir/stale-last-context.diff" "$work_tmp/text-fuzz"
+set_result "$work_tmp/text-fuzz"
+if [ -n "$gnu_patch_cmd" ]; then
+  run_adapter --mode patch --model m -- "$wt" "$brief"
+  expect_status "30: stale last context applies with GNU patch" 0
+  expect_text "30: records the GNU step" "$out" "APPLY_METHOD=gnu-patch-fuzz2"
+  expect_text "30: applies the change" "$(cat "$wt/docs/seven.txt")" "THREE"
+  if [ -e "$wt/docs/seven.txt.orig" ] || [ -e "$wt/docs/seven.txt.rej" ]; then
+    bad "30: no GNU patch leftover remains" "leftover next to docs/seven.txt"
+  else
+    ok "30: no GNU patch leftover remains"
+  fi
+  changed="$(git -C "$wt" status --porcelain --untracked-files=all | sed 's/^...//' | tr '\n' '|')"
+  if [ "$changed" = "docs/seven.txt|" ]; then
+    ok "30: only the touched path changed"
+  else
+    bad "30: only the touched path changed" "status: $changed"
+  fi
+else
+  run_adapter --mode patch --model m -- "$wt" "$brief"
+  expect_status "30: without GNU patch stale context fails closed" 1
+  expect_text "30: reports patch_failed" "$out" "STATUS=patch_failed"
+  expect_text "30: the file is unchanged" "$(cat "$wt/docs/seven.txt")" "three"
+fi
+reset_wt
+
+reset_ctl
+reset_wt
+printf 'one\ntwo\nthree\nfour\nfive\nsix\nseven' >"$wt/docs/seven.txt"
+make_diff_text "$fixture_dir/missing-newline.diff" "$work_tmp/text-nonewline"
+set_result "$work_tmp/text-nonewline"
+if [ -n "$gnu_patch_cmd" ]; then
+  run_adapter --mode patch --model m -- "$wt" "$brief"
+  expect_status "31: a missing trailing newline applies with GNU patch" 0
+  expect_text "31: records the GNU step" "$out" "APPLY_METHOD=gnu-patch-fuzz2"
+  expect_text "31: applies the change" "$(cat "$wt/docs/seven.txt")" "THREE"
+else
+  run_adapter --mode patch --model m -- "$wt" "$brief"
+  expect_status "31: without GNU patch a missing newline fails closed" 1
+  expect_text "31: reports patch_failed" "$out" "STATUS=patch_failed"
+fi
+reset_wt
+
+reset_ctl
+reset_wt
+printf 'one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven\r\n' >"$wt/docs/seven.txt"
+cp "$wt/docs/seven.txt" "$work_tmp/crlf-before"
+make_diff_text "$fixture_dir/crlf.diff" "$work_tmp/text-crlf"
+set_result "$work_tmp/text-crlf"
+run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "32: a CRLF file fails closed" 1
+expect_text "32: reports patch_failed" "$out" "STATUS=patch_failed"
+if cmp -s "$work_tmp/crlf-before" "$wt/docs/seven.txt"; then
+  ok "32: the CRLF file is unchanged"
+else
+  bad "32: the CRLF file is unchanged" "content changed"
+fi
+reset_wt
+
+reset_ctl
+reset_wt
+make_diff_text "$fixture_dir/unapplyable.diff" "$work_tmp/text-unapplyable"
+set_result "$work_tmp/text-unapplyable"
+GOAT_KEEP_RUN=1 run_adapter --mode patch --model m -- "$wt" "$brief"
+expect_status "33: an unapplyable patch exits 1" 1
+expect_text "33: reports patch_failed" "$out" "STATUS=patch_failed"
+expect_text "33: says nothing was applied" "$err" "nothing applied"
+expect_text "33: the tree is unchanged" "$(cat "$wt/docs/seven.txt")" "three"
+diff_out="$(printf '%s\n' "$out" | sed -n 's/^DIFF=//p')"
+kept_dir="$(dirname "$diff_out")"
+expect_text "33: the run folder records patch_failed" "$(cat "$kept_dir/status")" "patch_failed"
+expect_text "33: the run folder records a coding-model failure" "$(cat "$kept_dir/coding-model-failure")" "1"
+if [ -n "$diff_out" ]; then
+  rm -rf "$kept_dir"
+fi
+reset_wt
+
+reset_ctl
+reset_wt
+mkdir -p "$work_tmp/nopatch-bin"
+for shadow in patch gpatch; do
+  cat >"$work_tmp/nopatch-bin/$shadow" <<'SH'
+#!/bin/sh
+printf 'patch 2.0-12u11-Apple\n'
+exit 0
+SH
+  chmod +x "$work_tmp/nopatch-bin/$shadow"
+done
+make_diff_text "$fixture_dir/stale-last-context.diff" "$work_tmp/text-nognu"
+set_result "$work_tmp/text-nognu"
+run_extra_path="$work_tmp/nopatch-bin"
+GOAT_KEEP_RUN=1 run_adapter --mode patch --model m -- "$wt" "$brief"
+run_extra_path=""
+expect_status "34: without GNU patch the GNU-only fixture fails closed" 1
+expect_text "34: reports patch_failed" "$out" "STATUS=patch_failed"
+expect_text "34: the tree is unchanged" "$(cat "$wt/docs/seven.txt")" "three"
+diff_out="$(printf '%s\n' "$out" | sed -n 's/^DIFF=//p')"
+kept_dir="$(dirname "$diff_out")"
+expect_text "34: the run folder records a coding-model failure" "$(cat "$kept_dir/coding-model-failure")" "1"
+if [ -n "$diff_out" ]; then
+  rm -rf "$kept_dir"
+fi
+reset_wt
 
 printf '== through agent-launch ==\n'
 reset_ctl
