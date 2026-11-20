@@ -77,8 +77,20 @@ Apply automated reviews and follow-up routing according to these standards:
 - **Coding model fixes and transparency**: findings are fixed by a coding
   model. Review results name the model used.
 - **Targeted re-review**: no re-review by default after the first review;
-  re-review only unresolved blocker or major findings. Minor findings and nits
-  go to a cheap coding lane or a known-gaps list.
+  re-review only unresolved blocker or major findings, on the model assigned for
+  that review, and rerun the model check the same day on the new head. Minor
+  findings and nits go to a cheap coding lane or a known-gaps list.
+- **Findings become tests**: a review finding turns into a deterministic CI
+  test, not only prose, so the same defect cannot return.
+- **Merge the base branch, do not rebase**: merge the base branch into an open
+  pull request branch and drop conflict-marker comment lines left by the merge,
+  so the branch keeps its history without a force-push.
+- **Skip a re-check only narrowly**: after a conflict resolution, skip the
+  re-check only when the resolution touched tests alone and CI is green.
+- **Review while still a draft**: run the model check and post its comment
+  while the pull request is a draft, before announcing that it waits for merge.
+- **Docs-only pull requests**: deterministic tests are the main gate, and at
+  most one model review runs.
 - **Light review for lockfile and constraint pairs**: diffs limited to a lockfile
   plus its matching manifest constraint skip the heavy review and use fixed
   checks instead. Never silence a vulnerability.

@@ -51,7 +51,7 @@ Operators who:
   Flash with Grok docs drafting exception-only) and the local Cursor Agent CLI
   (`agent` or `cursor-agent`), structure self-contained briefs, and enforce
   one-writer parallel-execution controls (including
-  [docs and deck prose lane discipline](docs/workstation-handoffs.md#docs-and-deck-prose-lane-non-negotiable)
+  [plan-limited `agy` discipline](docs/workstation-handoffs.md#plan-limited-agy)
   and the phase-batched wrapper scripts in
   [`scripts/README.md`](scripts/README.md)).
 - [`docs/launch-approvals-and-collection.md`](docs/launch-approvals-and-collection.md)

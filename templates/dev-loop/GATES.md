@@ -304,12 +304,9 @@ recorded id is what actually ran, not the id the command requested. Flags and
 rows are in `scripts/dev-loop-gate.sh --help`; the adapter side is in
 [`../../docs/goat-adapter.md`](../../docs/goat-adapter.md).
 
-The launchers have a matching CI-only test,
+Launcher argument handling stays in CI so a dropped, split, or reinterpreted
+argument fails CI instead of review:
 [`../../scripts/tests/test_arg_boundaries.sh`](../../scripts/tests/test_arg_boundaries.sh).
-It runs each `--dry-run` surface with literal arguments after `--`, paths with
-spaces, empty strings, and leading-dash values, and fails when one is dropped,
-split, or reinterpreted. Add a row there when a launcher gains a new argument
-path.
 
 ### model-check-required
 
