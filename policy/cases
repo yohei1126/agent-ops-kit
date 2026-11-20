@@ -52,3 +52,48 @@ ag-instruct-git-push	agent-git.instruct	templates/agent-task-issue.md	text=Run g
 ag-instruct-gh-pr	agent-git.instruct	templates/agent-task-issue.md	text=Run gh pr create --draft.	DENY	agent-git.forbid.gh-pr-create
 ag-instruct-status-no-hit	agent-git.instruct	prompts/allowed.md	text=Run git status and git diff before reporting.	DENY	default.deny
 ag-instruct-prefix-no-hit	agent-git.instruct	prompts/prefix.md	text=This git additional note is harmless.	DENY	default.deny
+prc-bytes-eq	post-review.bytes	*	comment_bytes=65536	DENY	default.deny
+prc-bytes-over	post-review.bytes	*	comment_bytes=65537	DENY	prc.byte-cap
+prc-pr-open-draft	post-review.pr	*	is_draft=true,state=OPEN	ALLOW	prc.allow.pr
+prc-pr-not-draft	post-review.pr	*	is_draft=false,state=OPEN	DENY	prc.forbid.not-draft
+prc-pr-not-open	post-review.pr	*	is_draft=true,state=MERGED	DENY	prc.forbid.not-open
+prc-pr-closed-not-draft	post-review.pr	*	is_draft=false,state=CLOSED	DENY	prc.forbid.not-draft
+prc-pr-missing-attrs	post-review.pr	*	-	DENY	default.deny
+prc-record-none	post-review.record	*	record_state=none	ALLOW	prc.allow.record
+prc-record-posted	post-review.record	*	record_state=posted	DENY	prc.forbid.already-posted
+prc-record-pending	post-review.record	*	record_state=pending	DENY	prc.forbid.pending
+prc-owner-yohei1126	post-review.owner	yohei1126	-	ALLOW	prc.allow.owner.yohei1126
+prc-owner-edgesentry	post-review.owner	edgesentry	-	ALLOW	prc.allow.owner.edgesentry
+prc-owner-other	post-review.owner	someoneelse	-	DENY	default.deny
+prc-owner-letter-case	post-review.owner	YOHEI1126	-	DENY	default.deny
+prc-model-prefix-ok	post-review.model-prefix	COMMENT.md	text=Model: example-model	ALLOW	prc.allow.model-prefix
+prc-model-prefix-lower	post-review.model-prefix	COMMENT.md	text=model: example-model	DENY	default.deny
+prc-model-prefix-no-space	post-review.model-prefix	COMMENT.md	text=Model:example-model	DENY	default.deny
+prc-model-prefix-leading-space	post-review.model-prefix	COMMENT.md	text= Model: example-model	DENY	default.deny
+prc-model-name-ok	post-review.model-name	COMMENT.md	text=example-model	ALLOW	prc.allow.model-name
+prc-model-name-blank	post-review.model-name	COMMENT.md	text=    	DENY	default.deny
+prc-body-present	post-review.body	COMMENT.md	has_body=1	ALLOW	prc.allow.body
+prc-body-missing	post-review.body	COMMENT.md	has_body=0	DENY	prc.forbid.no-body
+prc-scan-token-ghp	post-review.scan	COMMENT.md	text=note ghp_dummy_value	DENY	prc.forbid.token-prefix
+prc-scan-token-gho	post-review.scan	COMMENT.md	text=note gho_dummy_value	DENY	prc.forbid.token-prefix
+prc-scan-token-ghs	post-review.scan	COMMENT.md	text=note ghs_dummy_value	DENY	prc.forbid.token-prefix
+prc-scan-token-pat	post-review.scan	COMMENT.md	text=note github_pat_dummy_value	DENY	prc.forbid.token-prefix
+prc-scan-token-xai	post-review.scan	COMMENT.md	text=note xai-dummy_value	DENY	prc.forbid.token-prefix
+prc-scan-token-sk	post-review.scan	COMMENT.md	text=note sk-dummy_value	DENY	prc.forbid.token-prefix
+prc-scan-sk-line-start	post-review.scan	COMMENT.md	text=sk-abc	DENY	prc.forbid.token-prefix
+prc-scan-sk-backtick	post-review.scan	COMMENT.md	text=`sk-abc`	DENY	prc.forbid.token-prefix
+prc-scan-sk-after-eq	post-review.scan	COMMENT.md	text=key=sk-abc	DENY	prc.forbid.token-prefix
+prc-scan-ghp-after-paren	post-review.scan	COMMENT.md	text=(ghp_abc	DENY	prc.forbid.token-prefix
+prc-scan-pat-after-quote	post-review.scan	COMMENT.md	text="github_pat_abc	DENY	prc.forbid.token-prefix
+prc-scan-xai-line-start	post-review.scan	COMMENT.md	text=xai-abc	DENY	prc.forbid.token-prefix
+prc-scan-word-desk-fan	post-review.scan	COMMENT.md	text=desk-fan	DENY	default.deny
+prc-scan-word-task-runner	post-review.scan	COMMENT.md	text=task-runner	DENY	default.deny
+prc-scan-word-risk-free	post-review.scan	COMMENT.md	text=risk-free	DENY	default.deny
+prc-scan-word-whisk	post-review.scan	COMMENT.md	text=whisk-	DENY	default.deny
+prc-scan-pem	post-review.scan	COMMENT.md	text=-----BEGIN RSA PRIVATE KEY-----	DENY	prc.forbid.pem
+prc-scan-url-http	post-review.scan	COMMENT.md	text=see http://example.invalid	DENY	prc.forbid.url
+prc-scan-url-https	post-review.scan	COMMENT.md	text=see https://example.invalid	DENY	prc.forbid.url
+prc-scan-url-upper	post-review.scan	COMMENT.md	text=see HTTP://example.invalid	DENY	prc.forbid.url
+prc-scan-no-at	post-review.scan	COMMENT.md	text=thanks someone without mention	DENY	default.deny
+prc-scan-at-sign	post-review.scan	COMMENT.md	text=thanks @someone	DENY	prc.forbid.at
+prc-scan-clean	post-review.scan	COMMENT.md	text=Reviewed the change.	DENY	default.deny
