@@ -84,22 +84,13 @@ design review or cross-domain triage.
   `~/agent-work/<repo>` (`mkdir -p ~/agent-work`).
 - Documents, articles, and decks: a document worker drafts the whole piece,
   and the kit adapter or the calling script commits the approved text into the
-  repo. Document drafting and rewrite stay on workstation `agy` under
-  `~/agy-work/<repo>`, including repository Markdown docs, md-deck slide body
-  prose, customer-facing proposals, and Q&A decks (never under `~/work/...`; see
-  [Fixed checkout roots](workstation-handoffs.md#fixed-checkout-roots) and
-  [Docs and deck prose lane](workstation-handoffs.md#docs-and-deck-prose-lane-non-negotiable)).
-  Do not use `agy` for code or smoke verification. Prefer `agy` (defaulting to
-  Gemini 3.8 Flash, `gemini-3.8-flash-medium`) for docs drafting and review;
-  Grok drafting docs is an exception-only fallback after soft-deny or 429 quota
-  exhaustion with operator approval (see
-  [Default agy model](workstation-handoffs.md#default-agy-model-gemini-38-flash)
-  and
-  [Prefer agy for docs; Grok draft exception-only](workstation-handoffs.md#prefer-agy-for-docs-grok-draft-exception-only)).
+  repo. Never use `agy` for code or smoke verification. Where the plan allows
+  automated `agy`, it works only under `~/agy-work/<repo>` (see
+  [Fixed checkout roots](workstation-handoffs.md#fixed-checkout-roots)); where
+  it does not, see [Plan-limited agy](workstation-handoffs.md#plan-limited-agy).
 - Never change lanes mid-task solely because of a pending local-approval card.
-  When a Mac local Shell command waits on an approval card, wait for operator
-  confirmation, relaunch `agy` after allow, or stop and report. Do not escape
-  to Cursor cloud to finish prose drafting.
+  Wait for operator confirmation or stop and report. Do not escape to Cursor
+  cloud to finish prose drafting.
 
 ### Coding agents change files only
 
@@ -280,6 +271,13 @@ dates in the calendar:
   calendar. Do not keep a second calendar of record in bot notes, progress
   docs, or status files.
 
+### Batch approval requests
+
+Bots queue approval requests as a four-line card: question, recommendation,
+deadline, and default if nothing is done, plus a link. The operator answers a
+batch at fixed times instead of one by one; urgent same-day items are the only
+exception. The queue location is an operator value kept in the private hub.
+
 ## 11. Deliverable formats (examples)
 
 Pick formats that fit your tools and use them consistently:
@@ -347,6 +345,15 @@ request:
 - **Contribution review**: for pull requests to this repo, follow
   [`CONTRIBUTING.md`](../CONTRIBUTING.md), including its required English
   prose review.
+
+### Every agent task starts as a task Issue
+
+An agent task starts as a task Issue so one spec serves any agent, the work is
+auditable, and a hand-off to a human-run agent still has a brief. The template
+is [`../templates/agent-task-issue.md`](../templates/agent-task-issue.md); the
+script is [`../scripts/agent-task-issue.sh`](../scripts/agent-task-issue.sh)
+(see its `--help`). Real task Issues live in the private operations hub, not in
+this public repository. Agent work without a task Issue does not start.
 
 ## 14. Cost and ops changes start as proposals
 

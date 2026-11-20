@@ -84,44 +84,12 @@ and
   builds) and guidance on saturating Mac CPU and Metal capacity, see
   [Run eligible heavy workloads locally and saturate workstation capacity](tooling-and-cost.md#6-run-eligible-heavy-workloads-locally-and-saturate-workstation-capacity).
 
-### Docs and deck prose lane (non-negotiable)
+### Plan-limited agy
 
-Document drafting, rewrite, and review stay on workstation `agy` (subscription
-or Gemini auth lane) under `~/agy-work/<repo>`. This lane covers repository
-documentation Markdown, md-deck slide prose, and writing-skill drafts.
-
-Do not use `agy` for code verification, builds, smoke checks, or security audit
-inspections. Route code verification and smoke passes to local `agent -p` under
-`~/agent-work/<repo>`. Security audits follow partial `agy` rules where the
-audit body and verification stay off `agy` (see
-[`security-audit-lanes.md`](security-audit-lanes.md)).
-
-Cursor cloud coding agents are not a substitute for this prose work, even when a
-previous pull request was opened by a cloud agent, the Mac shell waits on an
-approval card, or a soft-deny stopped an `agy` run.
-
-When a Mac Shell command pauses on an approval card, leave the approval for the
-operator, relaunch `agy` after allow, or stop and report. Never reply to a
-cloud agent or open a new cloud agent to finish the prose. A pending local
-approval is not a lane change.
-
-Cursor cloud remains appropriate for repository code and mechanical pull request
-hygiene (CI pins, workflow YAML, non-prose conflict resolution, allow-list
-updates, and helper scripts). Opening or updating a draft pull request URL
-after `agy` authored the Markdown is acceptable when that step is pure `gh` or
-git plumbing.
-
-### Prefer agy for docs; Grok draft exception-only
-
-Prefer Antigravity CLI (`agy`) for repository document writing and review
-whenever credits or quota are available.
-
-Drafting documentation in Grok Bot is an exception-only fallback. Use Grok
-drafts only after an `agy` soft-deny or a `RESOURCE_EXHAUSTED` (429) quota
-failure, and only with explicit operator approval. Never fall back to Grok docs
-drafting silently. When Grok prepares briefs for `agy`, keep the standard
-safety rules: card confirmation before launch, one `argv`-style command per
-tool call, and soft-deny stop-and-report without widening permissions mid-run.
+On a plan that does not allow automated `agy`, no bot or script launches `agy`
+in any form: headless runs, kit launchers, usage commands, or remote control.
+The maintainer runs the agent by hand from the task Issue. Documents are written
+by an allowed headless lane (see `scripts/agent-launch.sh --help`).
 
 ## 2. Wire Grok Bot to Antigravity CLI and local Cursor Agent CLI
 

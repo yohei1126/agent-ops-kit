@@ -90,8 +90,7 @@ before dispatching a batch of tasks:
   `gemini-3.8-flash-medium`) for docs drafting and review; Grok drafting docs is
   an exception-only fallback (see
   [Default agy model](workstation-handoffs.md#default-agy-model-gemini-38-flash)
-  and
-  [Prefer agy for docs; Grok draft exception-only](workstation-handoffs.md#prefer-agy-for-docs-grok-draft-exception-only)).
+  and [Plan-limited agy](workstation-handoffs.md#plan-limited-agy)).
   Prefer `agy` for **unstructured and multimodal** understanding (images,
   short video, PDF, long messy logs) so Grok Bot only routes paths and returns
   a short summary (see
