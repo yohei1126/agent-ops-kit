@@ -356,11 +356,12 @@ to save it. Exit code 2 means the schema is incomplete.
 | `agy` | `gemini-weekly`, `gemini-5h`, `3p-weekly`, `3p-5h`, `gemini-argon-wtu-weekly` | weekly / 5h |
 | `cursor-grok` | pools found in the plan usage JSON | weekly |
 | `opencode-fireworks` | `fireworks-credits` | carry (not weekly) |
-| `box-goat` | `goat-flat-monthly` | flat (not weekly) |
+| `commandcode-mac` | `commandcode-pro-monthly` | flat (not weekly) |
 
 Each record has `agent_id`, `pool_id`, `kind`, `status`, `remaining_fraction`,
 `used_fraction`, `reset_time` and `captured_at` (ISO UTC), `plan_tier` and
-`source`. Fireworks and GOAT stay `status: unknown` with null fractions unless you
+`source`. Fireworks and Command Code (Pro plan) stay `status: unknown` with
+null fractions unless you
 pass `--fireworks-remaining-usd` and `--fireworks-budget-usd`. The script never
 invents numbers.
 

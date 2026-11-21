@@ -94,7 +94,7 @@ design review or cross-domain triage.
 
 ### Coding agents change files only
 
-Every coding agent (headless `agy`, `agent -p`, OpenCode, GOAT, and others)
+Every coding agent (headless `agy`, `agent -p`, OpenCode, Command Code, and others)
 changes files only and runs without secrets. Branching, committing, pushing,
 and draft pull request creation happen deterministically in the kit adapter or
 the calling script after the scope check passes. The one exception is the

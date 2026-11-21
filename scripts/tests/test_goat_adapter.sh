@@ -30,11 +30,41 @@ ctl="$work_tmp/ctl"
 mkdir -p "$ctl" "$work_tmp/bin"
 cat >"$work_tmp/bin/fake-goat" <<SH
 #!/bin/sh
+for a in "\$@"; do printf '%s\n' "\$a"; done >>"$ctl/all-log"
+printf '%s\n' --- >>"$ctl/all-log"
+for a in "\$@"; do
+  if [ "\$a" = status ]; then
+    for b in "\$@"; do printf '%s\n' "\$b"; done >>"$ctl/status-log"
+    printf '%s\n' --- >>"$ctl/status-log"
+    if [ -f "$ctl/status-unauth" ]; then
+      printf '{"authenticated":false,"version":"x","user":"stub-user","model":"m","context_window":1}\n'
+      exit 0
+    fi
+    if [ -f "$ctl/status-badjson" ]; then
+      printf 'not-json\n'
+      exit 0
+    fi
+    if [ -f "$ctl/status-fail" ]; then
+      exit 3
+    fi
+    if [ -f "$ctl/status-hang" ]; then
+      exec sleep 30
+    fi
+    printf '{"authenticated":true,"version":"x","user":"stub-user","model":"m","context_window":1}\n'
+    exit 0
+  fi
+done
 : >"$ctl/called"
 for a in "\$@"; do printf '%s\n' "\$a"; done >"$ctl/argv"
 env | sed 's/=.*//' | sort >"$ctl/env-names"
 printf '%s\n' "\$PATH" >"$ctl/path"
 pwd -P >"$ctl/cwd"
+printf '%s\n' "\$HOME" >"$ctl/home"
+if [ -n "\${COMMAND_CODE_API_KEY:-}" ]; then
+  printf 'set\n' >"$ctl/key-state"
+else
+  printf 'unset\n' >"$ctl/key-state"
+fi
 if [ -f .commandcode/settings.local.json ]; then
   cp .commandcode/settings.local.json "$ctl/settings-seen"
 fi
@@ -65,7 +95,15 @@ status=0
 run_extra_path=""
 
 reset_ctl() {
-  rm -f "$ctl"/*
+  # all-log accumulates every stub invocation across cases for the final
+  # start-guard sweep, so it survives the reset.
+  for ctl_file in "$ctl"/*; do
+    [ -e "$ctl_file" ] || continue
+    case "$ctl_file" in
+      "$ctl/all-log") continue ;;
+    esac
+    rm -f "$ctl_file"
+  done
 }
 
 # set_result <text file> [model-id]: the stub prints model request events
@@ -83,6 +121,15 @@ set_result() {
 run_adapter() {
   out="$(PATH="$work_tmp/bin${run_extra_path:+:$run_extra_path}:$work_tmp/sentinel-bin:$PATH" GOAT_CMD=fake-goat COMMAND_CODE_API_KEY="$secret" \
     GH_TOKEN=gh-should-not-pass "$adapter" "$@" 2>"$work_tmp/stderr")"
+  status=$?
+  err="$(cat "$work_tmp/stderr")"
+}
+
+# run_adapter_nokey: the same launch with COMMAND_CODE_API_KEY removed from
+# the environment, for login runs that must not need it.
+run_adapter_nokey() {
+  out="$(env -u COMMAND_CODE_API_KEY PATH="$work_tmp/bin${run_extra_path:+:$run_extra_path}:$work_tmp/sentinel-bin:$PATH" GOAT_CMD=fake-goat \
+    "$adapter" "$@" 2>"$work_tmp/stderr")"
   status=$?
   err="$(cat "$work_tmp/stderr")"
 }
@@ -454,7 +501,7 @@ rm -f "$result" "$result.model-id"
 run_adapter --mode review --model other/requested -- "$wt" "$brief" "$result"
 expect_status "23: a review with a recorded id exits 0" 0
 expect_text "23: the Model line uses the recorded id" "$(head -n 1 "$result")" \
-  "Model: moonshotai/Kimi-K3.1-Pro (Command Code / GOAT)"
+  "Model: moonshotai/Kimi-K3.1-Pro (Command Code Pro plan)"
 expect_text "23: the sidecar holds the exact id" "$(cat "$result.model-id")" "moonshotai/Kimi-K3.1-Pro"
 expect_text "23: stdout prints the exact MODEL line" "$out" "MODEL=moonshotai/Kimi-K3.1-Pro"
 expect_no_text "23: the id is not case folded" "$out$(cat "$result")" "moonshotai/kimi-k3.1-pro"
@@ -535,21 +582,21 @@ reset_ctl
 set_result "$work_tmp/text-review-id" "moonshotai/Kimi-K3.1-Pro"
 result="$work_tmp/review-line.md"
 rm -f "$result" "$result.model-id"
-GOAT_MODEL_LINE="Kimi (moonshotai/Kimi-K3.1-Pro) (Command Code / GOAT)" \
+GOAT_MODEL_LINE="Kimi (moonshotai/Kimi-K3.1-Pro) (Command Code Pro plan)" \
   run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
 expect_status "25: GOAT_MODEL_LINE with the exact id exits 0" 0
 expect_text "25: the caller's label wins" "$(head -n 1 "$result")" \
-  "Model: Kimi (moonshotai/Kimi-K3.1-Pro) (Command Code / GOAT)"
+  "Model: Kimi (moonshotai/Kimi-K3.1-Pro) (Command Code Pro plan)"
 
 reset_ctl
 set_result "$work_tmp/text-review-id" "moonshotai/Kimi-K3.1-Pro"
 result="$work_tmp/review-backtick.md"
 rm -f "$result" "$result.model-id"
-GOAT_MODEL_LINE='Name (`moonshotai/Kimi-K3.1-Pro`) (Command Code / GOAT)' \
+GOAT_MODEL_LINE='Name (`moonshotai/Kimi-K3.1-Pro`) (Command Code Pro plan)' \
   run_adapter --mode review --model example/model-1 -- "$wt" "$brief" "$result"
 expect_status "25: GOAT_MODEL_LINE with backticks exits 0" 0
 expect_text "25: the backtick label wins" "$(head -n 1 "$result")" \
-  'Model: Name (`moonshotai/Kimi-K3.1-Pro`) (Command Code / GOAT)'
+  'Model: Name (`moonshotai/Kimi-K3.1-Pro`) (Command Code Pro plan)'
 
 reset_ctl
 reset_wt
@@ -1270,6 +1317,202 @@ model_id="$(jq -r '[.lanes.coding.entries[] | select(.agent == "goat")][0].model
   "$repo_root/templates/agent-config.example.json")"
 expect_text "14: with the configured model id" "$out" "--model $model_id"
 expect_not_called "14: the launcher dry-run starts nothing"
+
+printf '== login mode ==\n'
+phys_home="$(cd "${HOME:?}" && pwd -P)"
+reset_ctl
+run_adapter --auth bogus --mode review --model m --dry-run -- "$wt" "$brief" "$work_tmp/r36.md"
+expect_status "36: an unknown --auth value exits 2" 2
+reset_ctl
+run_adapter --auth login --mode review --model m --dry-run -- "$wt" "$brief" "$work_tmp/r36.md"
+expect_status "36: login dry-run exits 0" 0
+expect_text "36: login dry-run prints GOAT_AUTH" "$out" "GOAT_AUTH=login"
+expect_text "36: login dry-run env names the five slots" "$out" "GOAT_ENV=PATH HOME TMPDIR LANG TERM"
+expect_no_text "36: login dry-run never names the key" "$out$err" "COMMAND_CODE_API_KEY"
+expect_text "36: login dry-run prints the deny list" "$out" "GOAT_SETTINGS="
+expect_text "36: login dry-run deny list holds Shell" "$out" '"Shell"'
+expect_no_text "36: login dry-run prints no scope outside write" "$out" "GOAT_SCOPE="
+expect_not_called "36: login dry-run starts no run"
+if [ -e "$ctl/status-log" ]; then
+  bad "36: login dry-run runs no status check" "status-log exists"
+else
+  ok "36: login dry-run runs no status check"
+fi
+
+reset_ctl
+reset_wt
+set_result "$work_tmp/text-review"
+result="$work_tmp/review-login.md"
+rm -f "$result" "$result.model-id"
+run_adapter_nokey --auth login --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "37: a login review run without the key exits 0" 0
+first_login="$(head -n 1 "$result")"
+case "$first_login" in
+  "Model: "*) ok "37: the login review result starts with a Model line" ;;
+  *) bad "37: the login review result starts with a Model line" "got: $first_login" ;;
+esac
+argv="$(cat "$ctl/argv")"
+expect_text "37: the login run argv keeps --no-auto-update" "$argv" "--no-auto-update"
+expect_text "37: the login run argv adds --safe-mode" "$argv" "--safe-mode"
+expect_no_text "37: the login review argv has no --yolo" "$argv" "--yolo"
+if [ "$(cat "$ctl/home")" = "$phys_home" ]; then
+  ok "37: the child HOME is the caller's real HOME"
+else
+  bad "37: the child HOME is the caller's real HOME" "got: $(cat "$ctl/home")"
+fi
+if [ "$(cat "$ctl/key-state")" = "unset" ]; then
+  ok "37: the key never reaches the login child"
+else
+  bad "37: the key never reaches the login child" "key-state: $(cat "$ctl/key-state")"
+fi
+status_records="0"
+status_first=""
+if [ -f "$ctl/status-log" ]; then
+  status_records="$(grep -c '^---$' "$ctl/status-log")"
+  status_first="$(sed -n '1p' "$ctl/status-log")"
+fi
+if [ "$status_records" = "1" ] && [ "$status_first" = "--no-auto-update" ]; then
+  ok "37: one login probe ran, --no-auto-update first"
+else
+  bad "37: one login probe ran, --no-auto-update first" "records: $status_records first: $status_first"
+fi
+
+reset_ctl
+reset_wt
+set_result "$work_tmp/text-review"
+result="$work_tmp/review-login-key.md"
+rm -f "$result" "$result.model-id"
+run_adapter --auth login --mode review --model example/model-1 -- "$wt" "$brief" "$result"
+expect_status "38: a login run with a caller key exits 0" 0
+if [ "$(cat "$ctl/key-state")" = "unset" ]; then
+  ok "38: the stub never sees the caller key"
+else
+  bad "38: the stub never sees the caller key" "key-state: $(cat "$ctl/key-state")"
+fi
+expect_no_text "38: the secret appears nowhere in the output" "$out$err$(cat "$result")" "$secret"
+
+reset_ctl
+reset_wt
+touch "$ctl/status-unauth"
+run_adapter_nokey --auth login --mode review --model m -- "$wt" "$brief" "$work_tmp/review-unauth.md"
+expect_status "39: an unauthenticated login refuses the run" 2
+expect_text "39: the unauth refusal mentions the login" "$err" "login is not verified"
+expect_not_called "39: the unauth refusal never starts the run"
+if [ -e "$wt/.commandcode" ]; then
+  bad "39: the unauth refusal leaves no settings" ".commandcode exists"
+else
+  ok "39: the unauth refusal leaves no settings"
+fi
+expect_no_text "39: the status output is never printed" "$out$err" "stub-user"
+
+reset_ctl
+touch "$ctl/status-fail"
+run_adapter_nokey --auth login --mode review --model m -- "$wt" "$brief" "$work_tmp/review-fail.md"
+expect_status "39: a failing login probe refuses the run" 2
+expect_text "39: the failing probe refusal mentions the login" "$err" "login is not verified"
+
+reset_ctl
+touch "$ctl/status-badjson"
+run_adapter_nokey --auth login --mode review --model m -- "$wt" "$brief" "$work_tmp/review-badjson.md"
+expect_status "39: bad login JSON refuses the run" 2
+expect_text "39: the bad JSON refusal mentions the login" "$err" "login is not verified"
+
+reset_ctl
+touch "$ctl/status-hang"
+hang_start="$(date +%s)"
+GOAT_LOGIN_TIMEOUT=2 run_adapter_nokey --auth login --mode review --model m -- "$wt" "$brief" "$work_tmp/review-hang.md"
+hang_secs=$(( $(date +%s) - hang_start ))
+expect_status "39: a hanging login probe refuses the run" 2
+expect_text "39: the hanging probe refusal mentions the login" "$err" "login is not verified"
+if [ "$hang_secs" -le 15 ]; then
+  ok "39: the hanging login probe is bounded ($hang_secs s)"
+else
+  bad "39: the hanging login probe is bounded" "took $hang_secs s"
+fi
+
+reset_ctl
+reset_wt
+set_result "$work_tmp/text-review"
+run_adapter_nokey --auth login --mode review --model m -- "$wt" "$brief" "$work_tmp/review-deny.md"
+expect_status "40: a login review run installs the deny rules" 0
+settings_seen="$(cat "$ctl/settings-seen" 2>/dev/null)"
+expect_text "40: the review deny list holds Shell" "$settings_seen" '"Shell"'
+expect_text "40: the review deny list holds WebFetch" "$settings_seen" '"WebFetch"'
+expect_text "40: the review deny list holds every MCP tool" "$settings_seen" '"mcp__*"'
+expect_text "40: the review deny list reads hidden home entries" "$settings_seen" "Read(//${phys_home#/}/."
+if [ -e "$wt/.commandcode" ]; then
+  bad "40: the review settings are removed after the run" ".commandcode remains"
+else
+  ok "40: the review settings are removed after the run"
+fi
+
+reset_ctl
+reset_wt
+set_result "$work_tmp/text-ok"
+run_adapter_nokey --auth login --mode patch --model m -- "$wt" "$brief"
+expect_status "40: a login patch run installs the deny rules" 0
+settings_seen="$(cat "$ctl/settings-seen" 2>/dev/null)"
+expect_text "40: the patch deny list holds Shell" "$settings_seen" '"Shell"'
+expect_text "40: the patch deny list reads hidden home entries" "$settings_seen" "Read(//${phys_home#/}/."
+if [ -e "$wt/.commandcode" ]; then
+  bad "40: the patch settings are removed after the run" ".commandcode remains"
+else
+  ok "40: the patch settings are removed after the run"
+fi
+reset_wt
+
+printf '== start guard ==\n'
+guard_missing=1
+rec_guard=0
+if [ -f "$ctl/all-log" ]; then
+  guard_missing=0
+  while IFS= read -r guard_line; do
+    [ -n "$guard_line" ] || continue
+    if [ "$guard_line" = "---" ]; then
+      if [ "$rec_guard" = 0 ]; then
+        guard_missing=1
+      fi
+      rec_guard=0
+      continue
+    fi
+    if [ "$guard_line" = "--no-auto-update" ]; then
+      rec_guard=1
+    fi
+  done <"$ctl/all-log"
+fi
+if [ "$guard_missing" = 0 ]; then
+  ok "41: every recorded invocation carries --no-auto-update"
+else
+  bad "41: every recorded invocation carries --no-auto-update" "a record lacks the flag"
+fi
+if grep -q 'start_guard' "$adapter"; then
+  ok "41: the adapter defines start_guard"
+else
+  bad "41: the adapter defines start_guard" "function not found"
+fi
+static_guard="$(awk '
+  index($0, "start_guard") > 0 { last = NR }
+  index($0, "${goat_argv[@]}") > 0 || index($0, "${status_argv[@]}") > 0 {
+    if (substr($0, 1, 1) != "#" && NR - last > 15) { bad = 1 }
+  }
+  END { print bad + 0 }
+' "$adapter")"
+if [ "$static_guard" = "0" ]; then
+  ok "41: every binary start passes through the guard"
+else
+  bad "41: every binary start passes through the guard" "an unguarded start line"
+fi
+
+printf '== explicit api-key auth ==\n'
+reset_ctl
+run_adapter --mode review --model example/model-1 --dry-run -- "$wt" "$brief" "$work_tmp/r42.md"
+default_out="$out"
+run_adapter --auth api-key --mode review --model example/model-1 --dry-run -- "$wt" "$brief" "$work_tmp/r42.md"
+if [ "$out" = "$default_out" ]; then
+  ok "42: --auth api-key matches the default dry-run output"
+else
+  bad "42: --auth api-key matches the default dry-run output" "outputs differ"
+fi
 
 printf 'goat adapter tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then

@@ -36,9 +36,11 @@ Use the first lane that has capacity, then fall through.
 2. **Workstation OpenCode with the Fireworks plan.** Burn the remaining
    included Fireworks capacity, then stop. Do not buy more capacity to keep
    this lane running.
-3. **Always-on box with a low-cost coding model.** Use a GOAT-style harness
-   running DeepSeek V4 Flash (roughly $10 per month) for ordinary coding and for
-   GitHub work while the workstation is offline.
+3. **Workstation Command Code (Pro plan).** Use
+   scripts/commandcode-wrapper.sh (login on the workstation, no API key) with
+   the pinned lane models for ordinary coding while the workstation is
+   online; when it is offline this lane is unavailable and the order falls
+   through.
 
 Fall through only when the earlier lane is exhausted or unavailable. Record the
 lane used in the job `SUMMARY` so the weekly digest can report allocation (see

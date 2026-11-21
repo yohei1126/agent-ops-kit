@@ -4,7 +4,8 @@
 # expects and the only code that starts the agent binary.
 #
 # Interface:
-#   run --mode patch|review|write --model <id> [--dry-run] -- <args>
+#   run --mode patch|review|write --model <id> [--auth api-key|login]
+#        [--dry-run] -- <args>
 #   run --help
 #
 #   patch args:  <worktree> <brief-file> [check-id ...]
@@ -22,15 +23,24 @@
 #   GOAT_TIMEOUT    wall-clock seconds (default: 2400; digits only); wrapped
 #                   with timeout when on PATH, else gtimeout, else run with
 #                   no timeout and print a note on stderr
+#   GOAT_LOGIN_TIMEOUT  login status check bound in seconds (login mode
+#                   only; digits only, default: 30)
 #   GOAT_KEEP_RUN   1 keeps the temporary run folder and prints the diff path
 #   GOAT_MODEL_LINE optional full model label for the review header; it
 #                   must contain the recorded model id as a whole token
-#   COMMAND_CODE_API_KEY  required for a real run, never for --dry-run; its
-#                   value is never printed
+#   COMMAND_CODE_API_KEY  required for a real api-key run, never in login
+#                   mode or --dry-run; its value is never printed
 #
 # Safety properties:
 # - The agent runs under env -i with a fixed, minimal environment and in a
-#   throwaway run folder.
+#   throwaway run folder. Login mode passes the caller's HOME instead (the
+#   CLI needs it to find the workstation login) and never the API key.
+# - login mode verifies the workstation login first with a bounded status
+#   check under the same minimal environment, adds --safe-mode, and
+#   installs the generated deny rules in every mode; nothing starts until
+#   the login checks out.
+# - Every start of the agent binary passes through one guard that refuses
+#   (exit 2) unless --no-auto-update is in the argv words.
 # - patch mode refuses any diff path outside the worktree (including
 #   rename and copy targets), symlinks, and submodules before
 #   git apply --check. New, renamed, and copied files are marked
@@ -66,7 +76,8 @@ kit_dir="$(cd "$adapter_dir/../.." && pwd -P)"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/agents/goat/run --mode patch|review|write --model <id> [--dry-run] -- <args>
+  scripts/agents/goat/run --mode patch|review|write --model <id>
+    [--auth api-key|login] [--dry-run] -- <args>
   scripts/agents/goat/run --help
 
 Modes and positionals after --:
@@ -85,9 +96,18 @@ Modes and positionals after --:
 Options:
   --mode <patch|review|write>  Mode (required)
   --model <id>                 Model id (required; no default here)
+  --auth <api-key|login>       Authentication (default: api-key)
   --dry-run                    Validate, print GOAT_ENV and GOAT_COMMAND,
                                and start nothing
   --help                       Print this help and exit
+
+Login mode:
+  --auth login starts nothing until the workstation login checks out: a
+  bounded status probe runs first under the same minimal environment and
+  the adapter refuses unless it reports an authenticated login. The child
+  gets the caller's HOME (so the CLI finds its login), no API key, and
+  --safe-mode, and the generated deny rules are installed in every mode.
+  GOAT_LOGIN_TIMEOUT bounds the probe (digits only, default: 30).
 
 Recorded model id:
   After the agent stops, the adapter reads the id that actually ran from
@@ -102,9 +122,11 @@ Environment:
   GOAT_CMD        binary name or path (default: cmd)
   GOAT_MAX_TURNS  turn cap, digits only (default: 30)
   GOAT_TIMEOUT    seconds, digits only (default: 2400)
+  GOAT_LOGIN_TIMEOUT  login probe bound, digits only (default: 30)
   GOAT_KEEP_RUN   1 keeps the run folder and prints the change diff path
   GOAT_MODEL_LINE optional full label for the review header
-  COMMAND_CODE_API_KEY  required for a real run, never for --dry-run
+  COMMAND_CODE_API_KEY  required for a real api-key run, never in login
+                   mode or --dry-run
 
 A timeout wrapper is used only when timeout or gtimeout is on PATH;
 otherwise the agent runs without a timeout and a note goes to stderr.
@@ -162,8 +184,8 @@ On an agent failure, a redacted stderr tail is printed (the key value
 is replaced by <redacted>). Patch or review output that contains the
 key is refused without being printed.
 
-GOAT_MODEL_LINE, when unset, becomes "<recorded model id> (Command Code /
-GOAT)". When set, it must contain the recorded id as a whole token. The
+GOAT_MODEL_LINE, when unset, becomes "<recorded model id> (Command Code Pro
+plan)". When set, it must contain the recorded id as a whole token. The
 adapter reads it from the environment and does not export it.
 EOF
 }
@@ -181,6 +203,20 @@ die_diff_path() {
 
 die_diff_header() {
   printf 'goat-run: unsupported diff header (use plain a/ and b/ prefixes, no quoted paths): %s\n' "$1" >&2
+  exit 2
+}
+
+# Every start of the agent binary passes through this function. It refuses
+# (exit 2) unless --no-auto-update is among the argv words, so no launch
+# path can run a CLI that may update itself under a lane.
+start_guard() {
+  local arg
+  for arg in "$@"; do
+    if [ "$arg" = "--no-auto-update" ]; then
+      return 0
+    fi
+  done
+  printf 'goat-run: refusing to start the agent without --no-auto-update\n' >&2
   exit 2
 }
 
@@ -263,6 +299,7 @@ validate_scope() {
 
 mode=""
 model=""
+auth="api-key"
 dry_run=0
 positionals=()
 goat_scopes=()
@@ -278,6 +315,11 @@ while [ "$#" -gt 0 ]; do
     --model)
       [ "$#" -ge 2 ] || die_usage "missing value for --model"
       model="$2"
+      shift 2
+      ;;
+    --auth)
+      [ "$#" -ge 2 ] || die_usage "missing value for --auth"
+      auth="$2"
       shift 2
       ;;
     --dry-run)
@@ -310,6 +352,10 @@ case "$mode" in
   *) die_usage "unknown mode: $mode" ;;
 esac
 [ -n "$model" ] || die_usage "missing --model"
+case "$auth" in
+  api-key | login) ;;
+  *) die_usage "unknown --auth value: $auth" ;;
+esac
 
 positional_count="${#positionals[@]}"
 case "$mode" in
@@ -369,6 +415,20 @@ fi
 if ! command -v jq >/dev/null 2>&1; then
   printf 'goat-run: jq is required\n' >&2
   exit 2
+fi
+
+caller_home=""
+login_timeout="${GOAT_LOGIN_TIMEOUT:-30}"
+if [ "$auth" = login ]; then
+  case "$login_timeout" in
+    '' | *[!0-9]*) die_usage "GOAT_LOGIN_TIMEOUT must be digits: $login_timeout" ;;
+  esac
+  # The CLI finds the workstation login under the caller's real HOME, so
+  # login mode needs it to exist; the child runs with it unchanged.
+  if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then
+    die_usage "login mode needs an existing HOME for the workstation login"
+  fi
+  caller_home="$(cd "$HOME" && pwd -P)"
 fi
 
 if [ "$mode" = write ]; then
@@ -435,12 +495,27 @@ if [ "$mode" = write ]; then
   fi
 fi
 
+# Login mode installs the same deny rules in every mode, so it resolves the
+# git directories outside the write-only checks. The write-only worktree
+# conditions above do not apply here.
+if [ "$auth" = login ] && [ "$mode" != write ]; then
+  if ! git_dir="$(git -C "$worktree" rev-parse --git-dir)"; then
+    die_usage "cannot resolve the git directory for $worktree"
+  fi
+  if ! common_dir="$(git -C "$worktree" rev-parse --git-common-dir)"; then
+    die_usage "cannot resolve the common git directory for $worktree"
+  fi
+  physical_git="$(cd "$worktree" && cd "$git_dir" && pwd -P)"
+  physical_common="$(cd "$worktree" && cd "$common_dir" && pwd -P)"
+fi
+
 # Deny rules win over the permission bypass. Besides shell, web, and MCP
-# tools, write mode denies the worktree's git directories, dot folders and
-# credential stores in the caller's home, and shared tool folders, so the
-# agent cannot plant code that the adapter or the caller runs later.
+# tools, write and login modes deny the worktree's git directories, dot
+# folders and credential stores in the caller's home, and shared tool
+# folders, so the agent cannot plant code that the adapter or the caller
+# runs later.
 deny_json=""
-if [ "$mode" = write ]; then
+if [ "$mode" = write ] || [ "$auth" = login ]; then
   deny_json="$(jq -cn --arg common "${physical_common#/}" --arg gitdir "${physical_git#/}" \
     --arg home "${caller_home#/}" '
     def r($p): ["Read(" + $p + ")"];
@@ -495,17 +570,27 @@ goat_argv[9]="--max-turns"
 goat_argv[10]="$max_turns"
 goat_argv[11]="--output-format"
 goat_argv[12]="json"
+argv_next=13
+if [ "$auth" = login ]; then
+  goat_argv[argv_next]="--safe-mode"
+  argv_next=$((argv_next + 1))
+fi
 if [ "$mode" = write ]; then
-  goat_argv[13]="--yolo"
+  goat_argv[argv_next]="--yolo"
 fi
 prompt_index=2
 
 if [ "$dry_run" = 1 ]; then
-  key_state="<missing>"
-  if [ -n "${COMMAND_CODE_API_KEY:-}" ]; then
-    key_state="<set>"
+  if [ "$auth" = login ]; then
+    printf 'GOAT_AUTH=login\n'
+    printf 'GOAT_ENV=PATH HOME TMPDIR LANG TERM\n'
+  else
+    key_state="<missing>"
+    if [ -n "${COMMAND_CODE_API_KEY:-}" ]; then
+      key_state="<set>"
+    fi
+    printf 'GOAT_ENV=PATH HOME TMPDIR LANG TERM COMMAND_CODE_API_KEY=%s\n' "$key_state"
   fi
-  printf 'GOAT_ENV=PATH HOME TMPDIR LANG TERM COMMAND_CODE_API_KEY=%s\n' "$key_state"
   printf 'GOAT_COMMAND='
   argv_index=0
   while [ "$argv_index" -lt "${#goat_argv[@]}" ]; do
@@ -519,12 +604,14 @@ if [ "$dry_run" = 1 ]; then
   printf '\n'
   if [ "$mode" = write ]; then
     printf 'GOAT_SCOPE=%s\n' "$scope_list"
+  fi
+  if [ "$mode" = write ] || [ "$auth" = login ]; then
     printf 'GOAT_SETTINGS=%s\n' "$deny_json"
   fi
   exit 0
 fi
 
-if [ -z "${COMMAND_CODE_API_KEY:-}" ]; then
+if [ "$auth" = api-key ] && [ -z "${COMMAND_CODE_API_KEY:-}" ]; then
   printf 'goat-run: COMMAND_CODE_API_KEY is not set; export it and re-run\n' >&2
   exit 2
 fi
@@ -562,14 +649,26 @@ if node_abs="$(command -v node 2>/dev/null)"; then
 fi
 git_bin="$(command -v git)"
 jq_bin="$(command -v jq)"
-child_env=(env -i
-  "PATH=$child_path"
-  "HOME=$run_dir/home"
-  "TMPDIR=$run_dir/tmp"
-  "LANG=${LANG:-C.UTF-8}"
-  "TERM=dumb"
-  "COMMAND_CODE_API_KEY=$COMMAND_CODE_API_KEY"
-)
+if [ "$auth" = login ]; then
+  # Login mode: the CLI finds the workstation login under the caller's
+  # real HOME; the API key is neither required nor passed.
+  child_env=(env -i
+    "PATH=$child_path"
+    "HOME=$caller_home"
+    "TMPDIR=$run_dir/tmp"
+    "LANG=${LANG:-C.UTF-8}"
+    "TERM=dumb"
+  )
+else
+  child_env=(env -i
+    "PATH=$child_path"
+    "HOME=$run_dir/home"
+    "TMPDIR=$run_dir/tmp"
+    "LANG=${LANG:-C.UTF-8}"
+    "TERM=dumb"
+    "COMMAND_CODE_API_KEY=$COMMAND_CODE_API_KEY"
+  )
+fi
 
 timeout_cmd=""
 if command -v timeout >/dev/null 2>&1; then
@@ -577,6 +676,44 @@ if command -v timeout >/dev/null 2>&1; then
 elif command -v gtimeout >/dev/null 2>&1; then
   timeout_cmd="$(command -v gtimeout)"
 fi
+
+# verify_login proves the workstation login before anything starts. It runs
+# the agent binary's own status command under the same minimal environment
+# as the real run, bounded by GOAT_LOGIN_TIMEOUT seconds (timeout or gtimeout
+# when present, else a background start and a kill, which bash 3.2 can
+# express). The captured stdout and stderr stay in the run folder and are
+# never printed; a non-zero exit, a timeout, or output that does not report
+# an authenticated login refuses the run (exit 2, nothing started).
+verify_login() {
+  local login_pid=""
+  local login_waited=0
+  local login_status=0
+  status_argv=("$goat_cmd" --no-auto-update status --json)
+  start_guard "${status_argv[@]}"
+  if [ -n "$timeout_cmd" ]; then
+    (cd "$worktree" && exec "${child_env[@]}" "$timeout_cmd" "$login_timeout" "${status_argv[@]}") \
+      >"$run_dir/login-status.json" 2>"$run_dir/login-status.err" || login_status=$?
+  else
+    (cd "$worktree" && exec "${child_env[@]}" "${status_argv[@]}") \
+      >"$run_dir/login-status.json" 2>"$run_dir/login-status.err" &
+    login_pid=$!
+    while [ "$login_waited" -lt "$login_timeout" ] && kill -0 "$login_pid" 2>/dev/null; do
+      sleep 1
+      login_waited=$((login_waited + 1))
+    done
+    if kill -0 "$login_pid" 2>/dev/null; then
+      kill "$login_pid" 2>/dev/null || true
+      sleep 1
+      kill -9 "$login_pid" 2>/dev/null || true
+    fi
+    wait "$login_pid" 2>/dev/null || login_status=$?
+  fi
+  if [ "$login_status" -ne 0 ] ||
+    ! "$jq_bin" -e '.authenticated == true' "$run_dir/login-status.json" >/dev/null 2>&1; then
+    printf 'goat-run: Command Code login is not verified; run %s login on this machine (nothing was started)\n' "$goat_cmd" >&2
+    exit 2
+  fi
+}
 
 # file_hash prints a content hash for one file, so the digest covers what
 # git would actually read and not just a size and time checksum.
@@ -636,6 +773,12 @@ ignored_digest() {
   done
 }
 
+if [ "$auth" = login ]; then
+  # A refusal leaves the tree untouched: the login probe runs before any
+  # settings file is installed, and the EXIT trap cleans the run folder.
+  verify_login
+fi
+
 head_before=""
 ignored_before="$run_dir/ignored-before"
 : >"$ignored_before"
@@ -651,8 +794,15 @@ if [ "$mode" = write ]; then
   cp "$settings_dir/settings.local.json" "$run_dir/settings-expected"
   head_before="$(git -C "$worktree" rev-parse HEAD)"
   git_dir_digest >"$run_dir/gitdir-before"
+elif [ "$auth" = login ]; then
+  # Login mode installs the deny rules in every mode, not just write; the
+  # post-run cleanup and the EXIT trap remove the folder afterwards.
+  settings_dir="$worktree/.commandcode"
+  mkdir -p "$settings_dir"
+  printf '%s\n' "$deny_json" >"$settings_dir/settings.local.json"
 fi
 
+start_guard "${goat_argv[@]}"
 agent_status=0
 if [ -n "$timeout_cmd" ]; then
   (cd "$worktree" && exec "${child_env[@]}" "$timeout_cmd" "$timeout_secs" "${goat_argv[@]}") >"$run_dir/out.jsonl" 2>"$run_dir/err.txt" || agent_status=$?
@@ -892,7 +1042,7 @@ if [ "$mode" = review ]; then
     fi
     model_line="$GOAT_MODEL_LINE"
   else
-    model_line="$recorded_model_id (Command Code / GOAT)"
+    model_line="$recorded_model_id (Command Code Pro plan)"
   fi
   printf 'Model: %s\n\n' "$model_line" >"$result_file"
   printf '%s\n' "$final_text" >>"$result_file"
