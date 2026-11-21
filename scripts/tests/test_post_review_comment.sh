@@ -150,6 +150,27 @@ good_body() {
   printf 'Model: example-model\nReviewed the change.\n' > "$run/COMMENT.md"
 }
 
+policy_without() {
+  local wanted="$1"
+  local source="$2"
+  local destination="$3"
+
+  awk -v wanted="$wanted" -v RS= -v ORS='\n\n' '
+    {
+      keep = 1
+      count = split($0, lines, "\n")
+      for (i = 1; i <= count; i++) {
+        if (lines[i] == wanted) {
+          keep = 0
+        }
+      }
+      if (keep) {
+        print $0
+      }
+    }
+  ' "$source" > "$destination"
+}
+
 record_has_url() {
   grep -Fq "https://github.example/pr/1#comment-1" "$run/post-review-comment.record" 2>/dev/null
 }
@@ -249,6 +270,29 @@ if [ "$actual" -eq "$total" ]; then ok "6: fixture is exactly $total bytes"; els
 run_check --run "$run" --repo "$repo" --pr 7 --max-bytes "$total"
 expect_status "6: exactly at the cap exits 0" 0
 expect_post_once "6: exactly at the cap posts once"
+for total in 65536 65537; do
+  reset_run
+  printf 'Model: pad\n' > "$run/COMMENT.md"
+  n=$((total - 12))
+  head -c "$n" /dev/zero | tr '\0' 'a' >> "$run/COMMENT.md"
+  printf '\n' >> "$run/COMMENT.md"
+  actual="$(wc -c < "$run/COMMENT.md" | tr -d ' ')"
+  if [ "$actual" -eq "$total" ]; then
+    ok "6: default-cap fixture is exactly $total bytes"
+  else
+    bad "6: default-cap fixture is exactly $total bytes" "size is $actual"
+  fi
+  run_check --run "$run" --repo "$repo" --pr 7
+  if [ "$total" -eq 65536 ]; then
+    expect_status "6: exactly at the default cap exits 0" 0
+    expect_post_once "6: exactly at the default cap posts once"
+  else
+    expect_status "6: over the default cap exits 1" 1
+    expect_no_post "6: over the default cap posts nothing"
+    expect_err "6: over the default cap names the cap" \
+      "COMMENT.md is $total bytes, over the 65536 byte cap"
+  fi
+done
 
 printf '== secrets ==\n'
 for token in ghp_ gho_ ghs_ github_pat_ xai- sk-; do
@@ -594,6 +638,58 @@ expect_status "24: missing policy exits 3" 3
 expect_no_post "24: missing policy posts nothing"
 expect_err "24: missing policy names the failure" "policy file missing or invalid"
 unset POLICY_RULES
+reset_run
+good_body
+printf 'not a policy record\n' > "$work_tmp/malformed-policy"
+POLICY_RULES="$work_tmp/malformed-policy"
+export POLICY_RULES
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "24: malformed policy exits 3" 3
+expect_no_post "24: malformed policy posts nothing"
+expect_err "24: malformed policy names the failure" "policy file missing or invalid"
+unset POLICY_RULES
+
+policy_without 'id=prc.byte-cap' "$repo_root/policy/rules" "$work_tmp/no-cap-policy"
+policy_without 'id=prc.allow.owner.yohei1126' "$repo_root/policy/rules" "$work_tmp/no-owners-policy.tmp"
+policy_without 'id=prc.allow.owner.edgesentry' "$work_tmp/no-owners-policy.tmp" "$work_tmp/no-owners-policy"
+for fixture in no-cap-policy no-owners-policy; do
+  reset_run
+  good_body
+  POLICY_RULES="$work_tmp/$fixture"
+  export POLICY_RULES
+  run_check --run "$run" --repo "$repo" --pr 7
+  expect_status "25: incomplete $fixture exits 3" 3
+  expect_no_post "25: incomplete $fixture posts nothing"
+  expect_err "25: incomplete $fixture names the failure" "policy file missing or invalid"
+  unset POLICY_RULES
+done
+
+policy_without 'action=post-review.scan' "$repo_root/policy/rules" "$work_tmp/empty-scan-policy"
+reset_run
+good_body
+POLICY_RULES="$work_tmp/empty-scan-policy"
+export POLICY_RULES
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "25: empty scan list exits 3" 3
+expect_no_post "25: empty scan list posts nothing"
+expect_err "25: empty scan list names the failure" "policy file missing or invalid"
+unset POLICY_RULES
+
+policy_without 'id=prc.allow.body' "$repo_root/policy/rules" "$work_tmp/default-deny-body"
+policy_without 'id=prc.allow.record' "$repo_root/policy/rules" "$work_tmp/default-deny-record"
+policy_without 'id=prc.allow.pr' "$repo_root/policy/rules" "$work_tmp/default-deny-pr"
+for check_name in body record pr; do
+  reset_run
+  good_body
+  POLICY_RULES="$work_tmp/default-deny-$check_name"
+  export POLICY_RULES
+  run_check --run "$run" --repo "$repo" --pr 7
+  expect_status "25: default.deny on $check_name exits 1" 1
+  expect_no_post "25: default.deny on $check_name posts nothing"
+  expect_err "25: default.deny on $check_name names the rule" \
+    "policy denied post-review.$check_name with rule default.deny"
+  unset POLICY_RULES
+done
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then

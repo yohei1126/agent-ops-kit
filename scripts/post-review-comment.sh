@@ -265,6 +265,10 @@ EOF
   policy_index=$((policy_index + 1))
 done
 
+if [ -z "$default_owners" ] || [ -z "$default_max_bytes" ]; then
+  policy_error
+fi
+
 owners_from_policy=0
 if [ "$have_owners" -eq 0 ]; then
   if [ -n "${POST_REVIEW_COMMENT_OWNERS+set}" ]; then
@@ -410,6 +414,9 @@ policy_decide post-review.body COMMENT.md
 if [ "$policy_eval_rule" = prc.forbid.no-body ]; then
   fail_closed "COMMENT.md must hold body text after the first line"
 fi
+if [ "$policy_status" -ne 0 ]; then
+  fail_closed "policy denied post-review.body with rule $policy_eval_rule"
+fi
 
 size="$(wc -c < "$comment")"
 size="${size//[!0-9]/}"
@@ -446,10 +453,16 @@ scan_content() {
 # grep treats a hyphen as a non-word character, so \bsk- would still match
 # the sk- inside desk-fan.
 policy_scan_tab="$(printf '\t')"
+if ! policy_scan_list="$(policy_eval_list_forbids post-review.scan)"; then
+  policy_error
+fi
+[ -n "$policy_scan_list" ] || policy_error
 while IFS="$policy_scan_tab" read -r scan_id scan_ere scan_label; do
   [ -n "$scan_id" ] || continue
   scan_content "$scan_label" "$scan_ere"
-done < <(policy_eval_list_forbids post-review.scan)
+done <<EOF
+$policy_scan_list
+EOF
 
 # A lock directory guards the scan and the post. mkdir is atomic, so two
 # concurrent runs in the same folder cannot both pass the scan. Ownership is
@@ -519,6 +532,9 @@ case "$policy_eval_rule" in
   prc.forbid.already-posted) fail_closed "a comment was already posted for $repo#$pr in this run" ;;
   prc.forbid.pending) fail_closed "an earlier attempt for $repo#$pr did not finish; refusing to retry" ;;
 esac
+if [ "$policy_status" -ne 0 ]; then
+  fail_closed "policy denied post-review.record with rule $policy_eval_rule"
+fi
 
 # The gh presence check comes after the local checks, so a body that would
 # never pass still reports the body failure. A missing gh, a failed pull
@@ -562,6 +578,9 @@ case "$policy_eval_rule" in
   prc.forbid.not-draft) fail_closed "pull request is not a draft: $repo#$pr" ;;
   prc.forbid.not-open) fail_closed "pull request is not open: $repo#$pr" ;;
 esac
+if [ "$policy_status" -ne 0 ]; then
+  fail_closed "policy denied post-review.pr with rule $policy_eval_rule"
+fi
 
 # Write the pending marker immediately before the post, so a read failure
 # leaves no marker and a crash after a successful post but before the URL is
