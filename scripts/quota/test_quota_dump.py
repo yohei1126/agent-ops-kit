@@ -59,14 +59,14 @@ class QuotaSchema(unittest.TestCase):
         self.assertEqual(len(agy), 5)
         self.assertEqual(agy["3p-weekly"]["remaining_fraction"], 0.204)
 
-    def test_fireworks_and_goat_never_invent_numbers(self):
+    def test_fireworks_and_commandcode_never_invent_numbers(self):
         doc = json.loads(run("--json").stdout)
         by = {r["agent_id"]: r for r in doc["records"]}
-        for key in ("opencode-fireworks", "box-goat"):
+        for key in ("opencode-fireworks", "commandcode-mac"):
             self.assertEqual(by[key]["status"], "unknown")
             self.assertIsNone(by[key]["remaining_fraction"])
         self.assertEqual(by["opencode-fireworks"]["kind"], "carry")
-        self.assertEqual(by["box-goat"]["kind"], "flat")
+        self.assertEqual(by["commandcode-mac"]["kind"], "flat")
 
     def test_missing_pool_marked_unknown(self):
         p = HERE / "fixtures/agy-partial.tmp.json"

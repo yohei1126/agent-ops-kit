@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Emit one versioned JSON schema of remaining capacity for every coding lane.
 
-Lanes: Antigravity `agy`, Cursor / Grok Bot plan, OpenCode + Fireworks, Box GOAT.
-Fireworks and GOAT are not weekly pools. They are reported as `carry` / `flat`
-and stay `unknown` unless a value is supplied. This script never invents numbers.
+Lanes: Antigravity `agy`, Cursor / Grok Bot plan, OpenCode + Fireworks,
+Command Code (Pro plan). Fireworks and Command Code (Pro plan) are not
+weekly pools. They are reported as `carry` / `flat` and stay `unknown`
+unless a value is supplied. This script never invents numbers.
 
 Usage:
   quota_dump.py [--agy-payload FILE | --agy-capture] [--cursor-json FILE]
@@ -145,9 +146,10 @@ def fireworks_records(args, captured) -> list[dict]:
                    "operator-supplied" if node else "unavailable", captured, node, note=note)]
 
 
-def goat_records(captured) -> list[dict]:
-    return [record("box-goat", "goat-flat-monthly", "flat", "unavailable", captured,
-                   note="flat monthly lane; no usage API, not a weekly pool")]
+def commandcode_records(captured) -> list[dict]:
+    return [record("commandcode-mac", "commandcode-pro-monthly", "flat", "unavailable", captured,
+                   note="Command Code (Pro plan) on the Mac workstation; usage is tracked by the "
+                        "provider meter; no usage API, not a weekly pool")]
 
 
 def agy_capture(timeout: float, agy_cmd: list[str], save_raw: str | None = None) -> dict:
@@ -240,7 +242,7 @@ def build(args) -> dict:
         payload = json.loads(Path(args.cursor_json).read_text())
         recs += from_payload("cursor-grok", payload, "cursor-plan-usage-file", captured)
     recs += fireworks_records(args, captured)
-    recs += goat_records(captured)
+    recs += commandcode_records(captured)
     return {"schema_version": SCHEMA_VERSION, "captured_at": iso(captured), "records": recs}
 
 
