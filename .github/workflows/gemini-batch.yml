@@ -1,0 +1,51 @@
+# Test the Gemini batch runner with a fake gh and a fake curl on Linux and on
+# macOS /bin/bash 3.2. No test calls the real provider. A separate workflow
+# keeps the dev-loop-gate.yml file lists free of merge conflicts.
+name: Gemini batch
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: gemini-batch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax
+        run: |
+          for f in scripts/gemini-batch.sh scripts/tests/test_gemini_batch.sh; do
+            bash -n "$f"
+          done
+
+      - name: Run shellcheck
+        run: shellcheck -x scripts/gemini-batch.sh scripts/tests/test_gemini_batch.sh
+
+      - name: Run batch runner tests
+        run: bash scripts/tests/test_gemini_batch.sh
+
+  macos:
+    name: gemini-batch-macos
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        # v5.1.0. The repository requires a full commit SHA.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check shell syntax with bash 3.2
+        run: |
+          for f in scripts/gemini-batch.sh scripts/tests/test_gemini_batch.sh; do
+            /bin/bash -n "$f"
+          done
+
+      - name: Run batch runner tests with bash 3.2
+        run: /bin/bash scripts/tests/test_gemini_batch.sh
