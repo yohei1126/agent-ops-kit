@@ -319,7 +319,7 @@ cmd_scan() {
 queued_items() { local f; for f in "$state"/items/*.json; do [ -e "$f" ] && [ "$(jq -r .status "$f")" = queued ] && printf '%s\n' "$f"; done; return 0; }
 
 cmd_submit() {
-  local files cnt oldest f t due=0 reqs="$tmpd/reqs.json" n=0 tin=0 reqin=0 diffp est repo pr head
+  local view files cnt oldest f t due=0 reqs="$tmpd/reqs.json" n=0 tin=0 reqin=0 diffp est repo pr head
   files="$(queued_items)"
   [ -n "$files" ] || { log "nothing queued"; return 0; }
   cnt=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
@@ -333,6 +333,14 @@ cmd_submit() {
   for f in $files; do
     repo="$(jq -r .repo "$f")"; pr="$(jq -r .pr "$f")"; head="$(jq -r .head "$f")"
     repo_public "$repo" || { jset "$f" '.status="failed"|.reason="repo not public allowlisted"'; continue; }
+    # Re-read the live PR: the queue may be stale (head moved, marked ready, closed).
+    view="$(gh pr view "$pr" -R "$repo" --json headRefOid,isDraft,state 2>/dev/null)" || { log "pr view failed for $repo#$pr" >&2; continue; }
+    if [ "$(printf '%s' "$view" | jq -r .headRefOid)" != "$head" ] ||
+      ! allowed gemini-batch.pr "$repo#$pr" "is_draft=$(printf '%s' "$view" | jq -r .isDraft)" "state=$(printf '%s' "$view" | jq -r .state)" \
+        "is_cross_repo=false" "author_is_owner=true"; then
+      jset "$f" '.status="skipped"|.reason="head changed or no longer an open draft"'
+      continue
+    fi
     diffp="$tmpd/diff.$n.txt"
     gh pr diff "$pr" -R "$repo" > "$diffp" 2>/dev/null || { log "diff failed for $repo#$pr" >&2; continue; }
     est="$(est_tokens "$diffp")"
@@ -375,9 +383,16 @@ weekly_input() { # JOB OUTFILE
 }
 
 cmd_weekly() {
-  local job="$1" last=0 inp="$tmpd/in.$1.txt" reqs="$tmpd/reqs.$1.json" est
+  local job="$1" last=0 inp="$tmpd/in.$1.txt" reqs="$tmpd/reqs.$1.json" est b
   [ -f "$state/weekly/$job.last" ] && last="$(cat "$state/weekly/$job.last")"
   [ $((now - last)) -ge $((interval_d * 86400)) ] || { log "$job: interval not reached"; return 0; }
+  for b in "$state"/batches/*.json; do
+    [ -e "$b" ] || continue
+    case "$b" in *.response.json) continue ;; esac
+    if [ "$(jq -r .job "$b")" = "$job" ] && [ "$(jq -r .status "$b")" = "submitted" ]; then
+      log "$job: a batch is still in flight; not submitting another"; return 0
+    fi
+  done
   verify_model "$job" "$(model_for "$job")" || return 1
   weekly_input "$job" "$inp"
   [ -s "$inp" ] || { log "$job: no input"; return 0; }

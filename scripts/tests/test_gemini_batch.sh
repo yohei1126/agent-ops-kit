@@ -225,6 +225,14 @@ new_case; mk_prs 1 2 3
 gb scan; gb submit --dry-run
 [ "$rc" = 0 ] && [ "$(posts)" = 0 ] && [ "$(count_status queued)" = 3 ]; check "dry run submits and reserves nothing" "$?"
 
+# --- stale queue at submit time -----------------------------------------------------
+new_case; mk_prs 1 2 3
+gb scan
+printf '%s\n' "{\"headRefOid\":\"deadbeef000\",\"isDraft\":true,\"state\":\"OPEN\",\"comments\":[]}" > "$MOCK_DIR/view-1.json"
+printf '%s\n' "{\"headRefOid\":\"$(sha 2)000\",\"isDraft\":false,\"state\":\"OPEN\",\"comments\":[]}" > "$MOCK_DIR/view-2.json"
+gb submit --threshold 1
+[ "$(count_status skipped)" = 2 ] && [ "$(count_status submitted)" = 1 ] && jq -e '.batch.input_config.requests.requests|length==1' "$MOCK_DIR/submit-last.json" >/dev/null; check "submit re-reads the PR: moved head and ready PR are not sent" "$?"
+
 # --- crash safety -----------------------------------------------------------------
 new_case; mk_prs 1 2 3
 gb scan; MOCK_SUBMIT_CODE=000 gb submit
@@ -287,6 +295,10 @@ f=""; for g in "$STATE"/out/security-*.md; do f="$g"; done
 [ -n "$f" ] && [ "$(head -1 "$f")" = 'Model: Gemini 3.8 Flash (gemini-3.8-flash) (Gemini API)' ]; check "security: output file with Model line" "$?"
 [ ! -s "$MOCK_DIR/comments.log" ] 2>/dev/null || [ ! -e "$MOCK_DIR/comments.log" ]; check "security: nothing posted externally" "$?"
 NOW_USE=$((NOW + 8 * 86400)); gb security; [ "$(posts)" = 2 ]; check "security: runs again after the interval" "$?"
+new_case
+echo '[{"ghsa_id":"GHSA-xxxx","severity":"high","summary":"Prototype pollution","vulnerabilities":[{"package":{"ecosystem":"npm"}}]}]' > "$MOCK_DIR/advisories.json"
+gb security; NOW_USE=$((NOW + 8 * 86400)); gb security
+[ "$(posts)" = 1 ]; check "security: a batch still in flight blocks another submit" "$?"
 
 new_case
 printf '%s\n' '[{"number":9,"comments":[{"body":"Model: Gemini 4 Argon (gemini-4-argon) (Gemini API)\nFindings: none"},{"body":"chat noise"}]}]' > "$MOCK_DIR/all-yohei1126_agent-ops-kit.json"
