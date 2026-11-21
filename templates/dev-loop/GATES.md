@@ -283,13 +283,14 @@ The match rules, the script list, and the strict exit behavior are in
 
 `--check model-ids` keeps unverified model ids out of
 [`../agent-config.example.json`](../agent-config.example.json). A wrong id
-looks plausible in review and only fails when an agent starts, so the check
-compares every non-null lane model with
+looks plausible in review and only fails when an agent starts, so every
+non-null lane model must appear in
 [`../agent-config.verified-model-ids.txt`](../agent-config.verified-model-ids.txt)
-and requires a TODO in the `_comment` of every null entry. Add an id to the
-list only after a run record or the vendor's model list confirms the exact
-string; until then the entry stays null. CI runs it with `--strict`. See
-`scripts/dev-loop-gate.sh --help` and
+and every null entry needs a TODO in its `_comment`. Add an id to the
+list only after a run record or the vendor's model list confirms the
+exact string; until then the entry stays null. The `lane.verified` and
+`lane.use` records are data in [`../../policy/rules`](../../policy/rules).
+CI runs it with `--strict`. See `scripts/dev-loop-gate.sh --help` and
 [`../../scripts/lib/model-ids.sh`](../../scripts/lib/model-ids.sh).
 
 The check also compares a PR Model line with the model id recorded from the

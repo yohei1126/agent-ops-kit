@@ -842,6 +842,22 @@ else
   ok "24: no example run starts agy"
 fi
 
+printf '== the lane.launch policy fails closed ==\n'
+
+# The lane.launch decision loads the policy evaluator and the kit policy. A
+# policy that cannot load stops the launch with the failure named, before
+# any adapter starts.
+bad_policy="$work_tmp/bad-policy-rules"
+printf 'this file is not a policy record\n' >"$bad_policy"
+out="$(AGENT_OPS_KIT_CONFIG="$example_config" HOME="$test_home" PATH="$test_path" \
+  POLICY_RULES="$bad_policy" \
+  /bin/bash "$launcher" --lane coding --as bot --dry-run -- x 2>"$work_tmp/err-policy-load")"
+status=$?
+err="$(cat "$work_tmp/err-policy-load")"
+expect_status "25: an unloadable lane.launch policy exits 2" 2
+expect_err "25: the refusal names the lane.launch policy" "lane.launch policy"
+expect_no_out "25: an unloadable policy prints no command" "COMMAND="
+
 for file in "$repo_root/scripts/agent-launch.sh" \
   "$repo_root/scripts/lib/agent-config.sh" \
   "$repo_root/scripts/lib/launch-run.sh"; do

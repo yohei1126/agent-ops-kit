@@ -5,7 +5,9 @@
 #
 # Every non-null lane model id in the example agent config must be listed in
 # the verified-ids file, and every null id must carry a TODO in the entry's
-# _comment. Both files are read from the work tree under --repo.
+# _comment. Both files are read from the work tree under --repo. When that
+# work tree has its own policy/rules, its lane.verified and lane.use records
+# must also allow every non-null id.
 set -u
 
 repo="${repo:-}"
@@ -15,6 +17,9 @@ recorded_id_file="${recorded_id_file:-}"
 
 model_ids_config_rel="templates/agent-config.example.json"
 model_ids_list_rel="templates/agent-config.verified-model-ids.txt"
+model_ids_policy_rel="policy/rules"
+model_ids_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+model_ids_policy_lib_loaded=0
 
 # model_ids_known <list> <id>: true when the id is a whole line of the list,
 # ignoring blank lines, # comments, and surrounding blanks.
@@ -112,6 +117,18 @@ EOF_CONFIGURED
   return 1
 }
 
+# model_ids_policy_lib: source the policy evaluator on first use. The gate
+# sources this file from --help too, so the evaluator is not sourced at file
+# load time.
+model_ids_policy_lib() {
+  if [ "$model_ids_policy_lib_loaded" != 1 ]; then
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=policy-eval.sh
+    . "$model_ids_lib_dir/policy-eval.sh"
+    model_ids_policy_lib_loaded=1
+  fi
+}
+
 run_model_ids() {
   local config="$repo/$model_ids_config_rel"
   local list="$repo/$model_ids_list_rel"
@@ -119,6 +136,7 @@ run_model_ids() {
   local checked=0 hits=0 state
   local model_lines model_line_seen expected_id mline
   local model_line_failed=0
+  local policy_rules model_ids_policy policy_status
 
   if ! command -v jq >/dev/null 2>&1; then
     printf 'dev-loop-gate: jq is required for model-ids\n' >&2
@@ -131,6 +149,24 @@ run_model_ids() {
   if [ ! -f "$list" ]; then
     printf 'dev-loop-gate: model-ids: verified-ids list not found: %s\n' "$model_ids_list_rel" >&2
     exit 2
+  fi
+
+  # A policy/rules in the repo under test adds two consistency checks from
+  # the decision table: a lane.verified record must verify every non-null id
+  # the list accepts, and the lane naming the id must allow it. Without that
+  # file the check keeps its list-file-only behaviour, so fixture repos are
+  # never judged against the kit policy that happens to sit next to this
+  # library. A file that cannot be loaded fails closed.
+  policy_rules="$repo/$model_ids_policy_rel"
+  model_ids_policy=0
+  if [ -f "$policy_rules" ]; then
+    model_ids_policy_lib
+    if ! policy_eval_load "$policy_rules"; then
+      printf 'dev-loop-gate: model-ids: cannot load policy rules: %s\n' \
+        "$model_ids_policy_rel" >&2
+      exit 2
+    fi
+    model_ids_policy=1
   fi
 
   # One tab-separated record per lane entry: lane, index, agent, model or
@@ -173,6 +209,25 @@ run_model_ids() {
         if ! model_ids_known "$list" "$model"; then
           row MI "$where" FAIL "unverified id $model; add it to $model_ids_list_rel only after a run record or the vendor's model list confirms it, else use null plus a TODO"
           hits=$((hits + 1))
+        elif [ "$model_ids_policy" = 1 ]; then
+          # The list accepted the id, so the decision table must accept it
+          # too. A lane.verified record must verify the id, and the lane
+          # naming it must allow it; a deny fails the entry either way.
+          policy_status=0
+          policy_eval_attr_list=()
+          policy_eval_decide lane.verified "$model" || policy_status=$?
+          if [ "$policy_status" -ne 0 ]; then
+            row MI "$where" FAIL "id $model is not verified by $model_ids_policy_rel rule $policy_eval_rule; add a lane.verified record for it, or use null plus a TODO"
+            hits=$((hits + 1))
+          else
+            policy_status=0
+            policy_eval_attr_list=("lane=$lane")
+            policy_eval_decide lane.use "$model" || policy_status=$?
+            if [ "$policy_status" -ne 0 ]; then
+              row MI "$where" FAIL "id $model is not allowed in lane $lane by $model_ids_policy_rel rule $policy_eval_rule; move the entry to a lane the id may run in, or use null plus a TODO"
+              hits=$((hits + 1))
+            fi
+          fi
         fi
         ;;
     esac
