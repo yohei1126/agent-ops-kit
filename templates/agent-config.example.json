@@ -4,12 +4,12 @@
   "agents": {
     "goat": {
       "adapter": "goat",
-      "display": "GOAT",
+      "display": "Pro plan",
       "provider": "Command Code",
       "who_can_launch": "bot",
       "provisioned": true,
       "overages": "never",
-      "_comment": "Fixed-quota plan. Adapter: scripts/agents/goat (patch and review are read-only; write mode is gated, see docs/goat-adapter.md)."
+      "_comment": "Fixed-quota plan (Command Code Pro plan). Runs on the Mac workstation through scripts/commandcode-wrapper.sh with the workstation login, not an API key on the box. Adapter: scripts/agents/goat (patch and review are read-only; write mode is gated, see docs/goat-adapter.md)."
     },
     "agy-subscription": {
       "adapter": "agy",
@@ -59,7 +59,7 @@
   },
   "lanes": {
     "coding": {
-      "_comment": "Fixed-quota agents first (GOAT, agy, Codex), then OpenCode with prepaid Fireworks credits, and Cursor last because it shares quota with chat. The agy entry is an issue hand-off for remote maintainer runs.",
+      "_comment": "Fixed-quota agents first (Command Code, agy, Codex), then OpenCode with prepaid Fireworks credits, and Cursor last because it shares quota with chat. The agy entry is an issue hand-off for remote maintainer runs.",
       "entries": [
         {
           "agent": "goat",

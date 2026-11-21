@@ -33,9 +33,11 @@ launch. The null-id launch rule is data in
 for flags, the hand-off and null-id rules, and the lane and agent names in
 the loaded config.
 
-The GOAT adapter (`scripts/agents/goat/`) runs read-only `patch` and `review`
-modes and a gated `write` mode; see
-[`../docs/goat-adapter.md`](../docs/goat-adapter.md).
+The Command Code (Pro plan) adapter (`scripts/agents/goat/`) runs read-only
+`patch` and `review` modes and a gated `write` mode; see
+[`../docs/goat-adapter.md`](../docs/goat-adapter.md). The Mac launcher
+[`scripts/commandcode-wrapper.sh`](commandcode-wrapper.sh) checks the login
+and starts the adapter with it; see `scripts/commandcode-wrapper.sh --help`.
 
 ## Run launch and collection in two workstation shell calls
 

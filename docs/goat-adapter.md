@@ -1,10 +1,11 @@
-# GOAT adapter
+# Command Code (Pro plan) adapter
 
-[`scripts/agents/goat/run`](../scripts/agents/goat/run) launches GOAT
-(Command Code) from the agent config, so `scripts/agent-launch.sh` can pick a
-GOAT lane entry and pass its model id. Run `scripts/agents/goat/run --help` for
-the interface, the path and scope checks, the deny rules, and the exit codes.
-This page records why it works the way it does.
+[`scripts/agents/goat/run`](../scripts/agents/goat/run) launches Command Code
+(Pro plan) from the agent config, so `scripts/agent-launch.sh` can pick a
+Command Code (Pro plan) lane entry and pass its model id. Run
+`scripts/agents/goat/run --help` for the interface, the path and scope
+checks, the deny rules, and the exit codes. This page records why it works
+the way it does.
 
 The example config uses `patch` for the coding and docs lanes and `review` for
 the review lanes. `write` is opt-in per lane entry.
@@ -110,9 +111,20 @@ folder are denied for reads as well as writes: shell startup files and
 histories hold secrets too, and a fixed list of credential stores is not
 enough.
 
+## Why login mode
+
+The throwaway `HOME` hid the workstation login, so a run on the Mac was
+never attributed to the plan. Login mode probes the CLI first
+(`status --json`) and refuses unless it reports a live login, then hands
+the child the caller's real `HOME`, and nothing else, so the CLI finds
+that login; no API key is required or passed. The wider reach is paid
+for with the generated deny rules in every mode, and every binary start
+refuses without `--no-auto-update`, so an update cannot swap the CLI.
+
 ## Write mode conditions
 
-The maintainer approved write-enabled headless GOAT only under all of these:
+The maintainer approved write-enabled headless Command Code (Pro plan)
+only under all of these:
 
 1. The launch goes through this adapter, never a direct `--yolo` call.
 2. The directory is a disposable worktree so a bad run cannot rewrite the
@@ -126,7 +138,7 @@ The maintainer approved write-enabled headless GOAT only under all of these:
 3. The agent runs under `env -i` so no GitHub token or other caller secret
    reaches it: only a `PATH` of the agent's folder, node's folder, and the
    system folders, a throwaway `HOME` and `TMPDIR` inside the run folder,
-   `LANG`, `TERM`, and the GOAT API key.
+   `LANG`, `TERM`, and, in API-key mode, the API key.
 4. The caller declares the scope as literal repository-relative paths (glob
    characters are refused). After the run the adapter fails closed on
    anything outside that scope or anything that could change git itself:

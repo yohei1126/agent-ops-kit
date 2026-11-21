@@ -23,15 +23,22 @@ jobs:
 
       - name: Check shell syntax
         run: |
-          for f in scripts/agents/goat/run scripts/tests/test_goat_adapter.sh; do
+          for f in scripts/agents/goat/run scripts/commandcode-wrapper.sh \
+                   scripts/tests/test_goat_adapter.sh \
+                   scripts/tests/test_commandcode_wrapper.sh; do
             bash -n "$f"
           done
 
       - name: Run shellcheck
-        run: shellcheck -x scripts/agents/goat/run scripts/tests/test_goat_adapter.sh
+        run: |
+          shellcheck -x scripts/agents/goat/run scripts/commandcode-wrapper.sh \
+            scripts/tests/test_goat_adapter.sh scripts/tests/test_commandcode_wrapper.sh
 
       - name: Run adapter tests
         run: bash scripts/tests/test_goat_adapter.sh
+
+      - name: Run launcher tests
+        run: bash scripts/tests/test_commandcode_wrapper.sh
 
   macos:
     name: goat-adapter-macos
@@ -48,9 +55,14 @@ jobs:
 
       - name: Check shell syntax with bash 3.2
         run: |
-          for f in scripts/agents/goat/run scripts/tests/test_goat_adapter.sh; do
+          for f in scripts/agents/goat/run scripts/commandcode-wrapper.sh \
+                   scripts/tests/test_goat_adapter.sh \
+                   scripts/tests/test_commandcode_wrapper.sh; do
             /bin/bash -n "$f"
           done
 
       - name: Run adapter tests with bash 3.2
         run: /bin/bash scripts/tests/test_goat_adapter.sh
+
+      - name: Run launcher tests with bash 3.2
+        run: /bin/bash scripts/tests/test_commandcode_wrapper.sh
