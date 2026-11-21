@@ -156,3 +156,4 @@ lane-launch-null-issue	lane.launch	null	is_null=1,mode=issue	ALLOW	lane.allow.ha
 lane-launch-null-review	lane.launch	null	is_null=1,mode=review	DENY	lane.forbid.null-launch
 lane-launch-null-patch	lane.launch	null	is_null=1,mode=patch	DENY	lane.forbid.null-launch
 lane-launch-non-null-patch	lane.launch	example/unverified-model	is_null=0,mode=patch	ALLOW	lane.allow.non-null-launch
+lane-launch-null-docs	lane.launch	null	is_null=1,mode=docs	DENY	lane.forbid.null-launch

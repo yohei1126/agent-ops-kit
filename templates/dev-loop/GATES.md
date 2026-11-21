@@ -286,8 +286,10 @@ The match rules, the script list, and the strict exit behavior are in
 looks plausible in review and only fails when an agent starts, so every
 non-null lane model must appear in
 [`../agent-config.verified-model-ids.txt`](../agent-config.verified-model-ids.txt)
-and every null entry needs a TODO in its `_comment`. The `lane.verified`
-and `lane.use` records are data in [`../../policy/rules`](../../policy/rules).
+and every null entry needs a TODO in its `_comment`. Add an id to the
+list only after a run record or the vendor's model list confirms the
+exact string; until then the entry stays null. The `lane.verified` and
+`lane.use` records are data in [`../../policy/rules`](../../policy/rules).
 CI runs it with `--strict`. See `scripts/dev-loop-gate.sh --help` and
 [`../../scripts/lib/model-ids.sh`](../../scripts/lib/model-ids.sh).
 

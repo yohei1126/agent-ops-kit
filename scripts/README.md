@@ -26,10 +26,12 @@ the launch later; `--validate` checks it for every installed adapter.
 stays unavailable to bots while a bot-allowed seat can serve both callers. The
 `issue` entry mode exists so a maintainer-only seat can still take coding work:
 the bot only prepares the agent-task Issue and the maintainer runs the agent
-remotely from it, so nothing a bot runs can start that seat. The null-id
-launch rule is data in [`../policy/rules`](../policy/rules). Run
-`scripts/agent-launch.sh --help` for flags, the hand-off and null-id rules,
-and the lane and agent names in the loaded config.
+remotely from it, so nothing a bot runs can start that seat. A `null` model
+id marks an id nobody has confirmed yet, so a guessed id never reaches a
+launch. The null-id launch rule is data in
+[`../policy/rules`](../policy/rules). Run `scripts/agent-launch.sh --help`
+for flags, the hand-off and null-id rules, and the lane and agent names in
+the loaded config.
 
 The GOAT adapter (`scripts/agents/goat/`) runs read-only `patch` and `review`
 modes and a gated `write` mode; see
