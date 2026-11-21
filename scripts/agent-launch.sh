@@ -31,6 +31,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 config_lib="$script_dir/lib/agent-config.sh"
+policy_lib="$script_dir/lib/policy-eval.sh"
 adapters_root="$script_dir/agents"
 
 # One flag table drives both help text and value requirements.
@@ -207,6 +208,18 @@ fi
 # shellcheck source=lib/agent-config.sh
 . "$config_lib"
 
+# The lane.launch decision below reads the policy evaluator, and by default
+# the kit policy/rules next to it. A copied scripts tree can ship without the
+# evaluator; the launcher then applies the same rule procedurally, so a
+# missing library never widens what may run.
+policy_eval_present=0
+if [ -r "$policy_lib" ]; then
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=lib/policy-eval.sh
+  . "$policy_lib"
+  policy_eval_present=1
+fi
+
 lane=""
 as_caller=""
 requested_agent=""
@@ -379,8 +392,35 @@ model_name="$(agent_config_lane_entry_field "$lane" "$entry_index" model_name)"
 mode="$(agent_config_lane_entry_field "$lane" "$entry_index" mode)"
 
 # A null model id is unverified. Only a hand-off entry may carry one, because
-# it executes no model; the Issue then says the id is unverified.
-if [ -z "$model" ] && [ "$mode" != "$agent_config_handoff_mode" ]; then
+# it executes no model; the Issue then says the id is unverified. The rule is
+# the lane.launch decision in policy/rules: any deny prints the same refusal,
+# and a policy that cannot be loaded stops the launch. Without the evaluator
+# the same rule runs procedurally.
+if [ -z "$model" ]; then
+  is_null=1
+else
+  is_null=0
+fi
+launch_deny=0
+launch_policy_failed=0
+if [ "$policy_eval_present" = 1 ]; then
+  policy_eval_attr_list=("is_null=$is_null" "mode=$mode")
+  policy_status=0
+  policy_eval_decide lane.launch "${model:-null}" || policy_status=$?
+  case "$policy_status" in
+    0) ;;
+    1) launch_deny=1 ;;
+    *) launch_policy_failed=1 ;;
+  esac
+elif [ "$is_null" = 1 ] && [ "$mode" != "$agent_config_handoff_mode" ]; then
+  launch_deny=1
+fi
+if [ "$launch_policy_failed" = 1 ]; then
+  printf 'agent-launch: cannot load the lane.launch policy for lane %s; no adapter started\n' \
+    "$lane" >&2
+  exit 2
+fi
+if [ "$launch_deny" = 1 ]; then
   printf 'agent-launch: lane %s entry for %s has a null model id (unverified); the maintainer must confirm the id locally and set it in the config before this entry can run\n' \
     "$lane" "$selected_agent" >&2
   exit 2

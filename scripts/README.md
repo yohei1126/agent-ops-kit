@@ -26,9 +26,9 @@ the launch later; `--validate` checks it for every installed adapter.
 stays unavailable to bots while a bot-allowed seat can serve both callers. The
 `issue` entry mode exists so a maintainer-only seat can still take coding work:
 the bot only prepares the agent-task Issue and the maintainer runs the agent
-remotely from it, so nothing a bot runs can start that seat. A `null` model id
-marks an id nobody has confirmed yet, so a guessed id never reaches a launch.
-Run `scripts/agent-launch.sh --help` for flags, the hand-off and null-id rules,
+remotely from it, so nothing a bot runs can start that seat. The null-id
+launch rule is data in [`../policy/rules`](../policy/rules). Run
+`scripts/agent-launch.sh --help` for flags, the hand-off and null-id rules,
 and the lane and agent names in the loaded config.
 
 The GOAT adapter (`scripts/agents/goat/`) runs read-only `patch` and `review`
@@ -211,12 +211,12 @@ using the wrapper scripts:
 
 ## Local gate checks
 
-The `agent-git` and `model-check-required` checks, and the
-`post-review-comment.sh` pre-post rules, read their allow and deny lists,
-line cap, command patterns, owners, byte cap, model-line, body-scan,
-draft/open, and record rules from [`../policy/rules`](../policy/rules).
-Keeping the policy as data in one place lets a single evaluator apply one
-rule order, so the checks cannot drift apart. Run
+The `agent-git`, `model-ids`, and `model-check-required` checks, the
+`agent-launch.sh` lane rules, and the `post-review-comment.sh` pre-post
+rules hold their allow and deny lists, line cap, command patterns, owners,
+byte cap, model-line, body-scan, draft/open, and record rules in
+[`../policy/rules`](../policy/rules); one evaluator applies one rule
+order, so the checks cannot drift apart. Run
 `scripts/policy-eval.sh --help` for the flags.
 
 [`dev-loop-gate.sh`](dev-loop-gate.sh) prints the G1 to G7 table and runs the

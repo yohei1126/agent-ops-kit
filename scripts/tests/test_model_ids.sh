@@ -249,6 +249,92 @@ run_gate --strict --check model-ids --repo "$r" \
 expect_status "16: a Model / Authors line with another id fails --strict" 1
 expect_out "16: the FAIL row names the recorded id" "recorded id moonshotai/Kimi-K3.1-Pro"
 
+# 17. A policy/rules in the repo under test adds the lane.verified and
+# lane.use consistency checks from the decision table.
+policy_config='{"lanes":{"coding":{"entries":[{"agent":"one","model":"model-a"}]}}}'
+
+# write_policy <repo-dir>: writes the heredoc to <repo-dir>/policy/rules.
+write_policy() {
+  local dir="$1"
+  mkdir -p "$dir/policy"
+  cat >"$dir/policy/rules"
+}
+
+r="$(new_repo policypass "$policy_config" "$list_text")"
+write_policy "$r" <<'EOF'
+id=lane.verified.model-a
+effect=permit
+principal=*
+action=lane.verified
+resource=model-a
+
+id=lane.use.coding.model-a
+effect=permit
+principal=*
+action=lane.use
+resource=model-a
+when=lane=coding
+EOF
+run_gate --strict --check model-ids --repo "$r"
+expect_status "17: a policy that verifies the id passes with --strict" 0
+expect_out "17: the policy pass counts the entry" "1 entries, 0 hits"
+
+# 18. The id is verified but the lane is not allowed.
+r="$(new_repo policylane "$policy_config" "$list_text")"
+write_policy "$r" <<'EOF'
+id=lane.verified.model-a
+effect=permit
+principal=*
+action=lane.verified
+resource=model-a
+
+id=lane.use.docs.model-a
+effect=permit
+principal=*
+action=lane.use
+resource=model-a
+when=lane=docs
+EOF
+run_gate --strict --check model-ids --repo "$r"
+expect_status "18: an id in a lane the policy does not allow fails --strict" 1
+expect_out "18: the FAIL row names the lane" "not allowed in lane coding"
+
+# 19. The id is not verified by the policy.
+r="$(new_repo policyverified "$policy_config" "$list_text")"
+write_policy "$r" <<'EOF'
+id=lane.verified.model-b
+effect=permit
+principal=*
+action=lane.verified
+resource=model-b
+EOF
+run_gate --strict --check model-ids --repo "$r"
+expect_status "19: an id the policy does not verify fails --strict" 1
+expect_out "19: the FAIL row names the policy rule" "not verified by policy/rules rule default.deny"
+
+# 20. A policy/rules that cannot be loaded fails closed.
+r="$(new_repo policybad "$policy_config" "$list_text")"
+write_policy "$r" <<'EOF'
+this line is not a key=value record
+EOF
+run_gate --check model-ids --repo "$r"
+expect_status "20: an unloadable policy exits 2" 2
+expect_err "20: the load failure names the policy rules" "cannot load policy rules"
+
+# 21. A list-rejected id keeps the unverified row even with a policy present.
+r="$(new_repo policylist '{"lanes":{"coding":{"entries":[{"agent":"one","model":"model-z"}]}}}' "$list_text")"
+write_policy "$r" <<'EOF'
+id=lane.verified.model-a
+effect=permit
+principal=*
+action=lane.verified
+resource=model-a
+EOF
+run_gate --strict --check model-ids --repo "$r"
+expect_status "21: a list-rejected id keeps its FAIL" 1
+expect_out "21: the unverified row is unchanged" "unverified id model-z; add it to templates/agent-config.verified-model-ids.txt"
+expect_no_out "21: no policy row duplicates the unverified row" "not verified by policy/rules"
+
 printf 'model-ids tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
   exit 1
