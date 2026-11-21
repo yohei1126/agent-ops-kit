@@ -10,8 +10,6 @@
 set -euo pipefail
 
 script="post-review-comment"
-default_owners="yohei1126,edgesentry"
-default_max_bytes=65536
 
 # xtrace would print expanded values, so refuse before any argument is read.
 case "$-" in
@@ -92,6 +90,17 @@ fail_closed() {
 gh_error() {
   printf '%s: %s\n' "$script" "$1" >&2
   exit 3
+}
+
+policy_error() {
+  printf '%s: policy file missing or invalid\n' "$script" >&2
+  exit 3
+}
+
+policy_decide() {
+  policy_status=0
+  policy_eval_decide "$1" "$2" || policy_status=$?
+  [ "$policy_status" -ne 3 ] || policy_error
 }
 
 #
@@ -222,22 +231,60 @@ if [ "$pr" -le 0 ]; then
   usage_error "--pr must be a positive integer: $pr"
 fi
 
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/policy-eval.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/policy-eval.sh"
+if ! policy_eval_ensure_loaded; then
+  policy_error
+fi
+
+default_owners=""
+default_max_bytes=""
+policy_index=0
+while [ "$policy_index" -lt "${#policy_eval_ids[@]}" ]; do
+  if [ "${policy_eval_effects[$policy_index]}" = permit ] &&
+    [ "${policy_eval_actions[$policy_index]}" = post-review.owner ]; then
+    if [ -z "$default_owners" ]; then
+      default_owners="${policy_eval_resources[$policy_index]}"
+    else
+      default_owners="$default_owners,${policy_eval_resources[$policy_index]}"
+    fi
+  fi
+  if [ "${policy_eval_ids[$policy_index]}" = prc.byte-cap ]; then
+    while IFS= read -r policy_cond; do
+      case "$policy_cond" in
+        comment_bytes\>*)
+          default_max_bytes="${policy_cond#comment_bytes>}"
+          break
+          ;;
+      esac
+    done <<EOF
+${policy_eval_when_conds[$policy_index]}
+EOF
+  fi
+  policy_index=$((policy_index + 1))
+done
+
+owners_from_policy=0
 if [ "$have_owners" -eq 0 ]; then
   if [ -n "${POST_REVIEW_COMMENT_OWNERS+set}" ]; then
     owners="$POST_REVIEW_COMMENT_OWNERS"
   else
     owners="$default_owners"
+    owners_from_policy=1
   fi
 fi
 if [ -z "$owners" ]; then
   usage_error "--owners must not be empty"
 fi
 
+max_bytes_from_policy=0
 if [ "$have_max_bytes" -eq 0 ]; then
   if [ -n "${POST_REVIEW_COMMENT_MAX_BYTES+set}" ]; then
     max_bytes="$POST_REVIEW_COMMENT_MAX_BYTES"
   else
     max_bytes="$default_max_bytes"
+    max_bytes_from_policy=1
   fi
 fi
 case "$max_bytes" in
@@ -274,7 +321,12 @@ owner_allowed() {
 }
 
 owner="${repo%%/*}"
-if ! owner_allowed "$owner" "$owners"; then
+if [ "$owners_from_policy" -eq 1 ]; then
+  policy_decide post-review.owner "$owner"
+  if [ "$policy_status" -ne 0 ]; then
+    fail_closed "repository owner is not allowed: $owner"
+  fi
+elif ! owner_allowed "$owner" "$owners"; then
   fail_closed "repository owner is not allowed: $owner"
 fi
 
@@ -325,15 +377,17 @@ fi
 first_line=""
 IFS= read -r first_line < "$comment" || true
 first_line="${first_line%$'\r'}"
-case "$first_line" in
-  "Model: "*) ;;
-  *) fail_closed 'the first line of COMMENT.md must start with "Model: "' ;;
-esac
+policy_eval_attr_list=("text=$first_line")
+policy_decide post-review.model-prefix COMMENT.md
+if [ "$policy_status" -ne 0 ]; then
+  fail_closed 'the first line of COMMENT.md must start with "Model: "'
+fi
 model_name="${first_line#Model: }"
-case "$model_name" in
-  *[![:space:]]*) ;;
-  *) fail_closed 'the first line of COMMENT.md must name a model after "Model: "' ;;
-esac
+policy_eval_attr_list=("text=$model_name")
+policy_decide post-review.model-name COMMENT.md
+if [ "$policy_status" -ne 0 ]; then
+  fail_closed 'the first line of COMMENT.md must name a model after "Model: "'
+fi
 
 body_line=""
 seen_first=0
@@ -350,14 +404,23 @@ while IFS= read -r body_line || [ -n "$body_line" ]; do
       ;;
   esac
 done < "$comment"
-if [ "$rest_has_content" -eq 0 ]; then
+has_body="$rest_has_content"
+policy_eval_attr_list=("has_body=$has_body")
+policy_decide post-review.body COMMENT.md
+if [ "$policy_eval_rule" = prc.forbid.no-body ]; then
   fail_closed "COMMENT.md must hold body text after the first line"
 fi
 
 size="$(wc -c < "$comment")"
 size="${size//[!0-9]/}"
 [ -n "$size" ] || size=0
-if [ "$size" -gt "$max_bytes" ]; then
+if [ "$max_bytes_from_policy" -eq 1 ]; then
+  policy_eval_attr_list=("comment_bytes=$size")
+  policy_decide post-review.bytes "*"
+  if [ "$policy_eval_rule" = prc.byte-cap ]; then
+    fail_closed "COMMENT.md is $size bytes, over the $max_bytes byte cap"
+  fi
+elif [ "$size" -gt "$max_bytes" ]; then
   fail_closed "COMMENT.md is $size bytes, over the $max_bytes byte cap"
 fi
 
@@ -368,9 +431,9 @@ fi
 #
 scan_content() {
   local label="$1"
-  shift
+  local when_ere="$2"
   local code=0
-  LC_ALL=C grep "$@" -- "$comment" || code=$?
+  LC_ALL=C grep -Eq -- "$when_ere" "$comment" || code=$?
   case "$code" in
     0) fail_closed "COMMENT.md holds $label" ;;
     1) ;;
@@ -382,10 +445,11 @@ scan_content() {
 # character outside [A-Za-z0-9_-]. A word boundary would not do, because
 # grep treats a hyphen as a non-word character, so \bsk- would still match
 # the sk- inside desk-fan.
-scan_content "a secret-like token prefix" -Eq -e '(^|[^A-Za-z0-9_-])(ghp_|gho_|ghs_|github_pat_|xai-|sk-)'
-scan_content "a PEM private-key header" -Eq -e '-----BEGIN [A-Za-z0-9 ]*PRIVATE KEY-----'
-scan_content "an external URL" -Eqi -e 'https?://'
-scan_content "an at sign" -Fq -e '@'
+policy_scan_tab="$(printf '\t')"
+while IFS="$policy_scan_tab" read -r scan_id scan_ere scan_label; do
+  [ -n "$scan_id" ] || continue
+  scan_content "$scan_label" "$scan_ere"
+done < <(policy_eval_list_forbids post-review.scan)
 
 # A lock directory guards the scan and the post. mkdir is atomic, so two
 # concurrent runs in the same folder cannot both pass the scan. Ownership is
@@ -446,9 +510,14 @@ if [ -f "$record" ]; then
     esac
   done < "$record"
 fi
-case "$record_state" in
-  posted) fail_closed "a comment was already posted for $repo#$pr in this run" ;;
-  pending) fail_closed "an earlier attempt for $repo#$pr did not finish; refusing to retry" ;;
+if [ -z "$record_state" ]; then
+  record_state=none
+fi
+policy_eval_attr_list=("record_state=$record_state")
+policy_decide post-review.record "*"
+case "$policy_eval_rule" in
+  prc.forbid.already-posted) fail_closed "a comment was already posted for $repo#$pr in this run" ;;
+  prc.forbid.pending) fail_closed "an earlier attempt for $repo#$pr did not finish; refusing to retry" ;;
 esac
 
 # The gh presence check comes after the local checks, so a body that would
@@ -475,14 +544,23 @@ case "$compact" in
   *) gh_error "could not read the pull request JSON for $repo#$pr" ;;
 esac
 case "$compact" in
-  *'"isDraft":true'*) ;;
-  *'"isDraft":false'*) fail_closed "pull request is not a draft: $repo#$pr" ;;
+  *'"isDraft":true'*) is_draft=true ;;
+  *'"isDraft":false'*) is_draft=false ;;
   *) gh_error "could not read the isDraft JSON for $repo#$pr" ;;
 esac
 case "$compact" in
-  *'"state":"OPEN"'*) ;;
-  *'"state":'*) fail_closed "pull request is not open: $repo#$pr" ;;
+  *'"state":"'*)
+    state="${compact#*\"state\":\"}"
+    state="${state%%\"*}"
+    ;;
+  *'"state":'*) state=UNKNOWN ;;
   *) gh_error "could not read the state JSON for $repo#$pr" ;;
+esac
+policy_eval_attr_list=("is_draft=$is_draft" "state=$state")
+policy_decide post-review.pr "*"
+case "$policy_eval_rule" in
+  prc.forbid.not-draft) fail_closed "pull request is not a draft: $repo#$pr" ;;
+  prc.forbid.not-open) fail_closed "pull request is not open: $repo#$pr" ;;
 esac
 
 # Write the pending marker immediately before the post, so a read failure

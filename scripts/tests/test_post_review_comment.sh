@@ -376,7 +376,7 @@ printf '== gh failures ==\n'
 reset_run
 good_body
 check_path="$work_tmp/no-gh"
-make_tool_path "$check_path" bash sh cat wc grep tr mktemp rm mkdir rmdir
+make_tool_path "$check_path" bash sh cat wc grep tr mktemp rm mkdir rmdir dirname
 run_check --run "$run" --repo "$repo" --pr 7
 expect_status "13: missing gh exits 3" 3
 expect_argv_calls "13: missing gh never calls gh" 0
@@ -583,6 +583,17 @@ expect_status "23: bash -x exits 2" 2
 expect_no_post "23: bash -x posts nothing"
 expect_argv_calls "23: bash -x never calls gh" 0
 expect_err "23: bash -x names xtrace" "xtrace"
+
+printf '== policy failure ==\n'
+reset_run
+good_body
+POLICY_RULES="$work_tmp/missing-policy"
+export POLICY_RULES
+run_check --run "$run" --repo "$repo" --pr 7
+expect_status "24: missing policy exits 3" 3
+expect_no_post "24: missing policy posts nothing"
+expect_err "24: missing policy names the failure" "policy file missing or invalid"
+unset POLICY_RULES
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
