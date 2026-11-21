@@ -174,6 +174,11 @@ status_timeout="${COMMANDCODE_STATUS_TIMEOUT:-30}"
 case "$status_timeout" in
   '' | *[!0-9]*) die_usage "COMMANDCODE_STATUS_TIMEOUT must be digits only" ;;
 esac
+# timeout 0 means no limit, so the bound must be a positive integer.
+case "$status_timeout" in
+  *[!0]*) ;;
+  *) die_usage "COMMANDCODE_STATUS_TIMEOUT must be at least 1" ;;
+esac
 
 goat_cmd="${GOAT_CMD:-cmd}"
 if ! goat_bin="$(command -v "$goat_cmd" 2>/dev/null)"; then
@@ -225,7 +230,10 @@ cc_run() {
       fi
       if [ "$cc_waited" -ge "$status_timeout" ]; then
         kill "$cc_pid" 2>/dev/null || true
-        wait "$cc_pid" 2>/dev/null || cc_status=$?
+        sleep 1
+        kill -9 "$cc_pid" 2>/dev/null || true
+        wait "$cc_pid" 2>/dev/null || true
+        cc_status=124
         break
       fi
       sleep 1

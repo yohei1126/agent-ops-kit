@@ -423,6 +423,11 @@ if [ "$auth" = login ]; then
   case "$login_timeout" in
     '' | *[!0-9]*) die_usage "GOAT_LOGIN_TIMEOUT must be digits: $login_timeout" ;;
   esac
+  # timeout 0 means no limit, so the bound must be a positive integer.
+  case "$login_timeout" in
+    *[!0]*) ;;
+    *) die_usage "GOAT_LOGIN_TIMEOUT must be at least 1" ;;
+  esac
   # The CLI finds the workstation login under the caller's real HOME, so
   # login mode needs it to exist; the child runs with it unchanged.
   if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then

@@ -241,6 +241,8 @@ expect_status "5: a non-digit timeout exits 2 on --check" 2
 run_bounded 15 env COMMANDCODE_STATUS_TIMEOUT=x GOAT_CMD="$stub" \
   "$wrapper" --mode review --model "$pinned" -- "$wt" "$brief" "$result"
 expect_status "5: a non-digit timeout exits 2 on the run form" 2
+run_bounded 15 env COMMANDCODE_STATUS_TIMEOUT=0 GOAT_CMD="$stub" "$wrapper" --check
+expect_status "5: a zero timeout exits 2 on --check" 2
 for pinned_id in moonshotai/kimi-k3.1-pro deepseek/deepseek-v4-pro deepseek/deepseek-v4.1-flash google/gemini-4-argon; do
   run_bounded 15 env GOAT_CMD="$work_tmp/no-such-agent" "$wrapper" \
     --mode review --model "$pinned_id" -- "$wt" "$brief" "$result"

@@ -1514,6 +1514,33 @@ else
   bad "42: --auth api-key matches the default dry-run output" "outputs differ"
 fi
 
+printf '== login mode refusals ==\n'
+for m in patch review; do
+  reset_ctl
+  mkdir -p "$wt/.commandcode"
+  printf 'keep\n' >"$wt/.commandcode/keep.txt"
+  if [ "$m" = review ]; then
+    run_adapter_nokey --auth login --mode review --model m -- "$wt" "$brief" "$work_tmp/r43.md"
+  else
+    run_adapter_nokey --auth login --mode patch --model m -- "$wt" "$brief"
+  fi
+  expect_status "43: login $m refuses an existing .commandcode" 2
+  if [ -f "$wt/.commandcode/keep.txt" ] && [ ! -e "$ctl/called" ] && [ ! -e "$ctl/status-log" ]; then
+    ok "43: login $m leaves the existing .commandcode and starts nothing"
+  else
+    bad "43: login $m leaves the existing .commandcode and starts nothing" "folder lost or stub called"
+  fi
+  rm -rf "$wt/.commandcode"
+done
+reset_ctl
+GOAT_LOGIN_TIMEOUT=0 run_adapter_nokey --auth login --mode review --model m -- "$wt" "$brief" "$work_tmp/r43b.md"
+expect_status "43: a zero login timeout exits 2" 2
+if [ ! -e "$ctl/called" ] && [ ! -e "$ctl/status-log" ]; then
+  ok "43: a zero login timeout starts nothing"
+else
+  bad "43: a zero login timeout starts nothing" "stub called"
+fi
+
 printf 'goat adapter tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
   exit 1
