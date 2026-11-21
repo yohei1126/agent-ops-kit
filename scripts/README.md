@@ -211,11 +211,13 @@ using the wrapper scripts:
 
 ## Local gate checks
 
-The `agent-git` and `model-check-required` checks read their scope, allow and
-deny lists, line cap, and command patterns from
-[`../policy/rules`](../policy/rules). Keeping the policy as data in one place
-lets a single evaluator apply one rule order, so the two checks cannot drift
-apart. Run `scripts/policy-eval.sh --help` for the flags.
+The `agent-git` and `model-check-required` checks, and the
+`post-review-comment.sh` pre-post rules, read their allow and deny lists,
+line cap, command patterns, owners, byte cap, model-line, body-scan,
+draft/open, and record rules from [`../policy/rules`](../policy/rules).
+Keeping the policy as data in one place lets a single evaluator apply one
+rule order, so the checks cannot drift apart. Run
+`scripts/policy-eval.sh --help` for the flags.
 
 [`dev-loop-gate.sh`](dev-loop-gate.sh) prints the G1 to G7 table and runs the
 `line-cap` and `docs-sweep` checks. The table also runs an `npm-ci` preflight
@@ -242,14 +244,10 @@ never comments, closes, rebases, or merges. See
 `scripts/work-graph.sh --help` for its output and options.
 
 [`post-review-comment.sh`](post-review-comment.sh) is the mechanical
-pre-post gate for a model-review comment. A caller that wants to post a
-comment runs this script first; it reads only the run folder's `COMMENT.md`,
-checks the body, the owner allowlist, and that the pull request is still a
-draft, and posts one issue comment only when every check passes. Any failure
-exits non-zero, so the caller can fall back to a manual approval path. The
-script never approves, requests changes, merges, labels, or edits an existing
-comment. Run `scripts/post-review-comment.sh --help` for flags, defaults,
-checks, and exit codes.
+pre-post gate for a model-review comment: it posts one issue comment only
+when every check passes, and it never approves, merges, labels, or edits.
+The checks live in [`../policy/rules`](../policy/rules). Run
+`scripts/post-review-comment.sh --help` for flags and exit codes.
 
 ## Prepare a coding-agent task issue
 

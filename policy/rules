@@ -1,10 +1,11 @@
 # Policy data for the dev loop gate checks.
 #
-# WHY: the model-check-required allow and deny lists, its line cap, and the
-# agent-git in-scope paths and command patterns used to live as shell literals
-# in two scripts. Keeping them as data here lets one evaluator apply one rule
-# order, so the checks cannot drift apart and a policy change is reviewable in
-# one place.
+# WHY: the model-check-required allow and deny lists, its line cap, the
+# agent-git in-scope paths and command patterns, and the post-review-comment
+# pre-post rules (owners, byte cap, model line, body scans, draft/open, and
+# the one-comment-per-run record) used to live as shell literals. Keeping
+# them as data here lets one evaluator apply one rule order, so the checks
+# cannot drift apart and a policy change is reviewable in one place.
 #
 # Format: one key=value per line. A blank line separates records. A line that
 # starts with # is a comment. The value is everything after the first =. Keys
@@ -277,3 +278,126 @@ action=agent-git.instruct
 resource=*
 when_ere=(^|[^[:alnum:]_])gh[[:space:]]+pr[[:space:]]+create([^[:alnum:]_]|$)
 label=gh pr create
+
+id=prc.byte-cap
+effect=forbid
+principal=*
+action=post-review.bytes
+resource=*
+when=comment_bytes>65536
+
+id=prc.forbid.not-draft
+effect=forbid
+principal=*
+action=post-review.pr
+resource=*
+when=is_draft=false
+
+id=prc.forbid.not-open
+effect=forbid
+principal=*
+action=post-review.pr
+resource=*
+when=state!=OPEN
+
+id=prc.allow.pr
+effect=permit
+principal=*
+action=post-review.pr
+resource=*
+when=is_draft=true
+when=state=OPEN
+
+id=prc.forbid.already-posted
+effect=forbid
+principal=*
+action=post-review.record
+resource=*
+when=record_state=posted
+
+id=prc.forbid.pending
+effect=forbid
+principal=*
+action=post-review.record
+resource=*
+when=record_state=pending
+
+id=prc.allow.record
+effect=permit
+principal=*
+action=post-review.record
+resource=*
+when=record_state=none
+
+id=prc.allow.owner.yohei1126
+effect=permit
+principal=*
+action=post-review.owner
+resource=yohei1126
+
+id=prc.allow.owner.edgesentry
+effect=permit
+principal=*
+action=post-review.owner
+resource=edgesentry
+
+id=prc.allow.model-prefix
+effect=permit
+principal=*
+action=post-review.model-prefix
+resource=*
+when_ere=^Model: 
+
+id=prc.allow.model-name
+effect=permit
+principal=*
+action=post-review.model-name
+resource=*
+when_ere=[^[:space:]]
+
+id=prc.forbid.no-body
+effect=forbid
+principal=*
+action=post-review.body
+resource=*
+when=has_body=0
+
+id=prc.allow.body
+effect=permit
+principal=*
+action=post-review.body
+resource=*
+when=has_body=1
+
+id=prc.forbid.token-prefix
+effect=forbid
+principal=*
+action=post-review.scan
+resource=*
+when_ere=(^|[^A-Za-z0-9_-])(ghp_|gho_|ghs_|github_pat_|xai-|sk-)
+label=a secret-like token prefix
+
+id=prc.forbid.pem
+effect=forbid
+principal=*
+action=post-review.scan
+resource=*
+when_ere=-----BEGIN [A-Za-z0-9 ]*PRIVATE KEY-----
+label=a PEM private-key header
+
+id=prc.forbid.url
+effect=forbid
+principal=*
+action=post-review.scan
+resource=*
+when_ere=[hH][tT][tT][pP][sS]?://
+label=an external URL
+
+id=prc.forbid.at
+effect=forbid
+principal=*
+action=post-review.scan
+resource=*
+when_ere=@
+label=an at sign
+

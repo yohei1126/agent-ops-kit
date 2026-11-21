@@ -242,14 +242,9 @@ entry script stays small.
 `--check agent-git` fails when an agent-facing kit doc tells a worker to run a
 mutating git command or to open a pull request. Docs can drift, so CI should
 fail when a leftover instruction reappears instead of relying on review.
-
-The scope is a narrow, explicit path list. Caller collect steps and the
-monthly-audit operator release example stay allowed because those paths are
-out of scope. The in-scope paths and the four command patterns now live in
-[`../../policy/rules`](../../policy/rules), and
-[`../../scripts/policy-eval.sh`](../../scripts/policy-eval.sh) evaluates them;
-[`../../scripts/lib/agent-git.sh`](../../scripts/lib/agent-git.sh) keeps the
-scan. See `scripts/dev-loop-gate.sh --help` for the `--strict` exit and HOW.
+The in-scope paths and command patterns live in
+[`../../policy/rules`](../../policy/rules). See
+`scripts/dev-loop-gate.sh --help` for HOW.
 
 ### prose-dashes
 
@@ -311,14 +306,9 @@ argument fails CI instead of review:
 ### model-check-required
 
 `--check model-check-required` decides whether a model review may be skipped.
-Skip the model check only for small, low-risk diffs that the deterministic
-gates fully cover; anything else keeps a model check. The check fails closed:
-an unreadable diff, an unusual path, or a missing base is REQUIRED, never a
-silent SKIP. The gate only prints the decision, so a caller that ignores the
-row never skips by accident. The allow and deny lists and the line cap now live
-in [`../../policy/rules`](../../policy/rules), and
-[`../../scripts/policy-eval.sh`](../../scripts/policy-eval.sh) evaluates them,
-so the gate keeps one rule order. Run
+The check fails closed: an unreadable diff, an unusual path, or a missing base
+is REQUIRED, never a silent SKIP. The allow and deny lists and the line cap
+live in [`../../policy/rules`](../../policy/rules). Run
 `scripts/dev-loop-gate.sh --check model-check-required --help` for HOW.
 
 ### pr-state
