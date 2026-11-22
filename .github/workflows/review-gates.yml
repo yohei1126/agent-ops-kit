@@ -24,7 +24,9 @@ jobs:
       - name: Check shell syntax
         run: |
           for f in scripts/lib/review-ready.sh scripts/lib/review-citations.sh \
+            scripts/lib/model-check-fresh.sh \
             scripts/tests/test_review_ready.sh scripts/tests/test_review_citations.sh \
+            scripts/tests/test_model_check_fresh.sh \
             scripts/tests/test_review_preflight_launch.sh; do
             bash -n "$f"
           done
@@ -32,14 +34,17 @@ jobs:
       - name: Run shellcheck
         run: >-
           shellcheck -x scripts/dev-loop-gate.sh scripts/lib/review-ready.sh
-          scripts/lib/review-citations.sh scripts/tests/test_review_ready.sh
+          scripts/lib/review-citations.sh scripts/lib/model-check-fresh.sh
+          scripts/tests/test_review_ready.sh
           scripts/tests/test_review_citations.sh
+          scripts/tests/test_model_check_fresh.sh
           scripts/tests/test_review_preflight_launch.sh
 
       - name: Run review gate tests
         run: |
           bash scripts/tests/test_review_ready.sh
           bash scripts/tests/test_review_citations.sh
+          bash scripts/tests/test_model_check_fresh.sh
           bash scripts/tests/test_review_preflight_launch.sh
 
   macos:
@@ -53,8 +58,10 @@ jobs:
       - name: Check shell syntax with bash 3.2
         run: |
           for f in scripts/dev-loop-gate.sh scripts/lib/review-ready.sh \
-            scripts/lib/review-citations.sh scripts/tests/test_review_ready.sh \
+            scripts/lib/review-citations.sh scripts/lib/model-check-fresh.sh \
+            scripts/tests/test_review_ready.sh \
             scripts/tests/test_review_citations.sh \
+            scripts/tests/test_model_check_fresh.sh \
             scripts/tests/test_review_preflight_launch.sh; do
             /bin/bash -n "$f"
           done
@@ -63,4 +70,5 @@ jobs:
         run: |
           /bin/bash scripts/tests/test_review_ready.sh
           /bin/bash scripts/tests/test_review_citations.sh
+          /bin/bash scripts/tests/test_model_check_fresh.sh
           /bin/bash scripts/tests/test_review_preflight_launch.sh
