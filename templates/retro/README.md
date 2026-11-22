@@ -46,7 +46,7 @@ PR conversation is a second place that late ingest may read.
 | Surfaces | Top-level issue comments on the merged PR and its linked Issue only |
 | Owner | An operator bot routine, scheduled or event driven. CI never writes memory |
 | Triggers | `pr-merged` immediate ingest (v1), plus weekday 18:00 SGT sweeps in v1.1 |
-| Repo allowlist | Only the three repositories listed below. Never an org-wide rule |
+| Repo allowlist | Only the four repositories listed below. Never an org-wide rule |
 | Output | One shared-memory line of 300 characters or fewer, plus one FYI line |
 | Idempotency | v1.1: key is `(comment_id, updated_at)` |
 
@@ -85,11 +85,12 @@ merge) on an allowlisted repository must be pickable.
 
 ### Allowlisted repos
 
-The allowlist consists only of these three repositories (never an org-wide rule):
+The allowlist consists only of these four repositories (never an org-wide rule):
 
 - `edgesentry/agent-hub`
 - `yohei1126/agent-ops-kit`
 - `edgesentry/ontographia`
+- `edgesentry/plm-relate-ontographia-demo`
 
 ## Scrub list
 

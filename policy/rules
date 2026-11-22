@@ -569,6 +569,18 @@ principal=*
 action=gemini-batch.repo
 resource=yohei1126/md-deck
 
+id=gbatch.allow.repo.ontographia
+effect=permit
+principal=*
+action=gemini-batch.repo
+resource=edgesentry/ontographia
+
+id=gbatch.allow.repo.plm-relate-ontographia-demo
+effect=permit
+principal=*
+action=gemini-batch.repo
+resource=edgesentry/plm-relate-ontographia-demo
+
 id=gbatch.allow.visibility
 effect=permit
 principal=*
@@ -597,6 +609,24 @@ action=gemini-batch.model
 resource=gemini-3.8-flash
 when=job=lessons
 
+# gemini-batch.author: may this author login represent the repository owner
+# login? Default deny. The same login always may (user-owned repos), and an
+# explicit owner-to-author mapping may list one login for an organization
+# owner. Fail closed: no other authors, no letter-case variants.
+id=gbatch.allow.author.same-login
+effect=permit
+principal=*
+action=gemini-batch.author
+resource=*
+when=author_is_owner=true
+
+id=gbatch.allow.author.edgesentry
+effect=permit
+principal=*
+action=gemini-batch.author
+resource=edgesentry
+when=author=yohei1126
+
 id=gbatch.forbid.cross-repo
 effect=forbid
 principal=*
@@ -609,7 +639,7 @@ effect=forbid
 principal=*
 action=gemini-batch.pr
 resource=*
-when=author_is_owner=false
+when=author_allowed=false
 
 id=gbatch.forbid.not-draft
 effect=forbid
@@ -633,7 +663,7 @@ resource=*
 when=is_draft=true
 when=state=OPEN
 when=is_cross_repo=false
-when=author_is_owner=true
+when=author_allowed=true
 
 id=gbatch.forbid.req-in
 effect=forbid

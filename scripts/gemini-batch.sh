@@ -2,12 +2,14 @@
 # Gemini API Batch mode runner for a scheduled routine on the box.
 #
 # Three jobs, all on the Gemini API (generativelanguage.googleapis.com), never
-# Vertex: "check" (Argon model check of open owner-drafts in public allowlisted
-# repositories, posted only through scripts/post-review-comment.sh), "security"
-# (weekly public security-advisory summary, file only) and "lessons" (public
-# model-check results and RETRO text, file only). Allowlist, visibility, pinned
-# model ids, caps and secret patterns are policy data (policy/rules, actions
-# gemini-batch.*). Bash 3.2 compatible. Never prints the API key.
+# Vertex: "check" (Argon model check of open drafts in public allowlisted
+# repositories whose author may represent the repository owner, posted only
+# through scripts/post-review-comment.sh), "security" (weekly public
+# security-advisory summary, file only) and "lessons" (public model-check
+# results and RETRO text, file only). Allowlist, visibility, pinned model ids,
+# the owner-to-author mapping, caps and secret patterns are policy data
+# (policy/rules, actions gemini-batch.*). Bash 3.2 compatible. Never prints
+# the API key.
 # jq filters use single quotes on purpose; jq reads the $names.
 # shellcheck disable=SC2016
 set -euo pipefail
@@ -136,6 +138,16 @@ pol() {
   "$policy_eval" --action "$a" --resource "$r" ${args[@]+"${args[@]}"} 2>/dev/null || true
 }
 allowed() { case "$(pol "$@")" in "ALLOW "*) return 0 ;; esac; return 1; }
+
+author_allowed() { # OWNER AUTHOR -> prints true or false. Both logins must already be lowercased.
+  local owner="$1" author="$2" same=false
+  [ "$author" = "$owner" ] && same=true
+  if allowed gemini-batch.author "$owner" "author=$author" "author_is_owner=$same"; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
 
 # scan_file FILE: 0 clean; 1 hit (prints the label only, never the match).
 scan_file() {
@@ -287,11 +299,11 @@ cmd_scan() {
     for n in $(printf '%s' "$prs" | jq -r '.[].number'); do
       head="$(printf '%s' "$prs" | jq -r --argjson n "$n" '.[]|select(.number==$n)|.headRefOid')"
       draft="$(printf '%s' "$prs" | jq -r --argjson n "$n" '.[]|select(.number==$n)|.isDraft')"
-      author="$(printf '%s' "$prs" | jq -r --argjson n "$n" '.[]|select(.number==$n)|.author.login|ascii_downcase')"
+      author="$(printf '%s' "$prs" | jq -r --argjson n "$n" '.[]|select(.number==$n)|.author.login // empty | ascii_downcase')"
       fork="$(printf '%s' "$prs" | jq -r --argjson n "$n" '.[]|select(.number==$n)|.isCrossRepository')"
       owner="$(printf '%s' "${repo%%/*}" | tr '[:upper:]' '[:lower:]')"
       allowed gemini-batch.pr "$repo#$n" "is_draft=$draft" "state=OPEN" "is_cross_repo=$fork" \
-        "author_is_owner=$([ "$author" = "$owner" ] && echo true || echo false)" || continue
+        "author_allowed=$(author_allowed "$owner" "$author")" || continue
       case "$head" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;; *) continue ;; esac
       key="$(keyname "$repo" "$n" "$head")"
       printf '%s\n' "$key" >> "$seen"
@@ -319,7 +331,7 @@ cmd_scan() {
 queued_items() { local f; for f in "$state"/items/*.json; do [ -e "$f" ] && [ "$(jq -r .status "$f")" = queued ] && printf '%s\n' "$f"; done; return 0; }
 
 cmd_submit() {
-  local view files cnt oldest f t due=0 reqs="$tmpd/reqs.json" n=0 tin=0 reqin=0 diffp est repo pr head
+  local view files cnt oldest f t due=0 reqs="$tmpd/reqs.json" n=0 tin=0 reqin=0 diffp est repo pr head owner author cross a_allow
   files="$(queued_items)"
   [ -n "$files" ] || { log "nothing queued"; return 0; }
   cnt=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
@@ -333,11 +345,16 @@ cmd_submit() {
   for f in $files; do
     repo="$(jq -r .repo "$f")"; pr="$(jq -r .pr "$f")"; head="$(jq -r .head "$f")"
     repo_public "$repo" || { jset "$f" '.status="failed"|.reason="repo not public allowlisted"'; continue; }
-    # Re-read the live PR: the queue may be stale (head moved, marked ready, closed).
-    view="$(gh pr view "$pr" -R "$repo" --json headRefOid,isDraft,state 2>/dev/null)" || { log "pr view failed for $repo#$pr" >&2; continue; }
+    # Re-read the live PR: the queue may be stale (head moved, marked ready, closed,
+    # made cross-repo, or the author no longer represents the owner).
+    view="$(gh pr view "$pr" -R "$repo" --json headRefOid,isDraft,state,author,isCrossRepository 2>/dev/null)" || { log "pr view failed for $repo#$pr" >&2; continue; }
+    owner="$(printf '%s' "${repo%%/*}" | tr '[:upper:]' '[:lower:]')"
+    author="$(printf '%s' "$view" | jq -r '.author.login // empty | ascii_downcase')"
+    cross="$(printf '%s' "$view" | jq -r .isCrossRepository)"
+    a_allow="$(author_allowed "$owner" "$author")"
     if [ "$(printf '%s' "$view" | jq -r .headRefOid)" != "$head" ] ||
       ! allowed gemini-batch.pr "$repo#$pr" "is_draft=$(printf '%s' "$view" | jq -r .isDraft)" "state=$(printf '%s' "$view" | jq -r .state)" \
-        "is_cross_repo=false" "author_is_owner=true"; then
+        "is_cross_repo=$cross" "author_allowed=$a_allow"; then
       jset "$f" '.status="skipped"|.reason="head changed or no longer an open draft"'
       continue
     fi
@@ -457,20 +474,28 @@ finish_weekly() { # BATCHFILE: write the output file (file only, never sent out)
 }
 
 post_item() { # ITEMFILE BATCHFILE
-  local f="$1" b="$2" key repo pr head text view run url owner marker led
+  local f="$1" b="$2" key repo pr head text view run url owner marker led cauthor dup=0
   key="$(jq -r .key "$f")"; repo="$(jq -r .repo "$f")"; pr="$(jq -r .pr "$f")"; head="$(jq -r .head "$f")"
   [ "$(jq -r .status "$f")" = submitted ] || return 0
   owner="$(printf '%s' "${repo%%/*}" | tr '[:upper:]' '[:lower:]')"
   marker="gemini-batch-head: $head"
   repo_public "$repo" || { jset "$f" '.status="failed"|.reason="repo not public allowlisted"'; return 0; }
   if ! text="$(resp_text "${b%.json}.response.json" "$key")"; then jset "$f" '.status="failed"|.reason="no clean response"'; return 0; fi
-  view="$(gh pr view "$pr" -R "$repo" --json headRefOid,isDraft,state,comments 2>/dev/null)" || { log "pr view failed for $repo#$pr; retry later" >&2; return 0; }
+  view="$(gh pr view "$pr" -R "$repo" --json headRefOid,isDraft,state,author,isCrossRepository,comments 2>/dev/null)" || { log "pr view failed for $repo#$pr; retry later" >&2; return 0; }
   if [ "$(printf '%s' "$view" | jq -r .headRefOid)" != "$head" ]; then jset "$f" '.status="skipped"|.reason="head changed"'; return 0; fi
-  if [ "$(printf '%s' "$view" | jq -r --arg o "$owner" --arg m "$marker" '[.comments[]?|select((.author.login|ascii_downcase)==$o and (.body|contains($m)))]|length')" != 0 ]; then
+  # A comment for this head counts as posted already when its author is
+  # policy-allowed for the owner; same-login owners match through the policy.
+  dup=0
+  for cauthor in $(printf '%s' "$view" | jq -r --arg m "$marker" '.comments[]?|select((.body // "")|contains($m))|(.author.login // empty)|ascii_downcase'); do
+    if [ "$(author_allowed "$owner" "$cauthor")" = true ]; then dup=1; break; fi
+  done
+  if [ "$dup" = 1 ]; then
     jset "$f" '.status="skipped"|.reason="owner comment for this head exists"'; return 0
   fi
   allowed gemini-batch.pr "$repo#$pr" "is_draft=$(printf '%s' "$view" | jq -r .isDraft)" "state=$(printf '%s' "$view" | jq -r .state)" \
-    "is_cross_repo=false" "author_is_owner=true" || { jset "$f" '.status="skipped"|.reason="no longer an open draft"'; return 0; }
+    "is_cross_repo=$(printf '%s' "$view" | jq -r .isCrossRepository)" \
+    "author_allowed=$(author_allowed "$owner" "$(printf '%s' "$view" | jq -r '.author.login // empty | ascii_downcase')")" ||
+    { jset "$f" '.status="skipped"|.reason="no longer an open draft"'; return 0; }
   led="$state/ledger/$key"
   if [ -e "$led" ]; then jset "$f" '.status="failed"|.reason="ledger entry exists; post state unknown, maintainer must check"'; return 0; fi
   [ "$dry" = 1 ] && { log "dry run: would post on $repo#$pr"; return 0; }

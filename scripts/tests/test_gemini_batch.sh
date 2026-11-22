@@ -99,7 +99,7 @@ mk_prs() { # N... : owner drafts at head sha<N>
   for n in "$@"; do
     out="$out$sep{\"number\":$n,\"isDraft\":true,\"headRefOid\":\"$(sha "$n")000\",\"author\":{\"login\":\"yohei1126\"},\"isCrossRepository\":false}"
     sep=","
-    echo "{\"headRefOid\":\"$(sha "$n")000\",\"isDraft\":true,\"state\":\"OPEN\",\"comments\":[]}" > "$MOCK_DIR/view-$n.json"
+    echo "{\"headRefOid\":\"$(sha "$n")000\",\"isDraft\":true,\"state\":\"OPEN\",\"author\":{\"login\":\"yohei1126\"},\"isCrossRepository\":false,\"comments\":[]}" > "$MOCK_DIR/view-$n.json"
   done
   echo "$out]" > "$MOCK_DIR/prs-yohei1126_agent-ops-kit.json"
 }
@@ -152,6 +152,26 @@ grep -v 'md-deck' "$repo_root/policy/rules" > "$work/rules.noop"
 awk 'BEGIN{RS="";ORS="\n\n"} !/gemini-batch.repo/ || /agent-ops-kit/' "$repo_root/policy/rules" > "$work/rules.kit"
 ( export POLICY_RULES="$work/rules.kit"; gb scan )
 grep -q 'md-deck' "$MOCK_DIR/gh.log"; [ "$?" != 0 ]; check "repo off the allowlist is never read" "$?"
+
+# --- allowlisted organization repositories --------------------------------------
+new_case
+cat > "$MOCK_DIR/prs-edgesentry_ontographia.json" <<'EOF'
+[{"number":1,"isDraft":true,"headRefOid":"1111111aaaa","author":{"login":"yohei1126"},"isCrossRepository":false},
+ {"number":2,"isDraft":true,"headRefOid":"2222222aaaa","author":{"login":"someone"},"isCrossRepository":false}]
+EOF
+gb scan
+[ "$(count_status queued)" = 1 ]; check "org repo: only the mapped author's draft is queued" "$?"
+
+new_case
+cat > "$MOCK_DIR/prs-edgesentry_ontographia.json" <<'EOF'
+[{"number":1,"isDraft":true,"headRefOid":"1111111aaaa","author":{"login":"yohei1126"},"isCrossRepository":false}]
+EOF
+echo '{"headRefOid":"1111111aaaa","isDraft":true,"state":"OPEN","author":{"login":"yohei1126"},"isCrossRepository":false,"comments":[]}' > "$MOCK_DIR/view-1.json"
+gb scan
+[ "$(count_status queued)" = 1 ]; check "org repo: mapped author's draft is queued" "$?"
+printf '%s\n' '{"headRefOid":"1111111aaaa","isDraft":true,"state":"OPEN","author":{"login":"someone"},"isCrossRepository":false,"comments":[]}' > "$MOCK_DIR/view-1.json"
+gb submit --threshold 1
+[ "$(count_status skipped)" = 1 ] && [ "$(count_status submitted)" = 0 ] && [ "$(posts)" = 0 ]; check "submit re-reads the author: unmapped live author is skipped" "$?"
 
 # --- happy path, restart resume, once per head SHA ------------------------------
 new_case; mk_prs 1 2 3
