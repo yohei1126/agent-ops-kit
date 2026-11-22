@@ -727,8 +727,8 @@ cmd_settle() {
     log "dry run: would settle $opt_id (in_tokens=$opt_in_tokens, out_tokens=$opt_out_tokens, cost_microusd=$opt_cost)"
     return 0
   fi
-  jset "$cf" '.in_tokens=([0,(.in_tokens+$di)]|max)|.out_tokens=([0,(.out_tokens+$do)]|max)|.cost_microusd=([0,(.cost_microusd+$dk)]|max)' \
-    --argjson di "$d_in" --argjson do "$d_out" --argjson dk "$d_cost"
+  jset "$cf" '.in_tokens=([0,(.in_tokens+$di)]|max)|.out_tokens=([0,(.out_tokens+$dout)]|max)|.cost_microusd=([0,(.cost_microusd+$dk)]|max)' \
+    --argjson di "$d_in" --argjson dout "$d_out" --argjson dk "$d_cost"
   jset "$lf" '.status="settled"|.in_tokens=$i|.out_tokens=$o|.cost_microusd=$k|.actual={in_tokens:$i,out_tokens:$o,cost_microusd:$k}|.updated_at=$t|(if $an != "" then .api_name=$an else . end)' \
     --argjson i "$opt_in_tokens" --argjson o "$opt_out_tokens" --argjson k "$opt_cost" --argjson t "$now" --arg an "$opt_api_name"
   log "settled $opt_id"

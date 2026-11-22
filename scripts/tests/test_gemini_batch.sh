@@ -388,7 +388,9 @@ cur_month="$(date -u -d "@$NOW" +%Y-%m 2>/dev/null || date -u -r "$NOW" +%Y-%m)"
 # reserve: dry-run writes no counters and no ledger
 new_case
 gb reserve --job security --requests 2 --in-tokens 1000 --dry-run
-[ "$rc" = 0 ] && [ "$(posts)" = 0 ] && [ ! -e "$STATE/counters/$cur_month.json" ] && [ ! -e "$STATE/budget-ledger"/*.json ]; check "reserve --dry-run writes no counters or ledger" "$?"
+ledger_count=0
+for f in "$STATE/budget-ledger"/*.json; do [ -e "$f" ] && ledger_count=$((ledger_count + 1)); done
+[ "$rc" = 0 ] && [ "$(posts)" = 0 ] && [ ! -e "$STATE/counters/$cur_month.json" ] && [ "$ledger_count" = 0 ]; check "reserve --dry-run writes no counters or ledger" "$?"
 
 # reserve: unknown job fails closed (not silently counted as check)
 new_case
