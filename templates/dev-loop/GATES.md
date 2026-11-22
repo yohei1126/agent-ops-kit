@@ -101,13 +101,10 @@ scripts/dev-loop-gate.sh --check <id> [--strict] [--repo <root>] [--config <path
 - `--check <id>` runs only that check and skips the G1 to G7 table. The
   implemented ids are `agent-git`, `line-cap`, `npm-ci`, `node-pin`,
   `docs-sweep`, `docs-usage-dup`, `prose-dashes`, `md-links`, `model-ids`,
-  `model-check-required`, `pr-state`, `review-ready`, `review-citations`, and
-  `deploy-hash`. Why the two review gates exist is in
-  [`REVIEW-GATES.md`](REVIEW-GATES.md). Their flags, rows, and exit
-  codes are in `scripts/dev-loop-gate.sh --check review-ready --help` and
-  `--check review-citations --help`. Other ids, including `all`, exit 2
-  with a message that the check is not implemented. Later checks will be
-  added under the same flag.
+  `model-check-required`, `model-check-fresh`, `pr-state`, `review-ready`,
+  `review-citations`, and `deploy-hash`. Why the review gates exist is in
+  [`REVIEW-GATES.md`](REVIEW-GATES.md); flags and exit codes are in `--help`.
+  Other ids, including `all`, exit 2 as unimplemented.
 - `--strict` turns advisory FAIL rows into a non-zero exit. Without it the
   rows stay advisory. Run `scripts/dev-loop-gate.sh --help` for the exception
   checks and the full result-to-exit mapping.
@@ -125,8 +122,7 @@ a named check requires both.
 
 ### Exit behavior
 
-Run `scripts/dev-loop-gate.sh --help` for the flags, the checks that always
-fail a run, and the complete result-to-exit mapping.
+Run `scripts/dev-loop-gate.sh --help` for flags, hard-fail checks, and exits.
 
 ### line-cap
 
@@ -306,11 +302,14 @@ argument fails CI instead of review:
 
 ### model-check-required
 
-`--check model-check-required` decides whether a model review may be skipped.
-The check fails closed: an unreadable diff, an unusual path, or a missing base
-is REQUIRED, never a silent SKIP. The allow and deny lists and the line cap
-live in [`../../policy/rules`](../../policy/rules). Run
-`scripts/dev-loop-gate.sh --check model-check-required --help` for HOW.
+`--check model-check-required` decides whether a model review may be skipped
+(fail closed: unreadable diff or missing base is REQUIRED). Rules live in
+[`../../policy/rules`](../../policy/rules); run `--check model-check-required --help` for HOW.
+
+### model-check-fresh
+
+`--check model-check-fresh` fails closed unless the latest result matches the
+live PR head and same UTC day; run `--check model-check-fresh --help` for HOW.
 
 ### pr-state
 

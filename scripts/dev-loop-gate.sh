@@ -20,9 +20,9 @@ usage() {
     '  --repo <root>    Any git work tree. Default: the work tree of the cwd.' \
     '  --check <id>     Run one named check. agent-git, line-cap, npm-ci,' \
     '                   node-pin, docs-sweep, docs-usage-dup, prose-dashes,' \
-    '                   md-links, model-ids, model-check-required, pr-state,' \
-    '                   review-ready, review-citations, and deploy-hash are' \
-    '                   implemented.' \
+    '                   md-links, model-ids, model-check-required,' \
+    '                   model-check-fresh, pr-state, review-ready,' \
+    '                   review-citations, and deploy-hash are implemented.' \
     '  --strict         Exit 1 when any row or check is FAIL.' \
     '  --model-line-file <path>   With --check model-ids: a PR body or review' \
     '                   comment. Every Model line must name the recorded id,' \
@@ -39,7 +39,8 @@ usage() {
     'Review gates (fail closed: any FAIL exits 1, with or without --strict):' \
     '  --check review-ready --help' \
     '  --check review-citations --help' \
-    '                   Flags, rows, accepted citation forms, and exit codes.' \
+    '  --check model-check-fresh --help' \
+    '                   Flags, rows, accepted forms, and exit codes.' \
     '' \
     'agent-git check (only with --check agent-git):' \
     '  Command strings: git add, git commit, git push, and gh pr create.' \
@@ -68,9 +69,9 @@ usage() {
     'a hit exits 1; without it, hits are advisory and the exit stays 0.' \
     'Exit codes: 0 pass or advisory, 1 strict failure, a hard preflight' \
     'miss (G1, npm-ci, node-pin, including --check npm-ci and' \
-    '--check node-pin), or a FAIL from review-ready or review-citations,' \
-    '2 usage or config error, 3 required command missing or gh read' \
-    'failure.'
+    '--check node-pin), or a FAIL from review-ready, review-citations,' \
+    'or model-check-fresh, 2 usage or config error, 3 required command' \
+    'missing or gh read failure.'
 }
 
 config_path=""
@@ -93,6 +94,8 @@ have_recorded_id_flag=0
 have_pr_flag=0
 have_gh_repo_flag=0
 have_expect_head_flag=0
+run_arg=""
+have_run_flag=0
 want_help=0
 
 deploy_hash_url=""
@@ -438,6 +441,24 @@ while [ $# -gt 0 ]; do
       have_expect_head_flag=1
       shift
       ;;
+    --run)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        printf 'dev-loop-gate: --run needs a directory\n' >&2
+        exit 2
+      fi
+      run_arg="$2"
+      have_run_flag=1
+      shift 2
+      ;;
+    --run=*)
+      run_arg="${1#--run=}"
+      if [ -z "$run_arg" ]; then
+        printf 'dev-loop-gate: --run needs a directory\n' >&2
+        exit 2
+      fi
+      have_run_flag=1
+      shift
+      ;;
     -h|--help)
       want_help=1
       shift
@@ -457,6 +478,8 @@ if [ "$want_help" = 1 ]; then
   . "$script_dir/lib/review-citations.sh"
   # shellcheck source=scripts/lib/model-check-required.sh
   . "$script_dir/lib/model-check-required.sh"
+  # shellcheck source=scripts/lib/model-check-fresh.sh
+  . "$script_dir/lib/model-check-fresh.sh"
   case "$check_id" in
     review-ready)
       usage_review_ready
@@ -466,6 +489,9 @@ if [ "$want_help" = 1 ]; then
       ;;
     model-check-required)
       usage_model_check_required
+      ;;
+    model-check-fresh)
+      usage_model_check_fresh
       ;;
     *)
       usage
@@ -494,9 +520,16 @@ if [ "$have_model_line_flag" = 1 ] || [ "$have_recorded_id_flag" = 1 ]; then
   fi
 fi
 
+if [ "$have_run_flag" = 1 ]; then
+  if [ "$have_check" = 0 ] || [ "$check_id" != "model-check-fresh" ]; then
+    printf 'dev-loop-gate: --run needs --check model-check-fresh\n' >&2
+    exit 2
+  fi
+fi
+
 if [ "$pr_flags_used" = 1 ]; then
   case "$check_id" in
-    pr-state | review-ready) ;;
+    pr-state | review-ready | model-check-fresh) ;;
     review-citations)
       if [ "$have_pr_flag" = 1 ] || [ "$have_gh_repo_flag" = 1 ]; then
         printf 'dev-loop-gate: review-citations takes --expect-head, not --pr or --gh-repo\n' >&2
@@ -504,7 +537,7 @@ if [ "$pr_flags_used" = 1 ]; then
       fi
       ;;
     *)
-      printf 'dev-loop-gate: --pr, --gh-repo, and --expect-head need --check pr-state, review-ready, or review-citations\n' >&2
+      printf 'dev-loop-gate: --pr, --gh-repo, and --expect-head need --check pr-state, review-ready, review-citations, or model-check-fresh\n' >&2
       usage >&2
       exit 2
       ;;
@@ -578,6 +611,8 @@ row() { printf '%-4s %-30s %-6s %s\n' "$1" "$2" "$3" "$4"; }
 . "$script_dir/lib/node-pin.sh"
 # shellcheck source=scripts/lib/model-check-required.sh
 . "$script_dir/lib/model-check-required.sh"
+# shellcheck source=scripts/lib/model-check-fresh.sh
+. "$script_dir/lib/model-check-fresh.sh"
 
 run_table() {
   local status=0 any_fail=0
@@ -944,6 +979,10 @@ case "$check_id" in
     run_model_check_required
     exit $?
     ;;
+  model-check-fresh)
+    run_model_check_fresh
+    exit $?
+    ;;
   line-cap)
     run_line_cap
     exit $?
@@ -1000,7 +1039,7 @@ case "$check_id" in
     exit 2
     ;;
   *)
-    printf 'unknown check: %s (implemented: agent-git, line-cap, npm-ci, node-pin, docs-sweep, docs-usage-dup, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash, model-check-required)\n' "$check_id" >&2
+    printf 'unknown check: %s (implemented: agent-git, line-cap, npm-ci, node-pin, docs-sweep, docs-usage-dup, prose-dashes, md-links, model-ids, pr-state, review-ready, review-citations, deploy-hash, model-check-required, model-check-fresh)\n' "$check_id" >&2
     exit 2
     ;;
 esac

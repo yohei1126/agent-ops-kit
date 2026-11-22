@@ -76,15 +76,13 @@ Apply automated reviews and follow-up routing according to these standards:
   permissions, secret references).
 - **Coding model fixes and transparency**: findings are fixed by a coding
   model. Review results name the model used.
-- **Targeted re-review**: no re-review by default after the first review;
-  re-review only unresolved blocker or major findings, on the model assigned for
-  that review, and rerun the model check the same day on the new head. Minor
-  findings and nits go to a cheap coding lane or a known-gaps list.
+- **Targeted re-review**: no re-review by default; re-review only unresolved
+  blocker or major findings on the assigned model (freshness is enforced by
+  `--check model-check-fresh --help`), and send nits to a cheap lane.
 - **Findings become tests**: a review finding turns into a deterministic CI
   test, not only prose, so the same defect cannot return.
 - **Merge the base branch, do not rebase**: merge the base branch into an open
-  pull request branch and drop conflict-marker comment lines left by the merge,
-  so the branch keeps its history without a force-push.
+  pull request branch and drop merge-conflict comment lines to keep history.
 - **Skip a re-check only narrowly**: after a conflict resolution, skip the
   re-check only when the resolution touched tests alone and CI is green.
 - **Review while still a draft**: run the model check and post its comment

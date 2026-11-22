@@ -21,6 +21,7 @@ docs_usage_dup_sources() {
 scripts/dev-loop-gate.sh
 scripts/dev-loop-gate.sh --check review-ready --help
 scripts/dev-loop-gate.sh --check review-citations --help
+scripts/dev-loop-gate.sh --check model-check-fresh --help
 scripts/agent-launch.sh
 scripts/agent-task-issue.sh
 scripts/agents/agy/run
