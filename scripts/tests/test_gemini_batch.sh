@@ -218,12 +218,36 @@ gb scan; gb submit --threshold 2
 [ "$(posts)" = 1 ]; check "configurable threshold" "$?"
 
 # --- fail-closed inputs ---------------------------------------------------------
+fake_gh_prefix="ghp_"
+fake_gh_body="abcdefghijklmnopqrstuvwxyz0123"
+tok_key="TOKEN"
 new_case; mk_prs 1 2 3
-printf 'diff --git a/x b/x\n+TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123\n' > "$MOCK_DIR/diff-2.txt"
+printf 'diff --git a/x b/x\n+%s=%s%s\n' "$tok_key" "$fake_gh_prefix" "$fake_gh_body" > "$MOCK_DIR/diff-2.txt"
 gb scan; gb submit
 [ "$(posts)" = 1 ] && [ "$(count_status failed)" = 1 ] && [ "$(count_status submitted)" = 2 ]; check "secret pattern: that input refused, others submitted" "$?"
-grep -q 'ghp_' "$MOCK_DIR/submit-last.json"; [ "$?" != 0 ]; check "secret pattern never reaches the provider" "$?"
-case "$err" in *ghp_abc*) bad "secret value not logged" "$err" ;; *) ok "secret value not logged" ;; esac
+grep -q "$fake_gh_prefix" "$MOCK_DIR/submit-last.json"; [ "$?" != 0 ]; check "secret pattern never reaches the provider" "$?"
+case "$err" in *"$fake_gh_prefix"abc*) bad "secret value not logged" "$err" ;; *) ok "secret value not logged" ;; esac
+
+new_case; mk_prs 1
+cat > "$MOCK_DIR/diff-1.txt" <<'EOF'
+diff --git a/scripts/tests/test_gemini_batch.sh b/scripts/tests/test_gemini_batch.sh
++fake_gh_prefix="ghp_"
++fake_gh_body="abcdefghijklmnopqrstuvwxyz0123"
++printf '+%s=%s%s\n' "$tok_key" "$fake_gh_prefix" "$fake_gh_body"
+diff --git a/policy/cases b/policy/cases
++gb-scan-github	gemini-batch.input-scan	input.txt	text=token ghp_<<JOIN>>abcdefghijklmnopqrstuvwx here	DENY	gbatch.forbid.secret.github
+EOF
+gb scan; gb submit --threshold 1
+[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && [ "$(count_status submitted)" = 1 ] && [ "$(count_status failed)" = 0 ]; check "runtime-built fixture diff passes input scan and submits" "$?"
+
+scan_hits=0
+while IFS="$(printf '\t')" read -r _id ere _label; do
+  [ -n "$ere" ] || continue
+  for f in "$repo_root/scripts/tests/test_gemini_batch.sh" "$repo_root/scripts/tests/test_post_review_comment.sh" "$repo_root/policy/cases"; do
+    if LC_ALL=C grep -Eq -- "$ere" "$f"; then scan_hits=1; fi
+  done
+done < <(bash "$repo_root/scripts/policy-eval.sh" --list-forbids --action gemini-batch.input-scan)
+[ "$scan_hits" = 0 ]; check "committed test and policy fixture files have no contiguous secret-scan match" "$?"
 
 new_case; mk_prs 1 2 3
 echo '{"models":[{"name":"models/gemini-3.8-flash","supportedGenerationMethods":["batchGenerateContent"]}]}' > "$MOCK_DIR/models.json"
@@ -349,7 +373,7 @@ gb poll
 [ "$(jq -r .status "$(batch_file)")" = "submitted" ] && [ "$(count_status submitted)" = 3 ]; check "unknown state with done stays submitted" "$?"
 
 new_case; mk_prs 1 2 3; submit_and_finish
-make_done 'Findings. key ghp_abcdefghijklmnopqrstuvwxyz0123 leaked'
+make_done "Findings. key ${fake_gh_prefix}${fake_gh_body} leaked"
 bf="$(batch_file)"; cp "$MOCK_DIR/batch-state.json" "${bf%.json}.response.json"
 gb post
 [ ! -s "$MOCK_DIR/comments.log" ] 2>/dev/null || [ ! -e "$MOCK_DIR/comments.log" ]; check "secret in model output is not posted" "$?"

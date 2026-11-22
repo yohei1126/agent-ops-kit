@@ -349,7 +349,9 @@ expect_status "7: xai- at a line start exits 1" 1
 expect_no_post "7: xai- at a line start posts nothing"
 
 reset_run
-printf 'Model: example-model\n-----BEGIN RSA PRIVATE KEY-----\ndummy body\n' > "$run/COMMENT.md"
+pem_start="-----BEGIN RSA "
+pem_end="PRIVATE KEY-----"
+printf 'Model: example-model\n%s%s\ndummy body\n' "$pem_start" "$pem_end" > "$run/COMMENT.md"
 run_check --run "$run" --repo "$repo" --pr 7
 expect_status "7: a PEM header exits 1" 1
 expect_no_post "7: a PEM header posts nothing"
