@@ -252,6 +252,10 @@ pre-post gate for a model-review comment: it posts one issue comment only
 when every check passes, and it never approves, merges, labels, or edits.
 The checks live in [`../policy/rules`](../policy/rules). Run
 `scripts/post-review-comment.sh --help` for flags and exit codes.
+[`review-scope.sh`](review-scope.sh) adds a deterministic pre-post scope
+filter so findings that cite only unchanged paths are dropped or refused
+before posting; run `scripts/review-scope.sh --help` for its policy and
+flags.
 
 [`gemini-batch.sh`](gemini-batch.sh) runs Gemini API Batch jobs on the box for
 public allowlisted repositories only; the rules live in

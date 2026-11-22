@@ -28,7 +28,8 @@ esac
 usage() {
   cat <<'USAGE'
 Usage: scripts/post-review-comment.sh --run <dir> --repo OWNER/REPO --pr N
-         [--owners LIST] [--max-bytes N] [-h|--help]
+         [--owners LIST] [--max-bytes N] [--scope-check] [--scope FILE]
+         [--diff FILE] [-h|--help]
 
 Post one model-review comment on an open draft pull request, and only after
 mechanical checks pass. The body is read only from <run>/COMMENT.md; the
@@ -50,6 +51,14 @@ Options:
   --max-bytes N      Byte cap for the whole COMMENT.md, a positive integer.
                      Default: 65536.
                      Env: POST_REVIEW_COMMENT_MAX_BYTES.
+  --scope-check      Run scripts/review-scope.sh checks before posting:
+                     drop out-of-scope minor/nit findings (appending a Scope
+                     note and writing post-review-comment.scope), and refuse
+                     out-of-scope blocker/major, uncited findings, or
+                     unparsable comments or diffs.
+  --scope FILE       Caller-declared path scope file (implies --scope-check).
+  --diff FILE        Unified diff file instead of calling gh pr diff
+                     (implies --scope-check).
   -h, --help         Print this help and exit.
 
 Checks, all of which must pass:
@@ -133,6 +142,9 @@ owners=""
 have_owners=0
 max_bytes=""
 have_max_bytes=0
+scope_check=0
+scope_file=""
+diff_file=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -193,6 +205,32 @@ while [ "$#" -gt 0 ]; do
     --max-bytes=*)
       max_bytes="${1#--max-bytes=}"
       have_max_bytes=1
+      shift
+      ;;
+    --scope-check)
+      scope_check=1
+      shift
+      ;;
+    --scope)
+      [ "$#" -ge 2 ] || usage_error "--scope needs a file"
+      scope_file="$2"
+      scope_check=1
+      shift 2
+      ;;
+    --scope=*)
+      scope_file="${1#--scope=}"
+      scope_check=1
+      shift
+      ;;
+    --diff)
+      [ "$#" -ge 2 ] || usage_error "--diff needs a file"
+      diff_file="$2"
+      scope_check=1
+      shift 2
+      ;;
+    --diff=*)
+      diff_file="${1#--diff=}"
+      scope_check=1
       shift
       ;;
     *)
@@ -373,63 +411,77 @@ if [ ! -r "$comment" ]; then
   fail_closed "COMMENT.md is not readable: $comment"
 fi
 
-# The first line must name a model. A trailing CR is stripped first, so a
-# CRLF file is checked the same way as an LF file. The name must hold at
-# least one non-whitespace character, and at least one more non-blank line
-# must follow, so a bare "Model: " or a one-line file cannot pass.
-#
-first_line=""
-IFS= read -r first_line < "$comment" || true
-first_line="${first_line%$'\r'}"
-policy_eval_attr_list=("text=$first_line")
-policy_decide post-review.model-prefix COMMENT.md
-if [ "$policy_status" -ne 0 ]; then
-  fail_closed 'the first line of COMMENT.md must start with "Model: "'
-fi
-model_name="${first_line#Model: }"
-policy_eval_attr_list=("text=$model_name")
-policy_decide post-review.model-name COMMENT.md
-if [ "$policy_status" -ne 0 ]; then
-  fail_closed 'the first line of COMMENT.md must name a model after "Model: "'
-fi
-
-body_line=""
-seen_first=0
-rest_has_content=0
-while IFS= read -r body_line || [ -n "$body_line" ]; do
-  if [ "$seen_first" -eq 0 ]; then
-    seen_first=1
-    continue
+# Validate a comment file against Model-line, body-presence, byte-cap, and
+# forbidden-content scans.
+validate_comment_file() {
+  local target_file="$1"
+  local first_line=""
+  IFS= read -r first_line < "$target_file" || true
+  first_line="${first_line%$'\r'}"
+  policy_eval_attr_list=("text=$first_line")
+  policy_decide post-review.model-prefix COMMENT.md
+  if [ "$policy_status" -ne 0 ]; then
+    fail_closed 'the first line of COMMENT.md must start with "Model: "'
   fi
-  case "$body_line" in
-    *[![:space:]]*)
-      rest_has_content=1
-      break
-      ;;
-  esac
-done < "$comment"
-has_body="$rest_has_content"
-policy_eval_attr_list=("has_body=$has_body")
-policy_decide post-review.body COMMENT.md
-if [ "$policy_eval_rule" = prc.forbid.no-body ]; then
-  fail_closed "COMMENT.md must hold body text after the first line"
-fi
-if [ "$policy_status" -ne 0 ]; then
-  fail_closed "policy denied post-review.body with rule $policy_eval_rule"
-fi
+  local model_name="${first_line#Model: }"
+  policy_eval_attr_list=("text=$model_name")
+  policy_decide post-review.model-name COMMENT.md
+  if [ "$policy_status" -ne 0 ]; then
+    fail_closed 'the first line of COMMENT.md must name a model after "Model: "'
+  fi
 
-size="$(wc -c < "$comment")"
-size="${size//[!0-9]/}"
-[ -n "$size" ] || size=0
-if [ "$max_bytes_from_policy" -eq 1 ]; then
-  policy_eval_attr_list=("comment_bytes=$size")
-  policy_decide post-review.bytes "*"
-  if [ "$policy_eval_rule" = prc.byte-cap ]; then
+  local body_line=""
+  local seen_first=0
+  local rest_has_content=0
+  while IFS= read -r body_line || [ -n "$body_line" ]; do
+    if [ "$seen_first" -eq 0 ]; then
+      seen_first=1
+      continue
+    fi
+    case "$body_line" in
+      *[![:space:]]*)
+        rest_has_content=1
+        break
+        ;;
+    esac
+  done < "$target_file"
+  local has_body="$rest_has_content"
+  policy_eval_attr_list=("has_body=$has_body")
+  policy_decide post-review.body COMMENT.md
+  if [ "$policy_eval_rule" = prc.forbid.no-body ]; then
+    fail_closed "COMMENT.md must hold body text after the first line"
+  fi
+  if [ "$policy_status" -ne 0 ]; then
+    fail_closed "policy denied post-review.body with rule $policy_eval_rule"
+  fi
+
+  local size
+  size="$(wc -c < "$target_file")"
+  size="${size//[!0-9]/}"
+  [ -n "$size" ] || size=0
+  if [ "$max_bytes_from_policy" -eq 1 ]; then
+    policy_eval_attr_list=("comment_bytes=$size")
+    policy_decide post-review.bytes "*"
+    if [ "$policy_eval_rule" = prc.byte-cap ]; then
+      fail_closed "COMMENT.md is $size bytes, over the $max_bytes byte cap"
+    fi
+  elif [ "$size" -gt "$max_bytes" ]; then
     fail_closed "COMMENT.md is $size bytes, over the $max_bytes byte cap"
   fi
-elif [ "$size" -gt "$max_bytes" ]; then
-  fail_closed "COMMENT.md is $size bytes, over the $max_bytes byte cap"
-fi
+
+  local policy_scan_tab policy_scan_list scan_id scan_ere scan_label
+  policy_scan_tab="$(printf '\t')"
+  if ! policy_scan_list="$(policy_eval_list_forbids post-review.scan)"; then
+    policy_error
+  fi
+  [ -n "$policy_scan_list" ] || policy_error
+  while IFS="$policy_scan_tab" read -r scan_id scan_ere scan_label; do
+    [ -n "$scan_id" ] || continue
+    scan_content "$scan_label" "$scan_ere" "$target_file"
+  done <<EOF
+$policy_scan_list
+EOF
+}
 
 # Every content grep runs under LC_ALL=C and classifies its status: 0 is a
 # forbidden match and fails closed, 1 is a clean scan, and anything else is
@@ -439,8 +491,9 @@ fi
 scan_content() {
   local label="$1"
   local when_ere="$2"
+  local target_file="${3:-$comment}"
   local code=0
-  LC_ALL=C grep -Eq -- "$when_ere" "$comment" || code=$?
+  LC_ALL=C grep -Eq -- "$when_ere" "$target_file" || code=$?
   case "$code" in
     0) fail_closed "COMMENT.md holds $label" ;;
     1) ;;
@@ -448,21 +501,7 @@ scan_content() {
   esac
 }
 
-# A prefix counts only at the start of a token: the start of a line, or a
-# character outside [A-Za-z0-9_-]. A word boundary would not do, because
-# grep treats a hyphen as a non-word character, so \bsk- would still match
-# the sk- inside desk-fan.
-policy_scan_tab="$(printf '\t')"
-if ! policy_scan_list="$(policy_eval_list_forbids post-review.scan)"; then
-  policy_error
-fi
-[ -n "$policy_scan_list" ] || policy_error
-while IFS="$policy_scan_tab" read -r scan_id scan_ere scan_label; do
-  [ -n "$scan_id" ] || continue
-  scan_content "$scan_label" "$scan_ere"
-done <<EOF
-$policy_scan_list
-EOF
+validate_comment_file "$comment"
 
 # A lock directory guards the scan and the post. mkdir is atomic, so two
 # concurrent runs in the same folder cannot both pass the scan. Ownership is
@@ -471,6 +510,8 @@ EOF
 #
 lock="$run_dir/post-review-comment.lock"
 gh_err=""
+scope_diff_tmp=""
+scope_out_tmp=""
 have_lock=0
 
 # shellcheck disable=SC2317,SC2329  # called from the EXIT trap below
@@ -480,6 +521,12 @@ cleanup() {
   fi
   if [ -n "$gh_err" ]; then
     rm -f "$gh_err" 2>/dev/null || true
+  fi
+  if [ -n "$scope_diff_tmp" ]; then
+    rm -f "$scope_diff_tmp" 2>/dev/null || true
+  fi
+  if [ -n "$scope_out_tmp" ]; then
+    rm -f "$scope_out_tmp" 2>/dev/null || true
   fi
 }
 
@@ -582,6 +629,49 @@ if [ "$policy_status" -ne 0 ]; then
   fail_closed "policy denied post-review.pr with rule $policy_eval_rule"
 fi
 
+post_body="$comment"
+if [ "$scope_check" -eq 1 ]; then
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=lib/review-scope.sh
+  . "$(cd "$(dirname "$0")" && pwd)/lib/review-scope.sh"
+  scope_sidecar="$run_dir/post-review-comment.scope"
+  if [ -L "$scope_sidecar" ]; then
+    fail_closed "the scope sidecar must not be a symlink: $scope_sidecar"
+  fi
+  allowed_paths=""
+  if [ -z "$diff_file" ]; then
+    scope_diff_tmp="$(mktemp "${TMPDIR:-/tmp}/post-review-comment.diff.XXXXXX")" ||
+      gh_error "could not create a temporary file"
+    if ! gh pr diff "$pr" --repo "$repo" </dev/null >"$scope_diff_tmp" 2>"$gh_err"; then
+      err_line=""
+      IFS= read -r err_line < "$gh_err" || true
+      gh_error "gh pr diff failed for $repo#$pr: $err_line"
+    fi
+    diff_paths="$(review_scope_diff_paths "$scope_diff_tmp")" ||
+      fail_closed "unreadable or empty diff for $repo#$pr"
+    allowed_paths="$diff_paths"
+  else
+    [ ! -L "$diff_file" ] || fail_closed "--diff must not be a symlink: $diff_file"
+    diff_paths="$(review_scope_diff_paths "$diff_file")" ||
+      fail_closed "unreadable or empty diff: $diff_file"
+    allowed_paths="$diff_paths"
+  fi
+  if [ -n "$scope_file" ]; then
+    [ ! -L "$scope_file" ] || fail_closed "--scope must not be a symlink: $scope_file"
+    scope_paths="$(review_scope_read_scope_file "$scope_file")" ||
+      fail_closed "unreadable or empty scope file: $scope_file"
+    allowed_paths="$allowed_paths"$'\n'"$scope_paths"
+  fi
+  scope_out_tmp="$(mktemp "${TMPDIR:-/tmp}/post-review-comment.scoped.XXXXXX")" ||
+    fail_closed "could not create a temporary file"
+  scope_status="$(review_scope_apply "$comment" "$allowed_paths" "$scope_out_tmp" "$scope_sidecar" "$script")" ||
+    exit 1
+  if [ "$scope_status" = "rewritten" ]; then
+    validate_comment_file "$scope_out_tmp"
+    post_body="$scope_out_tmp"
+  fi
+fi
+
 # Write the pending marker immediately before the post, so a read failure
 # leaves no marker and a crash after a successful post but before the URL is
 # saved still fails closed on the next try. The post is one new issue comment,
@@ -589,7 +679,7 @@ fi
 #
 append_record pending ""
 
-if ! post_out="$(gh pr comment "$pr" --repo "$repo" --body-file "$comment" </dev/null 2>"$gh_err")"; then
+if ! post_out="$(gh pr comment "$pr" --repo "$repo" --body-file "$post_body" </dev/null 2>"$gh_err")"; then
   err_line=""
   IFS= read -r err_line < "$gh_err" || true
   gh_error "gh pr comment failed for $repo#$pr: $err_line"
