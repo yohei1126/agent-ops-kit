@@ -254,8 +254,8 @@ The checks live in [`../policy/rules`](../policy/rules). Run
 `scripts/post-review-comment.sh --help` for flags and exit codes.
 
 [`gemini-batch.sh`](gemini-batch.sh) runs Gemini API Batch jobs on the box for
-public allowlisted repositories only; the rules live in
-[`../policy/rules`](../policy/rules). Run `scripts/gemini-batch.sh --help`.
+public allowlisted repositories only (rules in [`../policy/rules`](../policy/rules))
+and shares the monthly budget via `reserve`/`settle`/`release`/`import`; see `--help`.
 
 ## Prepare a coding-agent task issue
 
