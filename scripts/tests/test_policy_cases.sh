@@ -17,6 +17,7 @@ out=""
 err=""
 status=0
 tab="$(printf '\t')"
+join_marker='<<JOIN>>'
 
 trap 'rm -rf "$work_tmp"' EXIT
 
@@ -50,6 +51,7 @@ while IFS="$tab" read -r name action resource attrs expected rule_id || [ -n "$n
     IFS=,
     set -f
     for attr in $attrs; do
+      attr="${attr//$join_marker/}"
       args[${#args[@]}]="--attr"
       args[${#args[@]}]="$attr"
     done
