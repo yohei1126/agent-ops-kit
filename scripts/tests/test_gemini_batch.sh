@@ -121,6 +121,14 @@ make_done() { # write a succeeded batch-state with a text per submitted key
   jq -n --slurpfile s "$MOCK_DIR/submit-last.json" --arg t "$1" \
     '{done:true,metadata:{state:"JOB_STATE_SUCCEEDED"},response:{inlinedResponses:{inlinedResponses:[$s[0].batch.input_config.requests.requests[]|{metadata:{key:.metadata.key},response:{candidates:[{finishReason:"STOP",content:{parts:[{text:$t}]}}]}}]}}}' > "$MOCK_DIR/batch-state.json"
 }
+make_done_state() { # STATE TEXT: done:true batch-state under a given state name
+  jq -n --slurpfile s "$MOCK_DIR/submit-last.json" --arg st "$1" --arg t "$2" \
+    '{done:true,metadata:{state:$st},response:{inlinedResponses:{inlinedResponses:[$s[0].batch.input_config.requests.requests[]|{metadata:{key:.metadata.key},response:{candidates:[{finishReason:"STOP",content:{parts:[{text:$t}]}}]}}]}}}' > "$MOCK_DIR/batch-state.json"
+}
+make_done_nostate() { # TEXT: done:true with no metadata state and no error
+  jq -n --slurpfile s "$MOCK_DIR/submit-last.json" --arg t "$1" \
+    '{done:true,response:{inlinedResponses:{inlinedResponses:[$s[0].batch.input_config.requests.requests[]|{metadata:{key:.metadata.key},response:{candidates:[{finishReason:"STOP",content:{parts:[{text:$t}]}}]}}]}}}' > "$MOCK_DIR/batch-state.json"
+}
 REVIEW_TEXT='Findings: 0 blocker, 0 major, 0 minor, 0 nit. See https://example.com/x or mail a@b.example. Verdict: PASS'
 
 # --- help and usage ---------------------------------------------------------
@@ -297,6 +305,48 @@ gb poll
 [ "$(count_status failed)" = 3 ]; check "failed batch fails its items without resubmitting" "$?"
 gb scan; gb submit
 [ "$(posts)" = 1 ]; check "failed head is not resubmitted automatically" "$?"
+
+# --- live batch API state names and done flag in poll -------------------------
+new_case; mk_prs 1 2 3; gb scan; gb submit
+make_done_state BATCH_STATE_SUCCEEDED "$REVIEW_TEXT"
+gb poll
+[ "$(jq -r .status "$(batch_file)")" = "done" ]; check "BATCH_STATE_SUCCEEDED marks the batch done" "$?"
+
+new_case; mk_prs 1 2 3; gb scan; gb submit
+echo '{"done":true,"metadata":{"state":"BATCH_STATE_FAILED"}}' > "$MOCK_DIR/batch-state.json"
+gb poll
+[ "$(jq -r .status "$(batch_file)")" = "failed" ] && [ "$(count_status failed)" = 3 ] && [ "$(jq -r .reason "$(batch_file)")" = BATCH_STATE_FAILED ]; check "BATCH_STATE_FAILED fails batch and items" "$?"
+gb scan; gb submit
+[ "$(posts)" = 1 ]; check "BATCH_STATE_FAILED: no automatic resubmit" "$?"
+
+new_case; mk_prs 1 2 3; gb scan; gb submit
+echo '{"done":true,"metadata":{"state":"BATCH_STATE_CANCELLED"}}' > "$MOCK_DIR/batch-state.json"
+gb poll
+[ "$(jq -r .status "$(batch_file)")" = "failed" ] && [ "$(count_status failed)" = 3 ]; check "BATCH_STATE_CANCELLED fails batch and items" "$?"
+gb scan; gb submit
+[ "$(posts)" = 1 ]; check "BATCH_STATE_CANCELLED: no automatic resubmit" "$?"
+
+new_case; mk_prs 1 2 3; gb scan; gb submit
+echo '{"done":true,"metadata":{"state":"BATCH_STATE_EXPIRED"}}' > "$MOCK_DIR/batch-state.json"
+gb poll
+[ "$(jq -r .status "$(batch_file)")" = "failed" ] && [ "$(count_status failed)" = 3 ]; check "BATCH_STATE_EXPIRED fails batch and items" "$?"
+gb scan; gb submit
+[ "$(posts)" = 1 ]; check "BATCH_STATE_EXPIRED: no automatic resubmit" "$?"
+
+new_case; mk_prs 1 2 3; gb scan; gb submit
+make_done_nostate "$REVIEW_TEXT"
+gb poll
+[ "$(jq -r .status "$(batch_file)")" = "done" ]; check "done with no state and no error marks done" "$?"
+
+new_case; mk_prs 1 2 3; gb scan; gb submit
+echo '{"done":true,"error":{"code":3,"message":"x"}}' > "$MOCK_DIR/batch-state.json"
+gb poll
+[ "$(jq -r .status "$(batch_file)")" = "failed" ] && [ "$(count_status failed)" = 3 ] && [ "$(jq -r .reason "$(batch_file)")" = "done with error" ]; check "done with a top-level error fails batch and items" "$?"
+
+new_case; mk_prs 1 2 3; gb scan; gb submit
+echo '{"done":true,"metadata":{"state":"BATCH_STATE_SOMETHING_NEW"}}' > "$MOCK_DIR/batch-state.json"
+gb poll
+[ "$(jq -r .status "$(batch_file)")" = "submitted" ] && [ "$(count_status submitted)" = 3 ]; check "unknown state with done stays submitted" "$?"
 
 new_case; mk_prs 1 2 3; submit_and_finish
 make_done 'Findings. key ghp_abcdefghijklmnopqrstuvwxyz0123 leaked'

@@ -432,8 +432,38 @@ resp_text() { # RESPONSEFILE KEY -> text on stdout; rc 1 unless a clean STOP
 # sanitize: the poster refuses URLs and at signs, so strip them from model text.
 sanitize() { sed -E 's#[Hh][Tt][Tt][Pp][Ss]?://##g; s#@# at #g'; }
 
+# poll_outcome POLLFILE: print succeeded, failed, cancelled, expired or pending
+# for one fetched batch operation. The live API reports BATCH_STATE_* metadata
+# states and a long-running-operation done flag; the older JOB_STATE_* names
+# stay accepted so old recorded responses keep working. A known metadata.state
+# wins even when done is missing or disagrees. An unknown state is pending, so
+# poll retries instead of guessing a success or failure the API never reported.
+poll_outcome() {
+  local f="$1" st is_done
+  st="$(jq -r '.metadata.state // ""' "$f")"
+  is_done="$(jq -r '.done // false' "$f")"
+  case "$st" in
+    BATCH_STATE_SUCCEEDED | JOB_STATE_SUCCEEDED) printf 'succeeded\n' ;;
+    BATCH_STATE_FAILED | JOB_STATE_FAILED) printf 'failed\n' ;;
+    BATCH_STATE_CANCELLED | JOB_STATE_CANCELLED) printf 'cancelled\n' ;;
+    BATCH_STATE_EXPIRED | JOB_STATE_EXPIRED) printf 'expired\n' ;;
+    "")
+      if [ "$is_done" = true ]; then
+        if jq -e 'has("error")' "$f" >/dev/null 2>&1; then
+          printf 'failed\n'
+        else
+          printf 'succeeded\n'
+        fi
+      else
+        printf 'pending\n'
+      fi
+      ;;
+    *) printf 'pending\n' ;;
+  esac
+}
+
 cmd_poll() {
-  local b st code name key f
+  local b outcome st reason code name key f
   for b in "$state"/batches/*.json; do
     [ -e "$b" ] || continue
     case "$b" in *.response.json) continue ;; esac
@@ -441,21 +471,24 @@ cmd_poll() {
     name="$(jq -r .api_name "$b")"
     code="$(api GET "$name" "$tmpd/poll.json")"
     [ "$code" = 200 ] || { log "poll $name: HTTP $code; will retry later" >&2; continue; }
-    st="$(jq -r '.metadata.state // "JOB_STATE_PENDING"' "$tmpd/poll.json")"
-    case "$st" in
-      JOB_STATE_SUCCEEDED)
+    outcome="$(poll_outcome "$tmpd/poll.json")"
+    case "$outcome" in
+      succeeded)
         cp "$tmpd/poll.json" "${b%.json}.response.json"; chmod 600 "${b%.json}.response.json"
         jset "$b" '.status="done"'
         [ "$(jq -r .job "$b")" = check ] || finish_weekly "$b"
         log "batch $(jq -r .id "$b") done"
         ;;
-      JOB_STATE_FAILED | JOB_STATE_CANCELLED | JOB_STATE_EXPIRED)
-        jset "$b" '.status="failed"|.reason=$s' --arg s "$st"
+      failed | cancelled | expired)
+        st="$(jq -r '.metadata.state // ""' "$tmpd/poll.json")"
+        reason="${st:-done with error}"
+        jset "$b" '.status="failed"|.reason=$s' --arg s "$reason"
         for key in $(jq -r '.keys[]' "$b"); do
-          f="$state/items/$key.json"; [ -f "$f" ] && jset "$f" '.status="failed"|.reason=$s' --arg s "$st"
+          f="$state/items/$key.json"; [ -f "$f" ] && jset "$f" '.status="failed"|.reason=$s' --arg s "$reason"
         done
-        log "batch $(jq -r .id "$b") $st" >&2
+        log "batch $(jq -r .id "$b") $reason" >&2
         ;;
+      pending) ;; # stays submitted; a later poll retries
     esac
   done
 }
