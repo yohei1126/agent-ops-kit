@@ -157,3 +157,53 @@ lane-launch-null-review	lane.launch	null	is_null=1,mode=review	DENY	lane.forbid.
 lane-launch-null-patch	lane.launch	null	is_null=1,mode=patch	DENY	lane.forbid.null-launch
 lane-launch-non-null-patch	lane.launch	example/unverified-model	is_null=0,mode=patch	ALLOW	lane.allow.non-null-launch
 lane-launch-null-docs	lane.launch	null	is_null=1,mode=docs	DENY	lane.forbid.null-launch
+gb-repo-agent-ops-kit	gemini-batch.repo	yohei1126/agent-ops-kit	-	ALLOW	gbatch.allow.repo.agent-ops-kit
+gb-repo-md-deck	gemini-batch.repo	yohei1126/md-deck	-	ALLOW	gbatch.allow.repo.md-deck
+gb-repo-other	gemini-batch.repo	someone/else	-	DENY	default.deny
+gb-repo-letter-case	gemini-batch.repo	YOHEI1126/agent-ops-kit	-	DENY	default.deny
+gb-vis-public	gemini-batch.visibility	yohei1126/agent-ops-kit	is_private=false	ALLOW	gbatch.allow.visibility
+gb-vis-private	gemini-batch.visibility	yohei1126/agent-ops-kit	is_private=true	DENY	default.deny
+gb-vis-unknown	gemini-batch.visibility	yohei1126/agent-ops-kit	is_private=unknown	DENY	default.deny
+gb-vis-missing	gemini-batch.visibility	yohei1126/agent-ops-kit	-	DENY	default.deny
+gb-model-check	gemini-batch.model	gemini-4-argon	job=check	ALLOW	gbatch.allow.model.check
+gb-model-security	gemini-batch.model	gemini-3.8-flash	job=security	ALLOW	gbatch.allow.model.security
+gb-model-lessons	gemini-batch.model	gemini-3.8-flash	job=lessons	ALLOW	gbatch.allow.model.lessons
+gb-model-check-flash	gemini-batch.model	gemini-3.8-flash	job=check	DENY	default.deny
+gb-model-security-argon	gemini-batch.model	gemini-4-argon	job=security	DENY	default.deny
+gb-model-null	gemini-batch.model	null	job=check	DENY	default.deny
+gb-model-empty	gemini-batch.model	-	job=check	DENY	default.deny
+gb-model-medium-suffix	gemini-batch.model	gemini-4-argon-medium	job=check	DENY	default.deny
+gb-model-letter-case	gemini-batch.model	Gemini-4-Argon	job=check	DENY	default.deny
+gb-model-no-job	gemini-batch.model	gemini-4-argon	-	DENY	default.deny
+gb-pr-cross-repo	gemini-batch.pr	yohei1126/agent-ops-kit#1	is_draft=true,state=OPEN,is_cross_repo=true,author_is_owner=true	DENY	gbatch.forbid.cross-repo
+gb-pr-not-owner	gemini-batch.pr	yohei1126/agent-ops-kit#1	is_draft=true,state=OPEN,is_cross_repo=false,author_is_owner=false	DENY	gbatch.forbid.not-owner
+gb-pr-not-draft	gemini-batch.pr	yohei1126/agent-ops-kit#1	is_draft=false,state=OPEN,is_cross_repo=false,author_is_owner=true	DENY	gbatch.forbid.not-draft
+gb-pr-not-open	gemini-batch.pr	yohei1126/agent-ops-kit#1	is_draft=true,state=MERGED,is_cross_repo=false,author_is_owner=true	DENY	gbatch.forbid.not-open
+gb-pr-ok	gemini-batch.pr	yohei1126/agent-ops-kit#1	is_draft=true,state=OPEN,is_cross_repo=false,author_is_owner=true	ALLOW	gbatch.allow.pr
+gb-pr-missing-attrs	gemini-batch.pr	yohei1126/agent-ops-kit#1	-	DENY	default.deny
+gb-pr-missing-owner-attr	gemini-batch.pr	yohei1126/agent-ops-kit#1	is_draft=true,state=OPEN,is_cross_repo=false	DENY	default.deny
+gb-budget-req-in-at-cap	gemini-batch.budget	check	req_in_tokens=120000	ALLOW	gbatch.allow.budget
+gb-budget-req-in-over-cap	gemini-batch.budget	check	req_in_tokens=120001	DENY	gbatch.forbid.req-in
+gb-budget-batch-in-at-cap	gemini-batch.budget	check	batch_in_tokens=400000	ALLOW	gbatch.allow.budget
+gb-budget-batch-in-over-cap	gemini-batch.budget	check	batch_in_tokens=400001	DENY	gbatch.forbid.batch-in
+gb-budget-month-batches-at-cap	gemini-batch.budget	check	month_batches=20	ALLOW	gbatch.allow.budget
+gb-budget-month-batches-over-cap	gemini-batch.budget	check	month_batches=21	DENY	gbatch.forbid.month-batches
+gb-budget-month-requests-at-cap	gemini-batch.budget	check	month_requests=40	ALLOW	gbatch.allow.budget
+gb-budget-month-requests-over-cap	gemini-batch.budget	check	month_requests=41	DENY	gbatch.forbid.month-requests
+gb-budget-month-check-requests-at-cap	gemini-batch.budget	check	month_check_requests=15	ALLOW	gbatch.allow.budget
+gb-budget-month-check-requests-over-cap	gemini-batch.budget	check	month_check_requests=16	DENY	gbatch.forbid.month-check-requests
+gb-budget-month-in-at-cap	gemini-batch.budget	check	month_in_tokens=2000000	ALLOW	gbatch.allow.budget
+gb-budget-month-in-over-cap	gemini-batch.budget	check	month_in_tokens=2000001	DENY	gbatch.forbid.month-in
+gb-budget-month-out-at-cap	gemini-batch.budget	check	month_out_tokens=300000	ALLOW	gbatch.allow.budget
+gb-budget-month-out-over-cap	gemini-batch.budget	check	month_out_tokens=300001	DENY	gbatch.forbid.month-out
+gb-budget-month-cost-at-cap	gemini-batch.budget	check	month_cost_microusd=7800000	ALLOW	gbatch.allow.budget
+gb-budget-month-cost-over-cap	gemini-batch.budget	check	month_cost_microusd=7800001	DENY	gbatch.forbid.month-cost
+gb-budget-none	gemini-batch.budget	check	-	ALLOW	gbatch.allow.budget
+gb-scan-github	gemini-batch.input-scan	input.txt	text=token ghp_abcdefghijklmnopqrstuvwx here	DENY	gbatch.forbid.secret.github
+gb-scan-xai	gemini-batch.input-scan	input.txt	text=key xai-abcdefghijklmnopqrstuvwx here	DENY	gbatch.forbid.secret.xai
+gb-scan-sk	gemini-batch.input-scan	input.txt	text=key sk-abcdefghijklmnopqrstuvwx here	DENY	gbatch.forbid.secret.sk
+gb-scan-aws	gemini-batch.input-scan	input.txt	text=id AKIAIOSFODNN7EXAMPLE here	DENY	gbatch.forbid.secret.aws
+gb-scan-pem	gemini-batch.input-scan	input.txt	text=-----BEGIN RSA PRIVATE KEY-----	DENY	gbatch.forbid.secret.pem
+gb-scan-assignment	gemini-batch.input-scan	input.txt	text=password: abcdefghijklmnopqrstuv	DENY	gbatch.forbid.secret.assignment
+gb-scan-clean	gemini-batch.input-scan	input.txt	text=Reviewed the change and found nothing odd.	DENY	default.deny
+gb-scan-short-sk	gemini-batch.input-scan	input.txt	text=a task-list sk-short is fine	DENY	default.deny
