@@ -30,6 +30,10 @@ usage() {
     '                   A Model-line mismatch exits 1 with or without --strict.' \
     '  --recorded-id-file <path>  With --check model-ids: the first id line to' \
     '                   compare, used exactly, letter case included.' \
+    '  --agent-config <path>    With --check model-ids: agent-config JSON path' \
+    '                   under --repo. Default: templates/agent-config.example.json.' \
+    '  --verified-ids <path>    With --check model-ids: verified-ids list path' \
+    '                   under --repo. Default: templates/agent-config.verified-model-ids.txt.' \
     '  --pr <number>    Pull request for pr-state. Env: DEV_LOOP_PR.' \
     '  --gh-repo <slug> owner/repo for pr-state. Default: infer from --repo.' \
     '  --expect-head <sha> Expected head SHA prefix for pr-state, 7 or more' \
@@ -66,6 +70,13 @@ usage() {
     'Opt out with an HTML comment <!-- docs-usage-dup:allow --> before one fenced' \
     'block, or up to an HTML comment <!-- docs-usage-dup:end -->. With --strict,' \
     'a hit exits 1; without it, hits are advisory and the exit stays 0.' \
+    '' \
+    'gate.config.json consumer keys (passed via --config):' \
+    '  markdown.include / markdown.exclude: arrays of repo-relative dir prefixes' \
+    '    (e.g. docs/), exact .md paths, or tight anchored EREs (^...$ without .*,' \
+    '    **, or .+). Shared by prose-dashes, md-links, line-cap, and docs-sweep.' \
+    '  model_ids.config / model_ids.verified_ids: repo-relative paths for' \
+    '    --check model-ids (overridden by --agent-config / --verified-ids).' \
     'Exit codes: 0 pass or advisory, 1 strict failure, a hard preflight' \
     'miss (G1, npm-ci, node-pin, including --check npm-ci and' \
     '--check node-pin), or a FAIL from review-ready or review-citations,' \
@@ -88,8 +99,12 @@ evidence_out_arg=""
 review_flags_used=""
 model_line_file=""
 recorded_id_file=""
+agent_config_arg=""
+verified_ids_arg=""
 have_model_line_flag=0
 have_recorded_id_flag=0
+have_agent_config_flag=0
+have_verified_ids_flag=0
 have_pr_flag=0
 have_gh_repo_flag=0
 have_expect_head_flag=0
@@ -387,6 +402,42 @@ while [ $# -gt 0 ]; do
       have_recorded_id_flag=1
       shift
       ;;
+    --agent-config)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        printf 'dev-loop-gate: --agent-config needs a path\n' >&2
+        exit 2
+      fi
+      agent_config_arg="$2"
+      have_agent_config_flag=1
+      shift 2
+      ;;
+    --agent-config=*)
+      agent_config_arg="${1#--agent-config=}"
+      if [ -z "$agent_config_arg" ]; then
+        printf 'dev-loop-gate: --agent-config needs a path\n' >&2
+        exit 2
+      fi
+      have_agent_config_flag=1
+      shift
+      ;;
+    --verified-ids)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        printf 'dev-loop-gate: --verified-ids needs a path\n' >&2
+        exit 2
+      fi
+      verified_ids_arg="$2"
+      have_verified_ids_flag=1
+      shift 2
+      ;;
+    --verified-ids=*)
+      verified_ids_arg="${1#--verified-ids=}"
+      if [ -z "$verified_ids_arg" ]; then
+        printf 'dev-loop-gate: --verified-ids needs a path\n' >&2
+        exit 2
+      fi
+      have_verified_ids_flag=1
+      shift
+      ;;
     --pr)
       if [ $# -lt 2 ]; then
         printf 'dev-loop-gate: --pr needs a number\n' >&2
@@ -490,6 +541,12 @@ fi
 if [ "$have_model_line_flag" = 1 ] || [ "$have_recorded_id_flag" = 1 ]; then
   if [ "$have_check" = 0 ] || [ "$check_id" != "model-ids" ]; then
     printf 'dev-loop-gate: --model-line-file and --recorded-id-file need --check model-ids\n' >&2
+    exit 2
+  fi
+fi
+if [ "$have_agent_config_flag" = 1 ] || [ "$have_verified_ids_flag" = 1 ]; then
+  if [ "$have_check" = 0 ] || [ "$check_id" != "model-ids" ]; then
+    printf 'dev-loop-gate: --agent-config and --verified-ids need --check model-ids\n' >&2
     exit 2
   fi
 fi
@@ -687,6 +744,31 @@ run_table() {
 
 config_errors_program="$(cat <<'JQ'
 def isposint: (type == "number") and (. > 0) and (. == (. | floor));
+def bad_rel_path:
+  (type != "string") or (length == 0) or test("[\n\r\t]") or test("^[ ]+$") or
+  startswith("/") or (. == "..") or startswith("../") or contains("/../") or endswith("/..");
+def md_pat_err($field; $i):
+  if (type != "string") or (length == 0) or test("[\n\r\t]") or test("^[ ]+$") then
+    "\($field)[\($i)] must be a non-empty single-line string"
+  elif startswith("/") then
+    "\($field)[\($i)] must be repository-relative (no leading /)"
+  elif (. == "..") or startswith("../") or contains("/../") or endswith("/..") then
+    "\($field)[\($i)] must not contain .."
+  elif startswith("^") or endswith("$") then
+    if ((startswith("^") | not) or (endswith("$") | not)) then
+      "\($field)[\($i)] regex pattern must start with ^ and end with $"
+    elif . == "^$" then
+      "\($field)[\($i)] regex pattern must not be empty"
+    elif contains(".*") or contains("**") or contains(".+") then
+      "\($field)[\($i)] must not contain broad globs (.*, **, or .+)"
+    else empty end
+  elif contains("*") or contains("?") or contains("[") or contains("]") or contains("\\") then
+    "\($field)[\($i)] must not contain glob or regex characters unless anchored with ^ and $"
+  elif (. == "./") or startswith("./") or contains("/./") or contains("//") then
+    "\($field)[\($i)] must be a clean repository-relative path"
+  elif (endswith("/") or endswith(".md")) | not then
+    "\($field)[\($i)] must end with / (directory prefix) or .md"
+  else empty end;
 if (.line_cap | type) == "null" then
   empty
 elif (.line_cap | type) != "object" then
@@ -782,6 +864,53 @@ end,
             else empty end)
          else empty end)
       end)
+ end),
+(if (.markdown | type) == "null" then
+   empty
+ elif (.markdown | type) != "object" then
+   "markdown must be an object"
+ else
+   (if ((.markdown | has("include")) | not) or ((.markdown.include | type) == "null") then
+      empty
+    elif (.markdown.include | type) != "array" then
+      "markdown.include must be an array"
+    else
+      (.markdown.include | to_entries[] | .key as $i | (.value | md_pat_err("markdown.include"; $i)))
+    end),
+   (if ((.markdown | has("exclude")) | not) or ((.markdown.exclude | type) == "null") then
+      empty
+    elif (.markdown.exclude | type) != "array" then
+      "markdown.exclude must be an array"
+    else
+      (.markdown.exclude | to_entries[] | .key as $i | (.value | md_pat_err("markdown.exclude"; $i)))
+    end),
+   (if ((.markdown.include | type) == "array") and ((.markdown.exclude | type) == "array") then
+      (.markdown.include[] as $inc | .markdown.exclude[] as $ex |
+       if ($inc | type) == "string" and ($ex | type) == "string" then
+         if $inc == $ex then
+           "markdown.include and markdown.exclude overlap on \($inc)"
+         elif (($ex | startswith("^") | not) and ($ex | endswith("/")) and
+               ($inc | startswith("^") | not) and ($inc | startswith($ex))) then
+           "markdown.exclude (\($ex)) overlaps markdown.include (\($inc))"
+         else empty end
+       else empty end)
+    else empty end)
+ end),
+(if (.model_ids | type) == "null" then
+   empty
+ elif (.model_ids | type) != "object" then
+   "model_ids must be an object"
+ else
+   (if ((.model_ids | has("config")) | not) or ((.model_ids.config | type) == "null") then
+      empty
+    elif (.model_ids.config | bad_rel_path) then
+      "model_ids.config must be a non-empty repository-relative path"
+    else empty end),
+   (if ((.model_ids | has("verified_ids")) | not) or ((.model_ids.verified_ids | type) == "null") then
+      empty
+    elif (.model_ids.verified_ids | bad_rel_path) then
+      "model_ids.verified_ids must be a non-empty repository-relative path"
+    else empty end)
  end)
 JQ
 )"
@@ -789,6 +918,10 @@ JQ
 default_cap=500
 exceptions_blob=""
 docs_exceptions_blob=""
+md_include_blob=""
+md_exclude_blob=""
+cfg_model_ids_config=""
+cfg_model_ids_list=""
 line_cap_present=0
 
 load_config() {
@@ -848,6 +981,72 @@ EOF
     exceptions_blob="$(jq -r '.line_cap.exceptions[] | [(.path // ""), (.pattern // ""), (.cap | tostring)] | join("\u001f")' "$cfg")"
   fi
   docs_exceptions_blob="$(jq -r '(.docs_sweep.exceptions // [])[] | [(.path // ""), (.pattern // ""), ((.rules // ["phase", "link", "name"]) | join(","))] | join("\u001f")' "$cfg")"
+  md_include_blob="$(jq -r '(.markdown.include // [])[]' "$cfg")"
+  md_exclude_blob="$(jq -r '(.markdown.exclude // [])[]' "$cfg")"
+  cfg_model_ids_config="$(jq -r '.model_ids.config // ""' "$cfg")"
+  cfg_model_ids_list="$(jq -r '.model_ids.verified_ids // ""' "$cfg")"
+
+  local pat grep_status blob_val
+  for blob_val in "$md_include_blob" "$md_exclude_blob"; do
+    [ -n "$blob_val" ] || continue
+    while IFS= read -r pat; do
+      [ -n "$pat" ] || continue
+      case "$pat" in
+        ^*\$)
+          grep_status=0
+          LC_ALL=C grep -Eq -- "$pat" </dev/null 2>/dev/null || grep_status=$?
+          if [ "$grep_status" -gt 1 ]; then
+            printf 'dev-loop-gate: config error: invalid regex pattern: %s\n' "$pat" >&2
+            exit 2
+          fi
+          ;;
+      esac
+    done <<EOF_MD_PATS
+$blob_val
+EOF_MD_PATS
+  done
+}
+
+md_path_matches_blob() {
+  local path="$1"
+  local blob="$2"
+  local pat
+
+  while IFS= read -r pat; do
+    [ -n "$pat" ] || continue
+    case "$pat" in
+      ^*\$)
+        if printf '%s\n' "$path" | LC_ALL=C grep -Eq -- "$pat" 2>/dev/null; then
+          return 0
+        fi
+        ;;
+      */)
+        case "$path" in
+          "$pat"*) return 0 ;;
+        esac
+        ;;
+      *)
+        if [ "$path" = "$pat" ]; then
+          return 0
+        fi
+        ;;
+    esac
+  done <<EOF_MD_MATCH
+$blob
+EOF_MD_MATCH
+  return 1
+}
+
+md_path_selected() {
+  local path="$1"
+
+  if [ -n "$md_include_blob" ] && ! md_path_matches_blob "$path" "$md_include_blob"; then
+    return 1
+  fi
+  if [ -n "$md_exclude_blob" ] && md_path_matches_blob "$path" "$md_exclude_blob"; then
+    return 1
+  fi
+  return 0
 }
 
 cap_for_path() {
@@ -884,6 +1083,9 @@ run_line_cap() {
 
   while IFS= read -r -d '' path; do
     if [ ! -f "$repo/$path" ]; then
+      continue
+    fi
+    if ! md_path_selected "$path"; then
       continue
     fi
     n="$(wc -l < "$repo/$path" 2>/dev/null)"

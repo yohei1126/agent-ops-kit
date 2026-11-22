@@ -598,6 +598,40 @@ expect_status "32: inline step with a SHA ref exits 1" 1
 expect_regex "32: second job failure row" "^NP +node-pin +FAIL "
 expect_out "32: second job failure names the file" ".github/workflows/ci-sha.yml"
 
+printf '== line-cap with markdown include/exclude ==\n'
+
+lc_scope_repo="$(make_repo)"
+mkdir -p "$lc_scope_repo/docs" "$lc_scope_repo/transcripts"
+write_md "$lc_scope_repo/docs/ok.md" 10
+write_md "$lc_scope_repo/docs/long.md" 550
+write_md "$lc_scope_repo/transcripts/raw.md" 600
+git -C "$lc_scope_repo" add docs/ok.md docs/long.md transcripts/raw.md
+
+lc_scope_cfg="$work_tmp/lc-scope.json"
+cat > "$lc_scope_cfg" <<'JSON'
+{
+  "line_cap": {
+    "default": 500,
+    "exceptions": [
+      {
+        "path": "docs/long.md",
+        "cap": 600,
+        "reason": "keep existing line_cap exception behavior"
+      }
+    ]
+  },
+  "markdown": {
+    "include": ["docs/"],
+    "exclude": []
+  }
+}
+JSON
+
+run_gate "$repo_root" bash "$gate" --repo "$lc_scope_repo" --config "$lc_scope_cfg" --check line-cap --strict
+expect_status "33: line-cap respects markdown.include and keeps line_cap.exceptions" 0
+expect_out "33: line-cap checked only docs/*" "2 files checked, 0 over cap."
+expect_no_out "33: excluded transcript not reported" "transcripts/raw.md"
+
 printf '== this repo ==\n'
 
 run_gate "$repo_root" bash "$gate" --strict --check line-cap
