@@ -250,6 +250,41 @@ status=$?
 expect_status "10: --help --check review-ready exits 0" 0
 expect_text "10: same help with flags reversed" "$out" "Default named checks:"
 
+# 11. Consumer checkout without kit example files passes review-ready via --config
+# and also passes when model-ids is omitted from DEV_LOOP_REVIEW_READY_CHECKS.
+consumer_co="$work_tmp/consumer-co"
+mkdir -p "$consumer_co/config"
+git -C "$consumer_co" init -q
+printf '# Consumer\n\nClean.\n' >"$consumer_co/README.md"
+printf '%s\n' '{"lanes":{"coding":{"entries":[{"agent":"one","model":"model-a"}]}}}' >"$consumer_co/config/agents.json"
+printf '%s\n' 'model-a' >"$consumer_co/config/verified.txt"
+git -C "$consumer_co" add README.md config
+git -C "$consumer_co" -c user.name=t -c user.email=t@example.invalid commit -q -m init
+consumer_head="$(git -C "$consumer_co" rev-parse HEAD)"
+fixture consumer_green "[$run_ok]" "$consumer_head"
+
+consumer_cfg="$work_tmp/consumer-rr.json"
+cat >"$consumer_cfg" <<'JSON'
+{
+  "line_cap": { "default": 500, "exceptions": [] },
+  "model_ids": {
+    "config": "config/agents.json",
+    "verified_ids": "config/verified.txt"
+  }
+}
+JSON
+gate_run consumer_green --check review-ready --repo "$consumer_co" --pr 7 \
+  --expect-head "${consumer_head:0:7}" --config "$consumer_cfg"
+expect_status "11: consumer without kit templates passes review-ready via --config" 0
+expect_text "11: model-ids row passes" "$out" "model-ids"
+
+out="$(PATH="$stub_bin:$PATH" FAKE_GH_JSON="$work_tmp/consumer_green.json" \
+  FAKE_GH_ARGV="$work_tmp/gh.argv" DEV_LOOP_REVIEW_READY_CHECKS="line-cap prose-dashes" \
+  "$BASH" "$gate" --check review-ready --repo "$consumer_co" --pr 7 \
+  --expect-head "${consumer_head:0:7}" 2>"$work_tmp/stderr")"
+status=$?
+expect_status "11: review-ready without model-ids in list passes without kit templates" 0
+
 printf 'review-ready tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
   exit 1

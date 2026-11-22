@@ -130,6 +130,39 @@ model_ids_policy_lib() {
 }
 
 run_model_ids() {
+  if command -v load_config >/dev/null 2>&1; then
+    load_config model-ids
+  fi
+
+  if [ -n "${agent_config_arg:-}" ]; then
+    model_ids_config_rel="$agent_config_arg"
+  elif [ -n "${cfg_model_ids_config:-}" ]; then
+    model_ids_config_rel="$cfg_model_ids_config"
+  else
+    model_ids_config_rel="templates/agent-config.example.json"
+  fi
+
+  if [ -n "${verified_ids_arg:-}" ]; then
+    model_ids_list_rel="$verified_ids_arg"
+  elif [ -n "${cfg_model_ids_list:-}" ]; then
+    model_ids_list_rel="$cfg_model_ids_list"
+  else
+    model_ids_list_rel="templates/agent-config.verified-model-ids.txt"
+  fi
+
+  case "$model_ids_config_rel" in
+    /*|..|../*|*/../*|*/..)
+      printf 'dev-loop-gate: model-ids: config path must be repository-relative: %s\n' "$model_ids_config_rel" >&2
+      exit 2
+      ;;
+  esac
+  case "$model_ids_list_rel" in
+    /*|..|../*|*/../*|*/..)
+      printf 'dev-loop-gate: model-ids: verified-ids path must be repository-relative: %s\n' "$model_ids_list_rel" >&2
+      exit 2
+      ;;
+  esac
+
   local config="$repo/$model_ids_config_rel"
   local list="$repo/$model_ids_list_rel"
   local entries lane index agent model has_todo where
@@ -263,7 +296,7 @@ EOF_ENTRIES
           model_line_failed=1
         fi
       elif ! model_ids_configured_matches "$mline" "$entries"; then
-        row MI "Model line" FAIL "Model line matches no configured model id; copy one from templates/agent-config.example.json exactly, letter case included"
+        row MI "Model line" FAIL "Model line matches no configured model id; copy one from $model_ids_config_rel exactly, letter case included"
         hits=$((hits + 1))
         model_line_failed=1
       fi

@@ -432,10 +432,9 @@ maintainer's separate approval.
 - Ship the repository with `exceptions: []`. The cap is a guardrail, not an
   allowlist.
 
-`docs_sweep.exceptions` uses the schema described under
-[docs-sweep](#docs-sweep).
-
-Invalid config exits 2 with a message naming the failing field.
+`docs_sweep.exceptions` uses the schema under [docs-sweep](#docs-sweep). Consumer
+repos can scope Markdown scans and set `model-ids` paths via config or flags;
+see `--help` for HOW. Invalid config exits 2, naming the failing field.
 
 ## Related
 

@@ -345,6 +345,89 @@ expect_out "I2: --help lists prose-dashes" "prose-dashes"
 expect_out "I2: --help lists md-links" "md-links"
 expect_out "I2: --help lists docs-usage-dup" "docs-usage-dup"
 
+printf '== markdown include/exclude ==\n'
+
+scope_repo="$(make_repo)"
+mkdir -p "$scope_repo/docs/transcripts" "$scope_repo/sources"
+printf '# Editorial\nClean prose.\n' > "$scope_repo/docs/editorial.md"
+printf '# Editorial Bad\nAn em \xe2\x80\x94 dash and [bad](missing.md).\n' > "$scope_repo/docs/editorial-bad.md"
+printf '# Transcript\nAn em \xe2\x80\x94 dash and [bad](missing.md).\n' > "$scope_repo/docs/transcripts/run.md"
+printf '# Source\nAn em \xe2\x80\x94 dash and [bad](missing.md).\n' > "$scope_repo/sources/bib.md"
+track "$scope_repo" docs/editorial.md docs/editorial-bad.md docs/transcripts/run.md sources/bib.md
+
+# Default scan without markdown config still covers every tracked *.md.
+run_gate "$repo_root" bash "$gate" --repo "$scope_repo" --check prose-dashes --strict
+expect_status "S1: default scan covers all tracked md (prose-dashes fails)" 1
+expect_out "S1: default scan checks 4 files" "4 files, 3 hits"
+
+# Exclude skips source and transcript paths and leaves editorial Markdown checked.
+exclude_cfg="$work_tmp/md-exclude.json"
+cat > "$exclude_cfg" <<'JSON'
+{
+  "markdown": {
+    "exclude": ["docs/transcripts/", "sources/"]
+  }
+}
+JSON
+run_gate "$repo_root" bash "$gate" --repo "$scope_repo" --config "$exclude_cfg" --check prose-dashes --strict
+expect_status "S2: exclude skips transcripts and sources, editorial still fails" 1
+expect_out "S2: exclude checks 2 editorial files" "2 files, 1 hits"
+expect_no_out "S2: transcript path not reported" "docs/transcripts/run.md"
+expect_no_out "S2: source path not reported" "sources/bib.md"
+
+run_gate "$repo_root" bash "$gate" --repo "$scope_repo" --config "$exclude_cfg" --check md-links --strict
+expect_status "S2b: md-links respects exclude" 1
+expect_out "S2b: md-links checks 2 editorial files" "2 files, 1 links checked, 1 hits"
+
+# Include limits the scan set to clean editorial docs only.
+include_cfg="$work_tmp/md-include.json"
+cat > "$include_cfg" <<'JSON'
+{
+  "markdown": {
+    "include": ["docs/editorial.md"]
+  }
+}
+JSON
+run_gate "$repo_root" bash "$gate" --repo "$scope_repo" --config "$include_cfg" --check prose-dashes --strict
+expect_status "S3: include limits scan set to clean file" 0
+expect_out "S3: include checks 1 file" "1 files, 0 hits"
+
+run_gate "$repo_root" bash "$gate" --repo "$scope_repo" --config "$include_cfg" --check md-links --strict
+expect_status "S3b: md-links respects include" 0
+expect_out "S3b: md-links checks 1 file" "1 files, 0 links checked, 0 hits"
+
+# Combined include + narrow exclude + tight anchored ERE.
+combo_cfg="$work_tmp/md-combo.json"
+cat > "$combo_cfg" <<'JSON'
+{
+  "markdown": {
+    "include": ["docs/"],
+    "exclude": ["docs/transcripts/", "^docs/editorial-bad\\.md$"]
+  }
+}
+JSON
+run_gate "$repo_root" bash "$gate" --repo "$scope_repo" --config "$combo_cfg" --check prose-dashes --strict
+expect_status "S4: include + narrow exclude + anchored ERE passes" 0
+expect_out "S4: only docs/editorial.md checked" "1 files, 0 hits"
+
+# Invalid, broad, or overlapping patterns fail closed (exit 2) and check nothing.
+for bad_name in broad_star broad_doublestar unanchored_glob leading_slash traversal overlap_exact overlap_prefix bad_regex; do
+  bad_cfg="$work_tmp/md-bad-$bad_name.json"
+  case "$bad_name" in
+    broad_star)       printf '{"markdown":{"exclude":["^docs/.*$"]}}\n' > "$bad_cfg" ;;
+    broad_doublestar) printf '{"markdown":{"exclude":["docs/**"]}}\n' > "$bad_cfg" ;;
+    unanchored_glob)  printf '{"markdown":{"include":["docs/*.md"]}}\n' > "$bad_cfg" ;;
+    leading_slash)    printf '{"markdown":{"exclude":["/docs/"]}}\n' > "$bad_cfg" ;;
+    traversal)        printf '{"markdown":{"exclude":["../docs/"]}}\n' > "$bad_cfg" ;;
+    overlap_exact)    printf '{"markdown":{"include":["docs/"],"exclude":["docs/"]}}\n' > "$bad_cfg" ;;
+    overlap_prefix)   printf '{"markdown":{"include":["docs/transcripts/"],"exclude":["docs/"]}}\n' > "$bad_cfg" ;;
+    bad_regex)        printf '{"markdown":{"exclude":["^[unclosed$"]}}\n' > "$bad_cfg" ;;
+  esac
+  run_gate "$repo_root" bash "$gate" --repo "$scope_repo" --config "$bad_cfg" --check prose-dashes --strict
+  expect_status "S5 ($bad_name): invalid pattern exits 2" 2
+  expect_no_out "S5 ($bad_name): checks nothing on stdout" "PD "
+done
+
 printf '== kit self-check ==\n'
 
 run_gate "$repo_root" bash "$gate" --repo "$repo_root" --strict --check prose-dashes

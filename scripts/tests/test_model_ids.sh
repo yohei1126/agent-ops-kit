@@ -335,6 +335,45 @@ expect_status "21: a list-rejected id keeps its FAIL" 1
 expect_out "21: the unverified row is unchanged" "unverified id model-z; add it to templates/agent-config.verified-model-ids.txt"
 expect_no_out "21: no policy row duplicates the unverified row" "not verified by policy/rules"
 
+# 22. Consumer-provided paths via flags (--agent-config and --verified-ids)
+# work without kit templates/agent-config.example.json or verified-model-ids.txt.
+r="$(new_repo consumerflags "" "")"
+mkdir -p "$r/config"
+printf '%s\n' "$good_config" >"$r/config/agents.json"
+printf '%s\n' "$list_text" >"$r/config/verified.txt"
+run_gate --strict --check model-ids --repo "$r" \
+  --agent-config config/agents.json --verified-ids config/verified.txt
+expect_status "22: consumer flags pass without kit example files" 0
+expect_out "22: summary counts consumer entries" "3 entries, 0 hits"
+
+# 23. Consumer-provided paths via gate.config.json work without kit example files.
+consumer_gate_cfg="$work_tmp/consumer-gate.json"
+cat >"$consumer_gate_cfg" <<'JSON'
+{
+  "model_ids": {
+    "config": "config/agents.json",
+    "verified_ids": "config/verified.txt"
+  }
+}
+JSON
+run_gate --strict --check model-ids --repo "$r" --config "$consumer_gate_cfg"
+expect_status "23: consumer gate.config.json passes without kit example files" 0
+expect_out "23: summary counts consumer entries from config" "3 entries, 0 hits"
+
+# 24. With no consumer paths and no kit example files, model-ids exits 2.
+r_empty="$(new_repo consumermissing "" "")"
+run_gate --strict --check model-ids --repo "$r_empty"
+expect_status "24: missing consumer and kit files exits 2" 2
+expect_err "24: names missing config" "config not found"
+
+# 25. Flag validation and path safety (fail closed).
+run_gate --check model-ids --repo "$r" --agent-config /etc/passwd --verified-ids config/verified.txt
+expect_status "25: absolute --agent-config exits 2" 2
+run_gate --check model-ids --repo "$r" --agent-config ../agents.json --verified-ids config/verified.txt
+expect_status "25: traversal --agent-config exits 2" 2
+run_gate --check line-cap --repo "$r" --agent-config config/agents.json
+expect_status "25: --agent-config with wrong check exits 2" 2
+
 printf 'model-ids tests: %s passed, %s failed\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ]; then
   exit 1

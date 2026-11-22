@@ -343,11 +343,18 @@ run_prose_dashes() {
   local hits=0
   local path hit lineno
 
+  if command -v load_config >/dev/null 2>&1; then
+    load_config prose-dashes
+  fi
+
   row Gate Name Status Action
   row ---- ------------------------------ ------ ------
 
   while IFS= read -r -d '' path; do
     if [ ! -f "$repo/$path" ]; then
+      continue
+    fi
+    if command -v md_path_selected >/dev/null 2>&1 && ! md_path_selected "$path"; then
       continue
     fi
     checked=$((checked + 1))
@@ -387,11 +394,18 @@ run_md_links() {
   local lineno resolved anchor outside
   local anchor_lc anchors
 
+  if command -v load_config >/dev/null 2>&1; then
+    load_config md-links
+  fi
+
   row Gate Name Status Action
   row ---- ------------------------------ ------ ------
 
   while IFS= read -r -d '' path; do
     if [ ! -f "$repo/$path" ]; then
+      continue
+    fi
+    if command -v md_path_selected >/dev/null 2>&1 && ! md_path_selected "$path"; then
       continue
     fi
     checked=$((checked + 1))

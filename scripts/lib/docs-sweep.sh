@@ -129,6 +129,9 @@ run_docs_sweep() {
     if [ ! -f "$repo/$path" ]; then
       continue
     fi
+    if command -v md_path_selected >/dev/null 2>&1 && ! md_path_selected "$path"; then
+      continue
+    fi
     checked=$((checked + 1))
     docs_scan_regex "$path" phase "$docs_phase_re" "phase label in prose" 1
     docs_scan_regex "$path" link "$docs_link_re" "GitHub issue or pull link" 0
