@@ -77,6 +77,8 @@ case "$method $url" in
     cp "$body" "$m/submit-$n.json"; cp "$body" "$m/submit-last.json"
     if [ "${MOCK_SUBMIT_CODE:-200}" = 000 ]; then exit 28; fi
     echo '{"name":"batches/abc"}' > "$outf"; code="${MOCK_SUBMIT_CODE:-200}" ;;
+  'GET '*batches\?*)
+    if [ -f "$m/batches-list.json" ]; then cat "$m/batches-list.json" > "$outf"; else echo '{}' > "$outf"; code=404; fi ;;
   'GET '*batches/*) cat "$m/batch-state.json" > "$outf" ;;
   *) echo '{}' > "$outf"; code=404 ;;
 esac
@@ -379,6 +381,118 @@ new_case; export MOCK_PRIVATE=1
 printf '%s\n' '[{"number":9,"comments":[{"body":"Model: x\nprivate"}]}]' > "$MOCK_DIR/all-yohei1126_agent-ops-kit.json"
 gb lessons; [ "$(posts)" = 0 ]; check "lessons: private repos are not read" "$?"
 unset MOCK_PRIVATE
+
+# --- public reserve, settle, release, import, and status reconciliation ---------
+cur_month="$(date -u -d "@$NOW" +%Y-%m 2>/dev/null || date -u -r "$NOW" +%Y-%m)"
+
+# reserve: dry-run writes no counters and no ledger
+new_case
+gb reserve --job security --requests 2 --in-tokens 1000 --dry-run
+[ "$rc" = 0 ] && [ "$(posts)" = 0 ] && [ ! -e "$STATE/counters/$cur_month.json" ] && [ ! -e "$STATE/budget-ledger"/*.json ]; check "reserve --dry-run writes no counters or ledger" "$?"
+
+# reserve: unknown job fails closed (not silently counted as check)
+new_case
+gb reserve --job eval --requests 1 --in-tokens 100
+[ "$rc" = 1 ] && [ "$(jq -r .batches "$STATE/counters/$cur_month.json")" = 0 ]; check "reserve unknown job fails closed" "$?"
+
+# reserve: under budget succeeds, writes counters and budget ledger, no provider submit
+new_case
+gb reserve --job security --requests 2 --in-tokens 1000 --id res-sec-1
+[ "$rc" = 0 ] && [ "$out" = "res-sec-1" ] && [ "$(posts)" = 0 ]; check "reserve under budget returns id with no provider call" "$?"
+jq -e '.batches==1 and .requests==2 and .check_requests==0 and .in_tokens==1000 and .out_tokens==16384 and .cost_microusd==62190' "$STATE/counters/$cur_month.json" >/dev/null; check "reserve updates monthly counters" "$?"
+jq -e '.status=="reserved" and .job=="security" and .reserved.out_tokens==16384' "$STATE/budget-ledger/res-sec-1.json" >/dev/null; check "reserve writes budget ledger" "$?"
+
+# reserve: over cap refuses with same policy rule as submit
+gb reserve --job check --requests 16 --in-tokens 1000 --id res-over-cap
+[ "$rc" = 1 ] && [ ! -e "$STATE/budget-ledger/res-over-cap.json" ]; check "reserve over cap fails closed" "$?"
+case "$err" in *gbatch.forbid.month-check-requests*) ok "reserve cap refusal names the rule" ;; *) bad "reserve cap refusal names the rule" "$err" ;; esac
+
+# settle: dry-run leaves reservation unchanged
+gb settle --id res-sec-1 --in-tokens 500 --out-tokens 1000 --cost-microusd 4125 --dry-run
+[ "$rc" = 0 ] && [ "$(jq -r .status "$STATE/budget-ledger/res-sec-1.json")" = reserved ]; check "settle --dry-run leaves ledger reserved" "$?"
+
+# settle: releases unused upper-bound tokens and cost, keeps batches and requests
+gb settle --id res-sec-1 --in-tokens 500 --out-tokens 1000 --cost-microusd 4125
+[ "$rc" = 0 ]; check "settle succeeds" "$?"
+jq -e '.batches==1 and .requests==2 and .in_tokens==500 and .out_tokens==1000 and .cost_microusd==4125' "$STATE/counters/$cur_month.json" >/dev/null; check "settle adjusts tokens/cost and keeps batches/requests" "$?"
+# idempotent second settle
+gb settle --id res-sec-1 --in-tokens 500 --out-tokens 1000 --cost-microusd 4125
+[ "$rc" = 0 ] && jq -e '.batches==1 and .in_tokens==500 and .cost_microusd==4125' "$STATE/counters/$cur_month.json" >/dev/null; check "second settle with same values is idempotent" "$?"
+# conflicting second settle fails closed
+gb settle --id res-sec-1 --in-tokens 600 --out-tokens 1000 --cost-microusd 4125
+[ "$rc" = 1 ]; check "second settle with different values fails closed" "$?"
+# release after settle fails closed
+gb release --id res-sec-1
+[ "$rc" = 1 ]; check "release after settle fails closed" "$?"
+
+# release: rolls back reserved counts and is idempotent
+gb reserve --job check --requests 3 --in-tokens 1000 --id res-chk-1
+[ "$rc" = 0 ]; check "second reserve for release test succeeds" "$?"
+gb release --id res-chk-1 --dry-run
+[ "$rc" = 0 ] && [ "$(jq -r .status "$STATE/budget-ledger/res-chk-1.json")" = reserved ]; check "release --dry-run leaves ledger reserved" "$?"
+gb release --id res-chk-1
+[ "$rc" = 0 ]; check "release succeeds" "$?"
+jq -e '.batches==1 and .requests==2 and .check_requests==0 and .in_tokens==500 and .out_tokens==1000 and .cost_microusd==4125' "$STATE/counters/$cur_month.json" >/dev/null; check "release rolls back its reservation" "$?"
+gb release --id res-chk-1
+[ "$rc" = 0 ] && jq -e '.batches==1 and .requests==2' "$STATE/counters/$cur_month.json" >/dev/null; check "second release is idempotent" "$?"
+gb settle --id res-chk-1 --in-tokens 100 --out-tokens 100 --cost-microusd 100
+[ "$rc" = 1 ]; check "settle after release fails closed" "$?"
+
+# import: dry-run writes nothing
+gb import --id ext-dry --job eval --requests 1 --in-tokens 100 --out-tokens 50 --cost-microusd 100 --dry-run
+[ "$rc" = 0 ] && [ ! -e "$STATE/budget-ledger/ext-dry.json" ]; check "import --dry-run writes no ledger" "$?"
+
+# import: records external usage even over cap, then reserve/submit fail closed
+gb import --id ext-1 --job eval --requests 5 --in-tokens 2000 --out-tokens 1000 --cost-microusd 7800000 --api-name batches/ext-1
+[ "$rc" = 0 ]; check "import over-cap usage still records" "$?"
+jq -e '.batches==2 and .requests==7 and .cost_microusd==7804125' "$STATE/counters/$cur_month.json" >/dev/null; check "import appends to monthly counters" "$?"
+gb import --id ext-1 --job eval --requests 5 --in-tokens 2000 --out-tokens 1000 --cost-microusd 7800000 --api-name batches/ext-1
+[ "$rc" = 0 ] && jq -e '.batches==2' "$STATE/counters/$cur_month.json" >/dev/null; check "second identical import is idempotent" "$?"
+gb reserve --job security --requests 1 --in-tokens 100 --id res-after-import
+[ "$rc" = 1 ]; check "reserve after over-cap import fails closed" "$?"
+mk_prs 1 2 3; gb scan; gb submit
+[ "$rc" = 1 ] && [ "$(posts)" = 0 ]; check "submit after over-cap import fails closed" "$?"
+
+# status: shows reserved/settled/imported and API list reconciliation without mutating counters
+gb reserve --job security --requests 1 --in-tokens 100 --id res-vis 2>/dev/null || true
+new_case
+gb reserve --job security --requests 1 --in-tokens 100 --id s-res-1
+gb reserve --job security --requests 1 --in-tokens 100 --id s-set-1
+gb settle --id s-set-1 --in-tokens 80 --out-tokens 200 --cost-microusd 810 --api-name batches/known-1
+gb import --id s-imp-1 --job eval --requests 2 --in-tokens 300 --out-tokens 400 --cost-microusd 1200 --api-name batches/known-2
+cat > "$MOCK_DIR/batches-list.json" <<EOF
+{"batches":[{"name":"batches/known-1","createTime":"${cur_month}-15T00:00:00Z"},{"name":"batches/known-2","createTime":"${cur_month}-16T00:00:00Z"},{"name":"batches/unknown-3","createTime":"${cur_month}-17T00:00:00Z"},{"name":"batches/unknown-4","createTime":"${cur_month}-18T00:00:00Z"}]}
+EOF
+before_counters="$(cat "$STATE/counters/$cur_month.json")"
+gb status
+[ "$rc" = 0 ]; check "status with stub API list succeeds" "$?"
+case "$out" in
+  *"month $cur_month ledger reserved:"*'"batches":1'*) ok "status shows reserved split" ;;
+  *) bad "status shows reserved split" "$out" ;;
+esac
+case "$out" in
+  *"month $cur_month ledger settled:"*'"batches":1'*) ok "status shows settled split" ;;
+  *) bad "status shows settled split" "$out" ;;
+esac
+case "$out" in
+  *"month $cur_month ledger imported:"*'"batches":1'*) ok "status shows imported split" ;;
+  *) bad "status shows imported split" "$out" ;;
+esac
+case "$out" in
+  *"api batches ($cur_month): 4 (local: 3, discrepancy: 1, untracked: 2)"*) ok "status shows API view and discrepancy" ;;
+  *) bad "status shows API view and discrepancy" "$out" ;;
+esac
+[ "$(cat "$STATE/counters/$cur_month.json")" = "$before_counters" ]; check "status API list does not overwrite local counters" "$?"
+
+# fail closed on corrupt counter or unknown ledger state
+printf '{broken\n' > "$STATE/counters/$cur_month.json"
+gb status
+[ "$rc" = 1 ]; check "corrupt counter state fails closed" "$?"
+new_case
+mkdir -p "$STATE/budget-ledger"
+printf '{"id":"bad-1","status":"mystery","job":"check","month":"%s","requests":1,"in_tokens":1,"out_tokens":1,"cost_microusd":1}\n' "$cur_month" > "$STATE/budget-ledger/bad-1.json"
+gb status
+[ "$rc" = 1 ]; check "unknown ledger status fails closed" "$?"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]
