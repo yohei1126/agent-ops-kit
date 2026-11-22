@@ -265,6 +265,18 @@ assert_contains "10: names unparsable comment" "refusing unparsable comment" "$e
 
 cat > "$comment" <<'EOF'
 Model: example-model
+Findings: 0 blocker, 0 major, 0 minor, 0 nit.
+
+- [minor] scripts/in_scope.sh:2 - unexpected finding despite zero header.
+
+Verdict: PASS
+EOF
+run_scope --comment "$comment" --repo yohei1126/example --pr 1
+assert_eq "10b: claimed 0 Findings with parsed finding exits 1" "1" "$last_status"
+assert_contains "10b: names unparsable comment" "refusing unparsable comment" "$err_file"
+
+cat > "$comment" <<'EOF'
+Model: example-model
 Reviewed scripts/unchanged.sh:9 in prose.
 EOF
 run_scope --comment "$comment" --repo yohei1126/example --pr 1

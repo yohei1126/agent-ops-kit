@@ -360,7 +360,7 @@ review_scope_apply() {
     b=$((b + 1))
   done
 
-  if [ "$claimed_total" -gt 0 ] && [ "$parsed_findings" -ne "$claimed_total" ]; then
+  if [ "$claimed_total" -ge 0 ] && [ "$parsed_findings" -ne "$claimed_total" ]; then
     printf '%s: comment claims %d finding(s) but parsed %d; refusing unparsable comment\n' \
       "$err_prefix" "$claimed_total" "$parsed_findings" >&2
     return 1
