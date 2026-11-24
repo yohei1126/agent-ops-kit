@@ -16,7 +16,7 @@ Arguments:
   <run-name>       Plain token [A-Za-z0-9._-]+ under $HOME/agy-work/runs
   <repo-checkout>  Existing checkout directory inside $HOME/agy-work
   <brief-path>     Readable brief file; copied to <run>/BRIEF.md when needed
-  [model]          Optional agy --model id (default gemini-4-argon-medium;
+  [model]          Optional agy --model id (default gemini-4-carbon-medium;
                    else AGY_REVIEW_MODEL)
 
 Flags:

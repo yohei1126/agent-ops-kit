@@ -431,6 +431,12 @@ principal=*
 action=lane.verified
 resource=gemini-4-argon-medium
 
+id=lane.verified.gemini-carbon-medium
+effect=permit
+principal=*
+action=lane.verified
+resource=gemini-4-carbon-medium
+
 id=lane.verified.moonshot-kimi
 effect=permit
 principal=*
@@ -509,6 +515,13 @@ effect=permit
 principal=*
 action=lane.use
 resource=gemini-4-argon-medium
+when=lane=security-review
+
+id=lane.use.security-review.gemini-carbon-medium
+effect=permit
+principal=*
+action=lane.use
+resource=gemini-4-carbon-medium
 when=lane=security-review
 
 id=lane.use.security-review.moonshot-kimi

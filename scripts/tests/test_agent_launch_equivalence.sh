@@ -121,14 +121,14 @@ config_file="$work_tmp/agents.json"
     "docs-retry|gemini-3.8-flash-medium|docs" \
     "docs-stall|gemini-3.8-flash-medium|docs" \
     "docs-refuse-symlink|gemini-3.8-flash-medium|docs" \
-    "review-default|gemini-4-argon-medium|review" \
+    "review-default|gemini-4-carbon-medium|review" \
     "review-model-arg|test-model-review-arg|review" \
-    "review-dry-run|gemini-4-argon-medium|review" \
-    "review-retry|gemini-4-argon-medium|review" \
-    "review-stall|gemini-4-argon-medium|review" \
-    "review-refuse-symlink|gemini-4-argon-medium|review" \
-    "review-literal-dry-run|gemini-4-argon-medium|review" \
-    "review-literal-check-settings|gemini-4-argon-medium|review"; do
+    "review-dry-run|gemini-4-carbon-medium|review" \
+    "review-retry|gemini-4-carbon-medium|review" \
+    "review-stall|gemini-4-carbon-medium|review" \
+    "review-refuse-symlink|gemini-4-carbon-medium|review" \
+    "review-literal-dry-run|gemini-4-carbon-medium|review" \
+    "review-literal-check-settings|gemini-4-carbon-medium|review"; do
     lane="${spec%%|*}"
     rest="${spec#*|}"
     model="${rest%%|*}"
@@ -357,7 +357,7 @@ EOF
         --lane "$scenario" --as maintainer -- "$@"
     elif [ "$impl" = adapter ]; then
       exec env -i "${env_args[@]}" /bin/bash "$launcher" --mode review \
-        --model gemini-4-argon-medium --dry-run -- "$@"
+        --model gemini-4-carbon-medium --dry-run -- "$@"
     else
       exec env -i "${env_args[@]}" /bin/bash "$launcher" "$@"
     fi
@@ -539,7 +539,7 @@ else
   bad "example security-review lane reaches the agy adapter for the maintainer" "exit $example_status: $example_err"
 fi
 case "$example_out" in
-  *"MODEL=gemini-4-argon-medium"*) ok "example security-review lane uses its configured model" ;;
+  *"MODEL=gemini-4-carbon-medium"*) ok "example security-review lane uses its configured model" ;;
   *) bad "example security-review lane uses its configured model" "stdout: $example_out" ;;
 esac
 

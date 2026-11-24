@@ -8,7 +8,7 @@
 #   scripts/agy-review-launch.sh <run-name> <repo-checkout> <brief-path> [model]
 #   scripts/agy-review-launch.sh --dry-run <run-name> <repo-checkout> <brief-path> [model]
 #   scripts/agy-review-launch.sh --check-settings <settings.json> <run-dir>
-# Model default: gemini-4-argon-medium (override via 4th arg, else AGY_REVIEW_MODEL).
+# Model default: gemini-4-carbon-medium (override via 4th arg, else AGY_REVIEW_MODEL).
 #
 # This wrapper keeps the former CLI, usage text, model default, and exit codes
 # for one release cycle. It resolves the model and delegates to the adapter;
@@ -29,7 +29,7 @@ script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 adapter="$script_dir/agents/agy/run"
 settings_lib="$script_dir/lib/agy-settings-check.sh"
 launch_lib="$script_dir/lib/launch-run.sh"
-default_model="gemini-4-argon-medium"
+default_model="gemini-4-carbon-medium"
 
 usage() {
   cat >&2 <<'EOF'
@@ -41,7 +41,7 @@ Arguments:
   <run-name>       Plain token [A-Za-z0-9._-]+ under $HOME/agy-work/runs
   <repo-checkout>  Existing checkout directory inside $HOME/agy-work
   <brief-path>     Readable brief file; copied to <run>/BRIEF.md when needed
-  [model]          Optional agy --model id (default gemini-4-argon-medium;
+  [model]          Optional agy --model id (default gemini-4-carbon-medium;
                    else AGY_REVIEW_MODEL)
 
 Flags:
@@ -160,7 +160,7 @@ case "$pos1" in
     ;;
 esac
 
-# Model: 4th argv > AGY_REVIEW_MODEL > gemini-4-argon-medium.
+# Model: 4th argv > AGY_REVIEW_MODEL > gemini-4-carbon-medium.
 if [ -n "$pos4" ]; then
   model="$pos4"
 elif [ -n "${AGY_REVIEW_MODEL:-}" ]; then

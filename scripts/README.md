@@ -124,7 +124,7 @@ side effects beyond the folder and settings already created for the dry run.
 
 The launch keeps the existing guarantees: no
 `--dangerously-skip-permissions`, no edits to global Antigravity settings, and
-`--settings` stays session-only. The model defaults to `gemini-4-argon-medium`;
+`--settings` stays session-only. The model defaults to `gemini-4-carbon-medium`;
 the fourth argument or `AGY_REVIEW_MODEL` overrides it.
 
 ## Docs launches generate per-run settings

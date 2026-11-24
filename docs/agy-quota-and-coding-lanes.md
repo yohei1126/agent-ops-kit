@@ -10,14 +10,19 @@ Related: [`docs/tooling-and-cost.md`](tooling-and-cost.md),
 
 ## Route by quota group
 
-`agy` exposes three separate model pools. Each pool has its own weekly and
-5-hour limits, so exhausting one does not drain the others.
+`agy` exposes two separate model pools. Each pool has its own weekly and
+5-hour limits, so exhausting one does not drain the other.
 
 | Pool | Models | Route here |
 | --- | --- | --- |
-| Docs and multimodal | Gemini Flash and Gemini Pro | Prose drafts, summaries, document edits, image or video input |
-| Coding | Claude Opus and Claude Sonnet, plus the GPT-OSS pool | Code changes, refactors, test fixes, review of diffs |
-| Complex judgment | Gemini 4 Argon | Complex, ambiguous, or high-judgment tasks that other pools handle poorly |
+| Gemini | Gemini 4 Neon, Carbon, and Hydrogen, plus models still in `agy` until 2026-11-30 (Gemini 4 Argon and Gemini 3.8 Flash) | Docs, multimodal work, and high-judgment tasks. The review launcher defaults to Gemini 4 Carbon (`gemini-4-carbon-medium`) |
+| Third-party | Claude Opus and Claude Sonnet, plus the GPT-OSS pool (GPT-OSS leaves `agy` on 2026-11-30) | Code changes, refactors, test fixes, review of diffs |
+
+Gemini 4 Argon is not an independent pool. In `agy` it shares the general
+Gemini quota, and Antigravity removes it on 2026-11-30 (see
+[Choose a model](https://antigravity.google/docs/models/)). Unattended model
+checks stay on `gemini-4-argon` through the Gemini API Batch runner. That
+setting is separate from the `agy` review launcher and is unchanged.
 
 Rules:
 
@@ -26,7 +31,8 @@ Rules:
   its reset, shift eligible work onto it instead of letting it expire.
 - Do not move docs work onto the coding pool or coding work onto the docs pool
   only to save one launch. Cross-pool moves are for spare headroom.
-- Reserve the complex judgment pool for tasks that need it. It is not a default.
+- Use Carbon in `agy` for high-judgment review. Do not treat Argon as a
+  separate reserve or as the `agy` review default.
 
 ## Coding lane order
 

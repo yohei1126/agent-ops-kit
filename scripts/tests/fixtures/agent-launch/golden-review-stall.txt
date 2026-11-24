@@ -4,7 +4,7 @@ ARGV
 --project
 @RUN@/run-review-stall
 --model
-gemini-4-argon-medium
+gemini-4-carbon-medium
 --settings
 @RUN@/run-review-stall/settings.json
 --add-dir
@@ -19,7 +19,7 @@ Update the docs.
 --project
 @RUN@/run-review-stall
 --model
-gemini-4-argon-medium
+gemini-4-carbon-medium
 --settings
 @RUN@/run-review-stall/settings.json
 --add-dir
@@ -69,7 +69,7 @@ STDOUT
 AGY_PID=@PID@
 RUN_DIR=@RUN@/run-review-stall
 SETTINGS=@RUN@/run-review-stall/settings.json
-MODEL=gemini-4-argon-medium
+MODEL=gemini-4-carbon-medium
 STDOUT_LOG=@RUN@/run-review-stall/agy.log
 STDERR_LOG=@RUN@/run-review-stall/agy.stderr.log
 PID_FILE=@RUN@/run-review-stall/agy.pid
