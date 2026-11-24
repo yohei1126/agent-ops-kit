@@ -102,6 +102,7 @@ lv-fireworks-flash	lane.verified	fireworks-ai/accounts/fireworks/models/deepseek
 lv-fireworks-kimi	lane.verified	fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro	-	ALLOW	lane.verified.fireworks-kimi
 lv-gemini-flash	lane.verified	gemini-3.8-flash-medium	-	ALLOW	lane.verified.gemini-flash
 lv-gemini-argon-medium	lane.verified	gemini-4-argon-medium	-	ALLOW	lane.verified.gemini-argon-medium
+lv-gemini-carbon-medium	lane.verified	gemini-4-carbon-medium	-	ALLOW	lane.verified.gemini-carbon-medium
 lv-moonshot-kimi	lane.verified	moonshotai/Kimi-K3.1-Pro	-	ALLOW	lane.verified.moonshot-kimi
 lv-deepseek-pro	lane.verified	deepseek/deepseek-v4-pro	-	ALLOW	lane.verified.deepseek-pro
 lv-google-argon	lane.verified	google/gemini-4-argon	-	ALLOW	lane.verified.google-argon
@@ -112,6 +113,7 @@ lv-fireworks-flash-letter-case	lane.verified	FIREWORKS-AI/ACCOUNTS/FIREWORKS/MOD
 lv-fireworks-kimi-letter-case	lane.verified	FIREWORKS-AI/ACCOUNTS/FIREWORKS/MODELS/KIMI-K3P1-PRO	-	DENY	default.deny
 lv-gemini-flash-letter-case	lane.verified	GEMINI-3.8-FLASH-MEDIUM	-	DENY	default.deny
 lv-gemini-argon-medium-letter-case	lane.verified	GEMINI-4-ARGON-MEDIUM	-	DENY	default.deny
+lv-gemini-carbon-medium-letter-case	lane.verified	GEMINI-4-CARBON-MEDIUM	-	DENY	default.deny
 lv-moonshot-kimi-letter-case	lane.verified	moonshotai/kimi-k3.1-pro	-	DENY	default.deny
 lv-deepseek-pro-letter-case	lane.verified	DEEPSEEK/DEEPSEEK-V4-PRO	-	DENY	default.deny
 lv-google-argon-letter-case	lane.verified	GOOGLE/GEMINI-4-ARGON	-	DENY	default.deny
@@ -140,6 +142,10 @@ lu-gemini-argon-medium-coding	lane.use	gemini-4-argon-medium	lane=coding	DENY	de
 lu-gemini-argon-medium-docs	lane.use	gemini-4-argon-medium	lane=docs	DENY	default.deny
 lu-gemini-argon-medium-review	lane.use	gemini-4-argon-medium	lane=review	DENY	default.deny
 lu-gemini-argon-medium-security-review	lane.use	gemini-4-argon-medium	lane=security-review	ALLOW	lane.use.security-review.gemini-argon-medium
+lu-gemini-carbon-medium-coding	lane.use	gemini-4-carbon-medium	lane=coding	DENY	default.deny
+lu-gemini-carbon-medium-docs	lane.use	gemini-4-carbon-medium	lane=docs	DENY	default.deny
+lu-gemini-carbon-medium-review	lane.use	gemini-4-carbon-medium	lane=review	DENY	default.deny
+lu-gemini-carbon-medium-security-review	lane.use	gemini-4-carbon-medium	lane=security-review	ALLOW	lane.use.security-review.gemini-carbon-medium
 lu-deepseek-pro-coding	lane.use	deepseek/deepseek-v4-pro	lane=coding	DENY	default.deny
 lu-deepseek-pro-docs	lane.use	deepseek/deepseek-v4-pro	lane=docs	DENY	default.deny
 lu-deepseek-pro-review	lane.use	deepseek/deepseek-v4-pro	lane=review	DENY	default.deny

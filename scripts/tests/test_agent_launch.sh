@@ -735,7 +735,7 @@ deny_file="$work_tmp/denylist"
     "$example_config"
 } | sort -u >"$deny_file"
 if grep -qxF -- 'deepseek/deepseek-v4.1-flash' "$deny_file" && grep -qxF -- 'GPT-6 Luna' "$deny_file" &&
-  grep -qxF -- 'gemini-4-argon-medium' "$deny_file" && grep -qxF -- 'gemini-3.8-flash-medium' "$deny_file" &&
+  grep -qxF -- 'gemini-4-carbon-medium' "$deny_file" && grep -qxF -- 'gemini-3.8-flash-medium' "$deny_file" &&
   grep -qxF -- 'fireworks-ai/accounts/fireworks/models/kimi-k3p1-pro' "$deny_file" &&
   grep -qxF -- 'Gemini 4 Hydrogen' "$deny_file"; then
   ok "15: the denylist includes model ids and names from the example config"

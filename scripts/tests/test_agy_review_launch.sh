@@ -400,7 +400,7 @@ expect_argv_absent "1: no --dangerously-skip-permissions" "--dangerously-skip-pe
 expect_out "1: prints AGY_PID" "AGY_PID="
 expect_out "1: prints RUN_DIR" "RUN_DIR=$run_one_real"
 expect_out "1: prints SETTINGS" "SETTINGS=$run_one_real/settings.json"
-expect_out "1: prints MODEL" "MODEL=gemini-4-argon-medium"
+expect_out "1: prints MODEL" "MODEL=gemini-4-carbon-medium"
 expect_out "1: prints stdout log path" "STDOUT_LOG=$run_one_real/agy.log"
 expect_out "1: prints stderr log path" "STDERR_LOG=$run_one_real/agy.stderr.log"
 

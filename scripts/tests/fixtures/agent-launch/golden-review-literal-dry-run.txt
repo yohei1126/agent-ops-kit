@@ -4,7 +4,7 @@ ARGV
 --project
 @RUN@/run-review-literal-dry-run
 --model
-gemini-4-argon-medium
+gemini-4-carbon-medium
 --settings
 @RUN@/run-review-literal-dry-run/settings.json
 --add-dir
@@ -37,7 +37,7 @@ STDOUT
 AGY_PID=@PID@
 RUN_DIR=@RUN@/run-review-literal-dry-run
 SETTINGS=@RUN@/run-review-literal-dry-run/settings.json
-MODEL=gemini-4-argon-medium
+MODEL=gemini-4-carbon-medium
 STDOUT_LOG=@RUN@/run-review-literal-dry-run/agy.log
 STDERR_LOG=@RUN@/run-review-literal-dry-run/agy.stderr.log
 PID_FILE=@RUN@/run-review-literal-dry-run/agy.pid

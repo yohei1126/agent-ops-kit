@@ -152,8 +152,8 @@
       "entries": [
         {
           "agent": "agy-subscription",
-          "model": "gemini-4-argon-medium",
-          "model_name": "Gemini 4 Argon",
+          "model": "gemini-4-carbon-medium",
+          "model_name": "Gemini 4 Carbon",
           "mode": "review"
         },
         {
@@ -165,8 +165,8 @@
         },
         {
           "agent": "agy-api-key",
-          "model": "gemini-4-argon-medium",
-          "model_name": "Gemini 4 Argon",
+          "model": "gemini-4-carbon-medium",
+          "model_name": "Gemini 4 Carbon",
           "mode": "review"
         },
         {

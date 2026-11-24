@@ -8,11 +8,11 @@ END_ENV
 STDOUT
 RUN_DIR=@RUN@/run-review-dry-run
 SETTINGS=@RUN@/run-review-dry-run/settings.json
-MODEL=gemini-4-argon-medium
+MODEL=gemini-4-carbon-medium
 STDOUT_LOG=@RUN@/run-review-dry-run/agy.log
 STDERR_LOG=@RUN@/run-review-dry-run/agy.stderr.log
 PID_FILE=@RUN@/run-review-dry-run/agy.pid
-AGY_COMMAND=agy --project @RUN@/run-review-dry-run --model gemini-4-argon-medium --settings @RUN@/run-review-dry-run/settings.json --add-dir @RUN@/run-review-dry-run --add-dir @HOME@/agy-work/repo --mode accept-edits --print Update\ the\ docs. 
+AGY_COMMAND=agy --project @RUN@/run-review-dry-run --model gemini-4-carbon-medium --settings @RUN@/run-review-dry-run/settings.json --add-dir @RUN@/run-review-dry-run --add-dir @HOME@/agy-work/repo --mode accept-edits --print Update\ the\ docs. 
 END_STDOUT
 STDERR
 END_STDERR
