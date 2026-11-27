@@ -66,32 +66,34 @@ Follow these rules when preparing plans and briefs for coding lanes:
 
 Apply automated reviews and follow-up routing according to these standards:
 
-- **Automatic first model review on critical paths**: a first model review
-  starts automatically, without asking, once CI is green, when the pull request
-  changes any of: network I/O (fetch, curl, `gh`, worker routes, rate limits,
-  URL parsing and redirects, public or preview endpoints); secrets or
-  credentials (read, inject, log, redact, child environment, CI secrets, vault
-  or keychain); auth or identity (HMAC, bearer tokens, access policies,
-  sessions, permission checks); security-enforcing CI or gates (workflow
-  permissions, secret references).
+- **Automatic first model review on critical paths**: start a first model
+  review automatically, without asking, once deterministic checks pass
+  (`--check review-ready --help`). Which paths require a review is
+  `--check model-check-required --help`.
 - **Coding model fixes and transparency**: findings are fixed by a coding
   model. Review results name the model used.
 - **Targeted re-review**: no re-review by default; re-review only unresolved
   blocker or major findings on the assigned model (freshness is enforced by
   `--check model-check-fresh --help`), and send nits to a cheap lane.
+- **Fix on harm**: do not fix minor findings until they cause real harm.
+  Comment-only nits never block merge; batch them into the next docs pull
+  request.
 - **Findings become tests**: a review finding turns into a deterministic CI
   test, not only prose, so the same defect cannot return.
 - **Merge the base branch, do not rebase**: merge the base branch into an open
   pull request branch and drop merge-conflict comment lines to keep history.
 - **Skip a re-check only narrowly**: after a conflict resolution, skip the
   re-check only when the resolution touched tests alone and CI is green.
-- **Review while still a draft**: run the model check and post its comment
-  while the pull request is a draft, before announcing that it waits for merge.
-- **Docs-only pull requests**: deterministic tests are the main gate, and at
-  most one model review runs.
-- **Light review for lockfile and constraint pairs**: diffs limited to a lockfile
-  plus its matching manifest constraint skip the heavy review and use fixed
-  checks instead. Never silence a vulnerability.
+- **Review while still a draft**: G4 enforces draft state; see
+  `scripts/dev-loop-gate.sh --help`. After deterministic checks
+  (`--check review-ready --help`), post one Argon review before announcing
+  the pull request.
+- **Docs-only pull requests**: deterministic checks are the main gate, then
+  at most one Argon review.
+- **Light review for lockfile and constraint pairs**: G3 routes
+  lockfile-plus-constraint diffs to fixed checks; see
+  [`GATES.md`](../templates/dev-loop/GATES.md). Never silence a vulnerability
+  (G5).
 
 ## Verification and completion reports
 
@@ -102,10 +104,8 @@ Verify deliverables thoroughly before presenting completion reports:
   repository script driving a headed browser with a clean profile on the
   workstation. Hand a manual check to the operator only when the script cannot
   run, and assume they may be on a phone.
-- **Wait for deployed asset before live tests**: post-deploy live tests first
-  wait until the served asset matches the merged build, with a default cap
-  (about 10 minutes); link the deploy-hash check in
-  [`../templates/dev-loop/GATES.md`](../templates/dev-loop/GATES.md#deploy-hash).
+- **Wait for deployed asset before live tests**: wait until the served asset
+  matches the merged build; see `--check deploy-hash --help`.
 - **Re-fetch live pull request state**: completion reports re-fetch pull request
   state (draft, mergeability, CI) right before reporting; never reuse state from
   creation time.
