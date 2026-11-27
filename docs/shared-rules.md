@@ -91,6 +91,11 @@ design review or cross-domain triage.
 - Never change lanes mid-task solely because of a pending local-approval card.
   Wait for operator confirmation or stop and report. Do not escape to Cursor
   cloud to finish prose drafting.
+- Run recurring unattended loops on CI and serverless runtimes, not through a
+  chat bot. The bot handles only human-facing steps. Try low-cost lanes first;
+  use the interactive agent only for key moments.
+- When a repo's workflow changes or a token's scope is denied, push from the
+  workstation from the start. Never widen the token.
 
 ### Coding agents change files only
 
@@ -345,6 +350,14 @@ request:
 - **Contribution review**: for pull requests to this repo, follow
   [`CONTRIBUTING.md`](../CONTRIBUTING.md), including its required English
   prose review.
+
+### Start from the problem
+
+Define the problem to solve before any Issue. A low-priority problem gets no
+Issue and no discussion. A must-solve problem gets an Issue that states why it
+must be solved and what counts as solved, never how; the implementing agent
+decides how. Once the maintainer picks an Issue, implementation, pull request,
+CI fixes, and review posting run unattended.
 
 ### Every agent task starts as a task Issue
 

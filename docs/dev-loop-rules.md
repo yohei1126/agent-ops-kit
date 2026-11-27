@@ -79,14 +79,19 @@ Apply automated reviews and follow-up routing according to these standards:
 - **Targeted re-review**: no re-review by default; re-review only unresolved
   blocker or major findings on the assigned model (freshness is enforced by
   `--check model-check-fresh --help`), and send nits to a cheap lane.
+- **Fix on harm**: do not fix minor findings until they cause real harm.
+  Comment-only nits never block merge; batch them into the next docs pull
+  request. Start improvements from problems found in use. This needs human
+  judgment, so no check enforces it.
 - **Findings become tests**: a review finding turns into a deterministic CI
   test, not only prose, so the same defect cannot return.
 - **Merge the base branch, do not rebase**: merge the base branch into an open
   pull request branch and drop merge-conflict comment lines to keep history.
 - **Skip a re-check only narrowly**: after a conflict resolution, skip the
   re-check only when the resolution touched tests alone and CI is green.
-- **Review while still a draft**: run the model check and post its comment
-  while the pull request is a draft, before announcing that it waits for merge.
+- **Review while still a draft**: the draft gate (G4) enforces draft state; see
+  `scripts/dev-loop-gate.sh --help`. Post the model check before announcing
+  the pull request.
 - **Docs-only pull requests**: deterministic tests are the main gate, and at
   most one model review runs.
 - **Light review for lockfile and constraint pairs**: diffs limited to a lockfile
