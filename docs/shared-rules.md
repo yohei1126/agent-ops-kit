@@ -92,35 +92,22 @@ design review or cross-domain triage.
   Wait for operator confirmation or stop and report. Do not escape to Cursor
   cloud to finish prose drafting.
 - Run recurring unattended loops on CI and serverless runtimes, not through a
-  chat bot. The bot handles only human-facing steps. Try low-cost lanes first;
-  use the interactive agent only for key moments.
-- When a repo's workflow changes or a token's scope is denied, push from the
-  workstation from the start. Never widen the token.
+  chat bot; try low-cost lanes first and use the interactive agent only for
+  key moments.
+- When a workflow change or a denied token scope would be pushed from the box,
+  push from the workstation instead and never widen the token. (Issue draft 5)
 
 ### Coding agents change files only
 
-Every coding agent (headless `agy`, `agent -p`, OpenCode, Command Code, and others)
-changes files only and runs without secrets. Branching, committing, pushing,
-and draft pull request creation happen deterministically in the kit adapter or
-the calling script after the scope check passes. The one exception is the
-maintainer running `agy` interactively.
-
-The `agent-git` check fails in CI when an agent-facing kit doc tells a worker
-to run a mutating git command or to open a pull request. See
-`scripts/dev-loop-gate.sh --help` for its scope and exit behavior.
-
-The reasons:
-
-- Keep GitHub and push credentials out of the agent environment, so a prompt
-  injection or a runaway run has no path out.
-- Run the scope gate and tests before anything is committed.
-- Keep branch and pull request head correctness, and the Model and author
-  lines, in one consistent place.
-- Headless CLIs need broad permission (for example `--yolo`) to run git, which
-  is another reason git stays outside the agent.
-
-Commit, push, and draft pull request creation happen in the collect step (see
+Every coding agent (headless `agy`, `agent -p`, OpenCode, Command Code, and
+others) changes files only and runs without secrets, so credentials stay out
+of the agent environment. Branching, committing, pushing, and draft pull
+request creation stay in the kit adapter, the calling script, or the collect
+step (see
 [Collect agy handoffs in one Mac shell](launch-approvals-and-collection.md#collect-agy-handoffs-in-one-mac-shell-and-keep-reporting-thin)).
+The `agent-git` check enforces this in agent-facing kit docs; see
+`scripts/dev-loop-gate.sh --help`. The one exception is the maintainer running
+`agy` interactively.
 
 Do not ask a long-lived domain bot to own every commit for a PR. Do not ask a
 coding agent to write a full article in the repo without a draft approved
@@ -353,11 +340,9 @@ request:
 
 ### Start from the problem
 
-Define the problem to solve before any Issue. A low-priority problem gets no
-Issue and no discussion. A must-solve problem gets an Issue that states why it
-must be solved and what counts as solved, never how; the implementing agent
-decides how. Once the maintainer picks an Issue, implementation, pull request,
-CI fixes, and review posting run unattended.
+Define why a problem must be solved and what counts as solved before any
+Issue, never how. A low-priority problem gets no Issue. After the maintainer
+picks an Issue, the loop runs unattended.
 
 ### Every agent task starts as a task Issue
 
