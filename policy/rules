@@ -608,6 +608,13 @@ action=gemini-batch.model
 resource=gemini-4-argon
 when=job=check
 
+id=gbatch.allow.model.eval
+effect=permit
+principal=*
+action=gemini-batch.model
+resource=gemini-4-argon
+when=job=eval
+
 id=gbatch.allow.model.security
 effect=permit
 principal=*

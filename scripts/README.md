@@ -260,6 +260,7 @@ flags.
 [`gemini-batch.sh`](gemini-batch.sh) runs Gemini API Batch jobs on the box for
 public allowlisted repositories only (rules in [`../policy/rules`](../policy/rules))
 and shares the monthly budget via `reserve`/`settle`/`release`/`import`; see `--help`.
+A consumer evaluation run reserves with `--job eval` (Argon, shared caps, not counted as `check`).
 
 ## Prepare a coding-agent task issue
 

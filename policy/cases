@@ -175,10 +175,13 @@ gb-vis-private	gemini-batch.visibility	yohei1126/agent-ops-kit	is_private=true	D
 gb-vis-unknown	gemini-batch.visibility	yohei1126/agent-ops-kit	is_private=unknown	DENY	default.deny
 gb-vis-missing	gemini-batch.visibility	yohei1126/agent-ops-kit	-	DENY	default.deny
 gb-model-check	gemini-batch.model	gemini-4-argon	job=check	ALLOW	gbatch.allow.model.check
+gb-model-eval	gemini-batch.model	gemini-4-argon	job=eval	ALLOW	gbatch.allow.model.eval
 gb-model-security	gemini-batch.model	gemini-3.8-flash	job=security	ALLOW	gbatch.allow.model.security
 gb-model-lessons	gemini-batch.model	gemini-3.8-flash	job=lessons	ALLOW	gbatch.allow.model.lessons
 gb-model-check-flash	gemini-batch.model	gemini-3.8-flash	job=check	DENY	default.deny
 gb-model-security-argon	gemini-batch.model	gemini-4-argon	job=security	DENY	default.deny
+gb-model-eval-flash	gemini-batch.model	gemini-3.8-flash	job=eval	DENY	default.deny
+gb-budget-eval	gemini-batch.budget	eval	month_check_requests=15,month_requests=40	ALLOW	gbatch.allow.budget
 gb-model-null	gemini-batch.model	null	job=check	DENY	default.deny
 gb-model-empty	gemini-batch.model	-	job=check	DENY	default.deny
 gb-model-medium-suffix	gemini-batch.model	gemini-4-argon-medium	job=check	DENY	default.deny

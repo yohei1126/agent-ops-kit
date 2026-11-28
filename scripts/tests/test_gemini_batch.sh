@@ -418,8 +418,26 @@ for f in "$STATE/budget-ledger"/*.json; do [ -e "$f" ] && ledger_count=$((ledger
 
 # reserve: unknown job fails closed (not silently counted as check)
 new_case
-gb reserve --job eval --requests 1 --in-tokens 100
+gb reserve --job bogus --requests 1 --in-tokens 100
 [ "$rc" = 1 ] && [ "$(jq -r .batches "$STATE/counters/$cur_month.json")" = 0 ]; check "reserve unknown job fails closed" "$?"
+case "$err" in *"unknown job"*) ok "reserve unknown job names the cause" ;; *) bad "reserve unknown job names the cause" "$err" ;; esac
+
+# reserve: eval is a known job on the Argon model, shared caps, not a check
+new_case
+gb reserve --job eval --requests 2 --in-tokens 1000 --id res-eval-1
+[ "$rc" = 0 ] && [ "$out" = "res-eval-1" ] && [ "$(posts)" = 0 ]; check "reserve eval returns id with no provider call" "$?"
+jq -e '.batches==1 and .requests==2 and .check_requests==0 and .in_tokens==1000 and .out_tokens==32768 and .cost_microusd==329680' "$STATE/counters/$cur_month.json" >/dev/null; check "reserve eval counts shared caps but not check_requests" "$?"
+jq -e '.status=="reserved" and .job=="eval" and .model=="gemini-4-argon" and .reserved.out_tokens==32768' "$STATE/budget-ledger/res-eval-1.json" >/dev/null; check "reserve eval ledger pins gemini-4-argon" "$?"
+gb reserve --job eval --requests 41 --in-tokens 1000 --id res-eval-over
+[ "$rc" = 1 ] && [ ! -e "$STATE/budget-ledger/res-eval-over.json" ]; check "reserve eval over the shared request cap fails closed" "$?"
+case "$err" in *gbatch.forbid.month-requests*) ok "eval cap refusal names the shared rule" ;; *) bad "eval cap refusal names the shared rule" "$err" ;; esac
+echo '{"batches":1,"requests":15,"check_requests":15,"in_tokens":100,"out_tokens":100,"cost_microusd":100}' > "$STATE/counters/$cur_month.json"
+gb reserve --job eval --requests 1 --in-tokens 100 --id res-eval-nocheckcap
+[ "$rc" = 0 ] && jq -e '.check_requests==15 and .requests==16' "$STATE/counters/$cur_month.json" >/dev/null; check "eval is allowed when the check cap is full" "$?"
+gb reserve --job check --requests 1 --in-tokens 100 --id res-chk-full
+[ "$rc" = 1 ]; check "check is refused when the check cap is full" "$?"
+gb import --id ext-eval-1 --job eval --requests 2 --in-tokens 10 --out-tokens 10 --cost-microusd 10
+[ "$rc" = 0 ] && jq -e '.check_requests==15' "$STATE/counters/$cur_month.json" >/dev/null; check "import eval does not count as check" "$?"
 
 # reserve: under budget succeeds, writes counters and budget ledger, no provider submit
 new_case
