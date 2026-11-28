@@ -482,7 +482,8 @@ grep -q 'private-fixture' "$MOCK_DIR/gh.log"; [ "$?" != 0 ]; check "no opt-in: p
 export GEMINI_BATCH_PRIVATE_REPOS="someone/other"
 gb scan; [ "$(count_status queued)" = 0 ]; check "opt-in of another repo does not open this one" "$?"
 export GEMINI_BATCH_PRIVATE_REPOS="Yohei1126/Private-Fixture"
-gb scan; [ "$(count_status queued)" = 0 ]; check "opt-in is an exact, case-sensitive match" "$?"
+gb scan
+grep -q 'yohei1126/private-fixture' "$MOCK_DIR/gh.log"; [ "$?" != 0 ]; check "opt-in is an exact, case-sensitive match" "$?"
 unset MOCK_PRIVATE GEMINI_BATCH_PRIVATE_REPOS
 
 # unknown visibility is refused even when opted in
