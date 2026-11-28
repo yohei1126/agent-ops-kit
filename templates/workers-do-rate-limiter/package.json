@@ -12,10 +12,10 @@
     "check": "npm run typecheck && npm run test"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.7.0",
-    "@cloudflare/workers-types": "5.20261114.1",
+    "@cloudflare/vitest-plugin": "1.9.2",
+    "@cloudflare/workers-types": "5.20261125.1",
     "typescript": "7.0.2",
     "vitest": "5.1.1",
-    "wrangler": "4.161.0"
+    "wrangler": "4.168.0"
   }
 }
