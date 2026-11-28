@@ -261,6 +261,17 @@ flags.
 public allowlisted repositories only (rules in [`../policy/rules`](../policy/rules))
 and shares the monthly budget via `reserve`/`settle`/`release`/`import`; see `--help`.
 
+A consumer can opt one of its own private repositories in to model checks. Kit
+names no private repository: the consumer lists `OWNER/REPO` in the
+`GEMINI_BATCH_PRIVATE_REPOS` environment variable (space or comma separated) or
+in the file named by `GEMINI_BATCH_PRIVATE_REPOS_FILE`. Only that exact name
+gets the private-visibility refusal relaxed. Fork, draft, author, cap, model,
+and secret-pattern rules still apply. **Risk:** for an opted-in repository the
+pull request diff, which is private code, is sent to the Gemini API. Before it
+is sent, `gitleaks` must run on the diff and pass; a finding, a missing
+`gitleaks`, or a `gitleaks` error submits nothing. Weekly jobs never read an
+opted-in repository.
+
 ## Prepare a coding-agent task issue
 
 Use [`agent-task-issue.sh`](agent-task-issue.sh) when a bot must write a
