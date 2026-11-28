@@ -601,6 +601,17 @@ action=gemini-batch.visibility
 resource=*
 when=is_private=false
 
+# A private repository is allowed only when the caller opted it in (its own
+# config); kit names none. The attribute opted_in is set by the script from
+# that config. Unknown visibility is never allowed.
+id=gbatch.allow.visibility.opted-in
+effect=permit
+principal=*
+action=gemini-batch.visibility
+resource=*
+when=is_private=true
+when=opted_in=true
+
 id=gbatch.allow.model.check
 effect=permit
 principal=*

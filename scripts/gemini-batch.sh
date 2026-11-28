@@ -10,6 +10,10 @@
 # the owner-to-author mapping, caps and secret patterns are policy data
 # (policy/rules, actions gemini-batch.*). Bash 3.2 compatible. Never prints
 # the API key.
+# Private repositories are refused unless the consumer opts one in through its
+# own config (GEMINI_BATCH_PRIVATE_REPOS or GEMINI_BATCH_PRIVATE_REPOS_FILE);
+# kit names none. An opted-in diff goes to the Gemini API only after gitleaks
+# passes on it (a finding, a missing gitleaks or an error refuses it).
 # jq filters use single quotes on purpose; jq reads the $names.
 # shellcheck disable=SC2016
 set -euo pipefail
@@ -73,7 +77,14 @@ Options (env in brackets):
   --dry-run            Decide and print; submit, reserve, import, settle,
                        release and post nothing
 
-Needs GEMINI_API_KEY (value is never printed), gh, jq, curl.
+Private repositories (consumer opt-in, check job only): name each OWNER/REPO in
+GEMINI_BATCH_PRIVATE_REPOS (space or comma separated) or one per line in the
+file GEMINI_BATCH_PRIVATE_REPOS_FILE. Kit lists none. For these repositories
+the diff is sent to the Gemini API after gitleaks passes on it; a finding, a
+missing gitleaks or a gitleaks error submits nothing. Weekly jobs stay public.
+
+Needs GEMINI_API_KEY (value is never printed), gh, jq, curl, and gitleaks for
+an opted-in private repository.
 Fail-closed rules: a private or non-allowlisted repo, a fork, non-draft or
 closed PR, a non-pinned or null model id, an input with a secret pattern, or
 a run over a cap submits nothing. Caps hold reservations (upper bounds).
@@ -388,12 +399,64 @@ repo_public() { # REPO -> 0 only for an allowlisted, explicitly public repo
   allowed gemini-batch.visibility "$r" "is_private=$v" || { log "$r visibility is '$v'; refused" >&2; return 1; }
 }
 
+# Consumer opt-in for private repositories: names come only from the caller's
+# environment or a file it points to. Entries must be exact OWNER/REPO.
+optin_repos() {
+  local raw="${GEMINI_BATCH_PRIVATE_REPOS:-}" f="${GEMINI_BATCH_PRIVATE_REPOS_FILE:-}" r out=""
+  if [ -n "$f" ]; then
+    [ -r "$f" ] || die "GEMINI_BATCH_PRIVATE_REPOS_FILE is not readable" 2
+    raw="$raw $(sed 's/#.*//' "$f" | tr '\n' ' ')"
+  fi
+  raw="$(printf '%s' "$raw" | tr ',' ' ')"
+  for r in $raw; do
+    case "$r" in
+      */*/* | */ | /* | *[!A-Za-z0-9_./-]*) die "invalid private repository entry: $r" 2 ;;
+      */*) out="$out$r " ;;
+      *) die "invalid private repository entry: $r" 2 ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+is_optin() { # REPO -> 0 when the consumer opted this exact repository in
+  local r
+  for r in $OPTIN_REPOS; do [ "$r" = "$1" ] && return 0; done
+  return 1
+}
+
+# repo_ok REPO: the check path. Opted-in repositories skip the public
+# allowlist but still need a known visibility; all others use repo_public.
+repo_ok() {
+  local r="$1" v
+  if is_optin "$r"; then
+    v="$(gh repo view "$r" --json isPrivate 2>/dev/null | jq -r '.isPrivate|tostring' 2>/dev/null)" || v=unknown
+    allowed gemini-batch.visibility "$r" "is_private=$v" "opted_in=true" || { log "$r visibility is '$v'; refused" >&2; return 1; }
+    return 0
+  fi
+  repo_public "$r"
+}
+
+# gitleaks_clean FILE: 0 only when gitleaks ran and found nothing. Findings are
+# never printed. rc 1 finding, rc 2 gitleaks missing or errored.
+gitleaks_clean() {
+  local d="$tmpd/gl.$$.$RANDOM" rc
+  command -v gitleaks >/dev/null 2>&1 || { log "gitleaks is not installed; refused" >&2; return 2; }
+  mkdir -p "$d" && cp "$1" "$d/diff.txt"
+  rc=0
+  gitleaks detect --no-git --no-banner --redact --exit-code 7 --source "$d" >/dev/null 2>&1 || rc=$?
+  rm -rf "$d"
+  case "$rc" in
+    0) return 0 ;;
+    7) log "gitleaks found a possible secret; refused" >&2; return 1 ;;
+    *) log "gitleaks failed (exit $rc); refused" >&2; return 2 ;;
+  esac
+}
+
 cmd_scan() {
   local ALLOWLIST seen="$tmpd/seen" scanned="$tmpd/scanned" repo prs n head draft owner author fork key it nq=0
-  ALLOWLIST="$(allow_repos)"
+  ALLOWLIST="$(allow_repos) $OPTIN_REPOS"
   : > "$seen"; : > "$scanned"
   for repo in $ALLOWLIST; do
-    repo_public "$repo" || continue
+    repo_ok "$repo" || continue
     prs="$(gh pr list -R "$repo" --state open --limit 100 --json number,isDraft,headRefOid,author,isCrossRepository 2>/dev/null)" || { log "pr list failed for $repo" >&2; continue; }
     printf '%s\n' "$repo" >> "$scanned"
     for n in $(printf '%s' "$prs" | jq -r '.[].number'); do
@@ -431,7 +494,7 @@ cmd_scan() {
 queued_items() { local f; for f in "$state"/items/*.json; do [ -e "$f" ] && [ "$(jq -r .status "$f")" = queued ] && printf '%s\n' "$f"; done; return 0; }
 
 cmd_submit() {
-  local view files cnt oldest f t due=0 reqs="$tmpd/reqs.json" n=0 tin=0 reqin=0 diffp est repo pr head owner author cross a_allow
+  local view files cnt oldest f t due=0 reqs="$tmpd/reqs.json" n=0 tin=0 reqin=0 diffp est repo pr head owner author cross a_allow grc
   files="$(queued_items)"
   [ -n "$files" ] || { log "nothing queued"; return 0; }
   cnt=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
@@ -444,7 +507,7 @@ cmd_submit() {
   printf '[]\n' > "$reqs"
   for f in $files; do
     repo="$(jq -r .repo "$f")"; pr="$(jq -r .pr "$f")"; head="$(jq -r .head "$f")"
-    repo_public "$repo" || { jset "$f" '.status="failed"|.reason="repo not public allowlisted"'; continue; }
+    repo_ok "$repo" || { jset "$f" '.status="failed"|.reason="repo not public allowlisted or opted in"'; continue; }
     # Re-read the live PR: the queue may be stale (head moved, marked ready, closed,
     # made cross-repo, or the author no longer represents the owner).
     view="$(gh pr view "$pr" -R "$repo" --json headRefOid,isDraft,state,author,isCrossRepository 2>/dev/null)" || { log "pr view failed for $repo#$pr" >&2; continue; }
@@ -463,6 +526,14 @@ cmd_submit() {
     est="$(est_tokens "$diffp")"
     if [ "$est" -gt 100000 ]; then jset "$f" '.status="failed"|.reason="diff too large for one request"'; continue; fi
     scan_file "$diffp" || { jset "$f" '.status="failed"|.reason="secret pattern in input"'; continue; }
+    if is_optin "$repo"; then
+      grc=0; gitleaks_clean "$diffp" || grc=$?
+      case "$grc" in
+        0) ;;
+        1) jset "$f" '.status="failed"|.reason="gitleaks finding in input"'; continue ;;
+        *) continue ;; # gitleaks missing or errored: stays queued, nothing is sent
+      esac
+    fi
     jq --arg k "$(jq -r .key "$f")" --rawfile d "$diffp" --arg h "$head" --arg r "$repo" --argjson p "$pr" \
       '. + [{key:$k,text:("Repository: "+$r+" pull request "+($p|tostring)+" head "+$h+"\n```diff\n"+$d+"\n```")}]' "$reqs" > "$reqs.tmp" && mv "$reqs.tmp" "$reqs"
     tin=$((tin + est + 400)); [ $((est + 400)) -gt "$reqin" ] && reqin=$((est + 400))
@@ -612,7 +683,7 @@ post_item() { # ITEMFILE BATCHFILE
   [ "$(jq -r .status "$f")" = submitted ] || return 0
   owner="$(printf '%s' "${repo%%/*}" | tr '[:upper:]' '[:lower:]')"
   marker="gemini-batch-head: $head"
-  repo_public "$repo" || { jset "$f" '.status="failed"|.reason="repo not public allowlisted"'; return 0; }
+  repo_ok "$repo" || { jset "$f" '.status="failed"|.reason="repo not public allowlisted or opted in"'; return 0; }
   if ! text="$(resp_text "${b%.json}.response.json" "$key")"; then jset "$f" '.status="failed"|.reason="no clean response"'; return 0; fi
   view="$(gh pr view "$pr" -R "$repo" --json headRefOid,isDraft,state,author,isCrossRepository,comments 2>/dev/null)" || { log "pr view failed for $repo#$pr; retry later" >&2; return 0; }
   if [ "$(printf '%s' "$view" | jq -r .headRefOid)" != "$head" ]; then jset "$f" '.status="skipped"|.reason="head changed"'; return 0; fi
@@ -887,6 +958,8 @@ cmd_status() {
     printf 'api batches (%s): unavailable\n' "$month"
   fi
 }
+
+OPTIN_REPOS="$(optin_repos)" || exit "$?"
 
 case "$cmd" in
   scan) cmd_scan ;;

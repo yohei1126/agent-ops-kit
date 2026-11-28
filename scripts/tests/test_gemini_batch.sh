@@ -37,6 +37,7 @@ done
 slug="$(printf '%s' "$repo" | tr '/' '_')"
 case "${1:-} ${2:-}" in
   'repo view')
+    if [ "${MOCK_VIEW_FAIL:-0}" = 1 ]; then exit 1; fi
     if [ "${MOCK_PRIVATE:-0}" = 1 ]; then echo '{"isPrivate":true}'; else echo '{"isPrivate":false}'; fi ;;
   'pr list')
     case " $* " in
@@ -84,7 +85,24 @@ case "$method $url" in
 esac
 printf '%s' "$code"
 EOF
-chmod +x "$fake_bin/gh" "$fake_bin/curl"
+cat > "$fake_bin/gitleaks" <<'EOF'
+#!/usr/bin/env bash
+set -u
+m="$MOCK_DIR"
+src=""; prev=""
+for a in "$@"; do
+  case "$prev" in --source) src="$a" ;; esac
+  prev="$a"
+done
+printf '%s\n' "$*" >> "$m/gitleaks.log"
+[ -f "$src/diff.txt" ] || exit 3
+case "${MOCK_GITLEAKS:-clean}" in
+  leak) exit 7 ;;
+  error) exit 2 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$fake_bin/gh" "$fake_bin/curl" "$fake_bin/gitleaks"
 
 new_case() { # sets MOCK_DIR, STATE and default fixtures
   rm -rf "$work/case"; mkdir -p "$work/case/mock" "$work/case/state"
@@ -92,7 +110,8 @@ new_case() { # sets MOCK_DIR, STATE and default fixtures
   export MOCK_DIR
   : > "$MOCK_DIR/gh.log"; : > "$MOCK_DIR/curl.log"
   echo '{"models":[{"name":"models/gemini-4-argon","supportedGenerationMethods":["batchGenerateContent"]},{"name":"models/gemini-3.8-flash","supportedGenerationMethods":["batchGenerateContent"]}]}' > "$MOCK_DIR/models.json"
-  unset MOCK_PRIVATE MOCK_SUBMIT_CODE
+  unset MOCK_PRIVATE MOCK_SUBMIT_CODE MOCK_GITLEAKS MOCK_VIEW_FAIL GEMINI_BATCH_PRIVATE_REPOS GEMINI_BATCH_PRIVATE_REPOS_FILE
+  : > "$MOCK_DIR/gitleaks.log"
   NOW_USE="$NOW"
 }
 sha() { printf '%s%s' "$1" "$(printf 'a%.0s' 1 2 3 4 5 6)"; }
@@ -107,6 +126,25 @@ mk_prs() { # N... : owner drafts at head sha<N>
 }
 gb() { # args -> out, err, rc
   GEMINI_API_KEY="$KEY" GEMINI_BATCH_NOW="$NOW_USE" PATH="$fake_bin:$PATH" \
+    bash "$gb_script" --state "$STATE" "$@" > "$work/out" 2> "$work/err"
+  rc=$?
+  out="$(cat "$work/out")"; err="$(cat "$work/err")"
+}
+# gb_nogl: the same fakes, but gitleaks is not on PATH at all.
+nogl_bin="$work/nogl_bin"
+mkdir -p "$nogl_bin"
+ln -s "$fake_bin/gh" "$nogl_bin/gh"; ln -s "$fake_bin/curl" "$nogl_bin/curl"
+old_ifs="$IFS"; IFS=:
+for d in $PATH; do
+  for f in "$d"/*; do
+    b="${f##*/}"
+    [ "$b" = gitleaks ] && continue
+    [ -x "$f" ] && [ ! -d "$f" ] && [ ! -e "$nogl_bin/$b" ] && ln -s "$f" "$nogl_bin/$b"
+  done
+done
+IFS="$old_ifs"
+gb_nogl() {
+  GEMINI_API_KEY="$KEY" GEMINI_BATCH_NOW="$NOW_USE" PATH="$nogl_bin" \
     bash "$gb_script" --state "$STATE" "$@" > "$work/out" 2> "$work/err"
   rc=$?
   out="$(cat "$work/out")"; err="$(cat "$work/err")"
@@ -405,6 +443,113 @@ new_case; export MOCK_PRIVATE=1
 printf '%s\n' '[{"number":9,"comments":[{"body":"Model: x\nprivate"}]}]' > "$MOCK_DIR/all-yohei1126_agent-ops-kit.json"
 gb lessons; [ "$(posts)" = 0 ]; check "lessons: private repos are not read" "$?"
 unset MOCK_PRIVATE
+
+# --- consumer opt-in for private repositories, gitleaks fail-closed ------------
+PRIV=yohei1126/private-fixture
+mk_prs_priv() { # N... : owner drafts in the fictional opted-in repository
+  local out="[" sep="" n
+  for n in "$@"; do
+    out="$out$sep{\"number\":$n,\"isDraft\":true,\"headRefOid\":\"$(sha "$n")000\",\"author\":{\"login\":\"yohei1126\"},\"isCrossRepository\":false}"
+    sep=","
+    echo "{\"headRefOid\":\"$(sha "$n")000\",\"isDraft\":true,\"state\":\"OPEN\",\"author\":{\"login\":\"yohei1126\"},\"isCrossRepository\":false,\"comments\":[]}" > "$MOCK_DIR/view-$n.json"
+  done
+  echo "$out]" > "$MOCK_DIR/prs-yohei1126_private-fixture.json"
+}
+
+# opted in via env: private repo is queued, gitleaks runs on each diff, one batch
+new_case; mk_prs_priv 1 2 3; export MOCK_PRIVATE=1 GEMINI_BATCH_PRIVATE_REPOS="$PRIV"
+gb scan; [ "$(count_status queued)" = 3 ]; check "opt-in: private repo draft PRs are queued" "$?"
+gb submit
+[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && [ "$(count_status submitted)" = 3 ]; check "opt-in: private diffs submitted when gitleaks is clean" "$?"
+[ "$(wc -l < "$MOCK_DIR/gitleaks.log" | tr -d ' ')" = 3 ]; check "opt-in: gitleaks ran once per diff" "$?"
+grep -q -- '--no-git' "$MOCK_DIR/gitleaks.log" && grep -q -- '--redact' "$MOCK_DIR/gitleaks.log"; check "opt-in: gitleaks runs on the diff only, redacted" "$?"
+unset MOCK_PRIVATE GEMINI_BATCH_PRIVATE_REPOS
+
+# opted in via a file with comments, and via a comma list
+new_case; mk_prs_priv 1 2 3; export MOCK_PRIVATE=1
+printf '# consumer opt-in\n%s # fixture\n\n' "$PRIV" > "$work/optin.txt"
+export GEMINI_BATCH_PRIVATE_REPOS_FILE="$work/optin.txt"
+gb scan; [ "$(count_status queued)" = 3 ]; check "opt-in: repository file is honored" "$?"
+unset GEMINI_BATCH_PRIVATE_REPOS_FILE
+new_case; mk_prs_priv 1 2 3; export MOCK_PRIVATE=1 GEMINI_BATCH_PRIVATE_REPOS="someone/other,$PRIV"
+gb scan; [ "$(count_status queued)" = 3 ]; check "opt-in: comma list is honored" "$?"
+unset MOCK_PRIVATE GEMINI_BATCH_PRIVATE_REPOS
+
+# a private repo that is not opted in stays refused
+new_case; mk_prs_priv 1 2 3; export MOCK_PRIVATE=1
+gb scan; [ "$(count_status queued)" = 0 ] && [ "$rc" = 0 ]; check "no opt-in: private repo queues nothing" "$?"
+grep -q 'private-fixture' "$MOCK_DIR/gh.log"; [ "$?" != 0 ]; check "no opt-in: private repo pull requests are never read" "$?"
+export GEMINI_BATCH_PRIVATE_REPOS="someone/other"
+gb scan; [ "$(count_status queued)" = 0 ]; check "opt-in of another repo does not open this one" "$?"
+export GEMINI_BATCH_PRIVATE_REPOS="Yohei1126/Private-Fixture"
+gb scan
+grep -q 'yohei1126/private-fixture' "$MOCK_DIR/gh.log"; [ "$?" != 0 ]; check "opt-in is an exact, case-sensitive match" "$?"
+unset MOCK_PRIVATE GEMINI_BATCH_PRIVATE_REPOS
+
+# unknown visibility is refused even when opted in
+new_case; mk_prs_priv 1 2 3; export MOCK_VIEW_FAIL=1 GEMINI_BATCH_PRIVATE_REPOS="$PRIV"
+gb scan; [ "$(count_status queued)" = 0 ]; check "opt-in: unknown visibility is refused" "$?"
+unset MOCK_VIEW_FAIL GEMINI_BATCH_PRIVATE_REPOS
+
+# other rules still apply to an opted-in repository
+new_case; export MOCK_PRIVATE=1 GEMINI_BATCH_PRIVATE_REPOS="$PRIV"
+cat > "$MOCK_DIR/prs-yohei1126_private-fixture.json" <<'EOF'
+[{"number":1,"isDraft":false,"headRefOid":"1111111aaaa","author":{"login":"yohei1126"},"isCrossRepository":false},
+ {"number":2,"isDraft":true,"headRefOid":"2222222aaaa","author":{"login":"yohei1126"},"isCrossRepository":true},
+ {"number":3,"isDraft":true,"headRefOid":"3333333aaaa","author":{"login":"someone"},"isCrossRepository":false},
+ {"number":4,"isDraft":true,"headRefOid":"4444444aaaa","author":{"login":"yohei1126"},"isCrossRepository":false}]
+EOF
+gb scan; [ "$(count_status queued)" = 1 ]; check "opt-in: draft, fork and author rules are unchanged" "$?"
+unset MOCK_PRIVATE GEMINI_BATCH_PRIVATE_REPOS
+
+# gitleaks finding refuses and never reaches the provider
+new_case; mk_prs_priv 1 2 3; export MOCK_PRIVATE=1 GEMINI_BATCH_PRIVATE_REPOS="$PRIV" MOCK_GITLEAKS=leak
+gb scan; gb submit
+[ "$(posts)" = 0 ] && [ "$(count_status failed)" = 3 ] && [ "$(count_status submitted)" = 0 ]; check "gitleaks finding: nothing submitted, items failed" "$?"
+case "$err" in *"gitleaks found a possible secret"*) ok "gitleaks finding is reported without the match" ;; *) bad "gitleaks finding is reported without the match" "$err" ;; esac
+unset MOCK_PRIVATE GEMINI_BATCH_PRIVATE_REPOS MOCK_GITLEAKS
+
+# gitleaks error refuses and leaves the items queued
+new_case; mk_prs_priv 1 2 3; export MOCK_PRIVATE=1 GEMINI_BATCH_PRIVATE_REPOS="$PRIV" MOCK_GITLEAKS=error
+gb scan; gb submit
+[ "$(posts)" = 0 ] && [ "$(count_status queued)" = 3 ]; check "gitleaks error: nothing submitted, items stay queued" "$?"
+case "$err" in *"gitleaks failed"*) ok "gitleaks error is reported" ;; *) bad "gitleaks error is reported" "$err" ;; esac
+unset MOCK_PRIVATE GEMINI_BATCH_PRIVATE_REPOS MOCK_GITLEAKS
+
+# gitleaks absent refuses
+new_case; mk_prs_priv 1 2 3; export MOCK_PRIVATE=1 GEMINI_BATCH_PRIVATE_REPOS="$PRIV"
+gb_nogl scan; gb_nogl submit
+[ "$(posts)" = 0 ] && [ "$(count_status queued)" = 3 ]; check "gitleaks absent: nothing submitted, items stay queued" "$?"
+case "$err" in *"gitleaks is not installed"*) ok "gitleaks absent is reported" ;; *) bad "gitleaks absent is reported" "$err" ;; esac
+unset MOCK_PRIVATE GEMINI_BATCH_PRIVATE_REPOS
+
+# invalid opt-in entries are a usage error, not a silent skip
+new_case; export GEMINI_BATCH_PRIVATE_REPOS="not-a-repo"
+gb status; [ "$rc" = 2 ]; check "invalid opt-in entry is a usage error" "$?"
+export GEMINI_BATCH_PRIVATE_REPOS="a/b/c"
+gb status; [ "$rc" = 2 ]; check "opt-in entry with extra slash is a usage error" "$?"
+export GEMINI_BATCH_PRIVATE_REPOS_FILE="$work/missing-optin.txt"; unset GEMINI_BATCH_PRIVATE_REPOS
+gb status; [ "$rc" = 2 ]; check "unreadable opt-in file is a usage error" "$?"
+unset GEMINI_BATCH_PRIVATE_REPOS_FILE
+
+# the public path is unchanged: no gitleaks call, works without gitleaks, opt-in elsewhere is inert
+new_case; mk_prs 1 2 3
+gb scan; gb submit
+[ "$(posts)" = 1 ] && [ "$(count_status submitted)" = 3 ] && [ ! -s "$MOCK_DIR/gitleaks.log" ]; check "public path: submitted with no gitleaks call" "$?"
+new_case; mk_prs 1 2 3
+gb_nogl scan; gb_nogl submit
+[ "$(posts)" = 1 ] && [ "$(count_status submitted)" = 3 ]; check "public path: works without gitleaks installed" "$?"
+new_case; mk_prs 1 2 3; export GEMINI_BATCH_PRIVATE_REPOS="$PRIV" MOCK_GITLEAKS=leak
+gb scan; gb submit
+[ "$(posts)" = 1 ] && [ "$(count_status submitted)" = 3 ] && [ ! -s "$MOCK_DIR/gitleaks.log" ]; check "public path: unaffected by an opt-in of another repo" "$?"
+unset GEMINI_BATCH_PRIVATE_REPOS MOCK_GITLEAKS
+
+# weekly jobs stay public: an opted-in private repo is never read for lessons
+new_case; export GEMINI_BATCH_PRIVATE_REPOS="$PRIV"
+printf '%s\n' '[{"number":9,"comments":[{"body":"Model: x\nok"}]}]' > "$MOCK_DIR/all-yohei1126_agent-ops-kit.json"
+gb lessons
+grep -q 'private-fixture' "$MOCK_DIR/gh.log"; [ "$?" != 0 ]; check "weekly lessons never read an opted-in private repo" "$?"
+unset GEMINI_BATCH_PRIVATE_REPOS
 
 # --- public reserve, settle, release, import, and status reconciliation ---------
 cur_month="$(date -u -d "@$NOW" +%Y-%m 2>/dev/null || date -u -r "$NOW" +%Y-%m)"
